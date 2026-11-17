@@ -1,0 +1,240 @@
+[[head 디자인 시스템 · 컴포넌트]]
+<div class="min-h-screen bg-muted/40 font-sans leading-6 antialiased">
+  <main class="mx-auto flex max-w-6xl flex-col gap-10 px-6 py-10 sm:px-8">
+
+    <header class="flex flex-col gap-3">
+      <h1 class="text-4xl font-bold tracking-tight">디자인 시스템</h1>
+      <p class="max-w-3xl text-base text-muted-foreground">shadcn/ui 구조의 컴포넌트를 Tailwind CSS v4 토큰으로 만들고, 아이콘은 Iconoir(regular, 선 두께 1.5)를 씁니다. 팔레트는 primary #0a2463, info #3e92cc, secondary #fffaff, destructive #d8315b, foreground #1e1b18이며 WCAG 2.2 AA 대비를 계산해 확인했습니다.</p>
+      <div class="flex flex-wrap gap-2">
+        <span class="badge badge-outline">Tailwind CSS 4</span>
+        <span class="badge badge-outline">shadcn/ui</span><span class="badge badge-outline">WCAG 2.2 AA</span>
+        <span class="badge badge-outline">Iconoir 7</span>
+        <span class="badge badge-outline">Inter</span>
+      </div>
+      <div class="alert alert-info mt-2 max-w-3xl">
+        [[icon:info-circle]]
+        <div class="flex flex-col gap-1">
+          <div class="alert-title">접근성을 위해 shadcn 기본값에서 바꾼 것</div>
+          <div class="alert-description">버튼·입력 높이 44px 이상, 포커스 링은 투명도 없는 primary 2px(간격 2px), 입력 테두리 #8a8480(3:1 이상), 보조 글자 #6b6560(4.5:1 이상), 오류 글자와 호버는 #b82a4d(destructive-strong)를 씁니다.</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="flex flex-col gap-4">
+      <h2 class="text-2xl font-semibold tracking-tight">색상 토큰</h2>
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3">
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-background"></div><div><div class="text-sm font-medium">background <span class="font-mono text-xs font-normal text-muted-foreground">#ffffff</span></div><div class="text-xs text-muted-foreground">페이지 배경 · 글자 대비 17.1</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-foreground"></div><div><div class="text-sm font-medium">foreground <span class="font-mono text-xs font-normal text-muted-foreground">#1e1b18</span></div><div class="text-xs text-muted-foreground">본문 글자 · 흰 17.1 / secondary 16.6</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-primary"></div><div><div class="text-sm font-medium">primary <span class="font-mono text-xs font-normal text-muted-foreground">#0a2463</span></div><div class="text-xs text-muted-foreground">주요 버튼, 링크, 포커스 링 · 흰 14.5</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-secondary"></div><div><div class="text-sm font-medium">secondary <span class="font-mono text-xs font-normal text-muted-foreground">#fffaff</span></div><div class="text-xs text-muted-foreground">보조 버튼 배경 · 반드시 테두리와 함께</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-muted"></div><div><div class="text-sm font-medium">muted <span class="font-mono text-xs font-normal text-muted-foreground">#f4eff3</span></div><div class="text-xs text-muted-foreground">탭 바탕, 연한 영역 · 글자 15.1</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-accent"></div><div><div class="text-sm font-medium">accent <span class="font-mono text-xs font-normal text-muted-foreground">#eaf3fa</span></div><div class="text-xs text-muted-foreground">호버, 선택 틴트 · 글자 15.3</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border border-2 border-border bg-background"></div><div><div class="text-sm font-medium">border <span class="font-mono text-xs font-normal text-muted-foreground">#e6e0e4</span></div><div class="text-xs text-muted-foreground">카드, 구분선 (장식용)</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border border-2 border-input bg-background"></div><div><div class="text-sm font-medium">input <span class="font-mono text-xs font-normal text-muted-foreground">#8a8480</span></div><div class="text-xs text-muted-foreground">입력·보조 버튼 테두리 · 흰 3.69</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-muted-foreground"></div><div><div class="text-sm font-medium">muted-foreground <span class="font-mono text-xs font-normal text-muted-foreground">#6b6560</span></div><div class="text-xs text-muted-foreground">보조 글자 · 흰 5.74 / muted 5.06</div></div></div>
+      </div>
+      <h3 class="mt-2 text-lg font-semibold">상태·강조</h3>
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3">
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-destructive"></div><div><div class="text-sm font-medium">destructive <span class="font-mono text-xs font-normal text-muted-foreground">#d8315b</span></div><div class="text-xs text-muted-foreground">오류·종료 채움(흰 글자 4.66), 아이콘</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-destructive-strong"></div><div><div class="text-sm font-medium">destructive-strong <span class="font-mono text-xs font-normal text-muted-foreground">#b82a4d</span></div><div class="text-xs text-muted-foreground">오류 글자, 호버 · 흰 6.04</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-info"></div><div><div class="text-sm font-medium">info <span class="font-mono text-xs font-normal text-muted-foreground">#3e92cc</span></div><div class="text-xs text-muted-foreground">채움·테두리·아이콘 · 위 글자는 foreground 5.05</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-info-tint"></div><div><div class="text-sm font-medium">info-tint <span class="font-mono text-xs font-normal text-muted-foreground">#e2eff7</span></div><div class="text-xs text-muted-foreground">교수 메시지 배경 · foreground 14.6</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-info-text"></div><div><div class="text-sm font-medium">info-text <span class="font-mono text-xs font-normal text-muted-foreground">#285f86</span></div><div class="text-xs text-muted-foreground">정보 글자 · 흰 6.84 / 틴트 5.84</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-success"></div><div><div class="text-sm font-medium">success <span class="font-mono text-xs font-normal text-muted-foreground">#17713f</span></div><div class="text-xs text-muted-foreground">성공 채움·아이콘 · 흰 6.05</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-success-text"></div><div><div class="text-sm font-medium">success-text <span class="font-mono text-xs font-normal text-muted-foreground">#0f5c36</span></div><div class="text-xs text-muted-foreground">성공 글자 · 틴트 7.18</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-warning"></div><div><div class="text-sm font-medium">warning <span class="font-mono text-xs font-normal text-muted-foreground">#a16207</span></div><div class="text-xs text-muted-foreground">출석코드·읽기 전용 채움 · 흰 4.92</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-warning-text"></div><div><div class="text-sm font-medium">warning-text <span class="font-mono text-xs font-normal text-muted-foreground">#7a4a00</span></div><div class="text-xs text-muted-foreground">경고·코드 글자 · 틴트 6.94</div></div></div>
+        <div class="flex flex-col gap-2"><div class="h-14 rounded-md border bg-inverse"></div><div><div class="text-sm font-medium">inverse <span class="font-mono text-xs font-normal text-muted-foreground">#1e1b18</span></div><div class="text-xs text-muted-foreground">슬라이드·프로젝터 배경 · 글자 #fffaff 16.6</div></div></div>
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-4">
+      <h2 class="text-2xl font-semibold tracking-tight">글자</h2>
+      <div class="card">
+        <div class="card-content flex flex-col gap-4">
+          <div class="flex flex-wrap items-baseline justify-between gap-3 border-b pb-4"><span class="text-3xl font-bold tracking-tight">페이지 제목 · 내 강좌</span><span class="font-mono text-xs text-muted-foreground">text-3xl / font-bold</span></div>
+          <div class="flex flex-wrap items-baseline justify-between gap-3 border-b pb-4"><span class="text-2xl font-semibold tracking-tight">섹션 제목 · 새 강좌 기본값</span><span class="font-mono text-xs text-muted-foreground">text-2xl / font-semibold</span></div>
+          <div class="flex flex-wrap items-baseline justify-between gap-3 border-b pb-4"><span class="font-semibold">카드 제목 · 웹 프로그래밍</span><span class="font-mono text-xs text-muted-foreground">text-base / font-semibold</span></div>
+          <div class="flex flex-wrap items-baseline justify-between gap-3 border-b pb-4"><span class="text-sm">본문과 컨트롤 · 3주차 1회차에 입장합니다</span><span class="font-mono text-xs text-muted-foreground">text-sm</span></div>
+          <div class="flex flex-wrap items-baseline justify-between gap-3 border-b pb-4"><span class="text-xs text-muted-foreground">보조 설명 · 수강생 42명</span><span class="font-mono text-xs text-muted-foreground">text-xs / muted-foreground</span></div>
+          <div class="flex flex-wrap items-baseline justify-between gap-3"><span class="font-mono text-3xl font-semibold tabular-nums tracking-wider text-warning-text">482 913</span><span class="font-mono text-xs text-muted-foreground">font-mono / tabular-nums · 출석코드</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-4">
+      <h2 class="text-2xl font-semibold tracking-tight">아이콘 · Iconoir</h2>
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-2">
+        [[icongrid]]
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-4">
+      <h2 class="text-2xl font-semibold tracking-tight">버튼</h2>
+      <div class="card">
+        <div class="card-content flex flex-col gap-6">
+          <div class="flex flex-col gap-2"><span class="text-xs font-medium text-muted-foreground">종류</span>
+            <div class="flex flex-wrap items-center gap-3">
+              <button class="btn btn-default">Default</button>
+              <button class="btn btn-secondary">Secondary</button>
+              <button class="btn btn-outline">Outline</button>
+              <button class="btn btn-ghost">Ghost</button>
+              <button class="btn btn-destructive">Destructive</button>
+              <button class="btn btn-link">Link</button>
+            </div>
+          </div>
+          <div class="flex flex-col gap-2"><span class="text-xs font-medium text-muted-foreground">크기 · 아이콘 · 상태</span>
+            <div class="flex flex-wrap items-center gap-3">
+              <button class="btn btn-default">기본 44px</button>
+              <button class="btn btn-default btn-lg">크게 48px</button>
+              <button class="btn btn-outline btn-icon" aria-label="복사">[[icon:copy]]</button>
+              <button class="btn btn-default">[[icon:plus]]새 강좌 만들기</button>
+              <button class="btn btn-outline">[[icon:github]]GitHub로 로그인</button>
+              <button class="btn btn-default" disabled>비활성</button>
+              <button class="btn btn-default ring-2 ring-ring ring-offset-2 ring-offset-background">포커스 표시</button>
+              <button class="btn btn-outline border-destructive text-destructive-strong hover:bg-destructive/10 hover:text-destructive-strong">[[icon:eye]]작성자 확인</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-4">
+      <h2 class="text-2xl font-semibold tracking-tight">입력</h2>
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))] gap-4">
+        <div class="card">
+          <div class="card-content flex flex-col gap-5">
+            <div class="flex flex-col gap-2"><label for="c1" class="label">강좌 이름</label><input id="c1" type="text" placeholder="강좌 이름을 입력하세요" class="input"></div>
+            <div class="flex flex-col gap-2"><label for="c2" class="label">이메일 (오류)</label><input id="c2" type="email" value="student@" aria-invalid="true" class="input"><span class="flex items-center gap-1.5 text-sm font-medium text-destructive-strong">[[icon:warning-circle size-4]]이메일 형식을 확인해 주세요.</span></div>
+            <div class="flex flex-col gap-2"><label for="c3" class="label">비활성</label><input id="c3" type="text" value="수정할 수 없음" disabled class="input disabled:opacity-50"></div>
+            <div class="flex flex-col gap-2"><label for="c4" class="label">출석코드 (큰 입력)</label><input id="c4" type="text" placeholder="000000" class="input h-[72px] text-center font-mono text-4xl font-semibold tracking-[0.3em]"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-content flex flex-col gap-5">
+            <div class="flex flex-col gap-2"><label for="c5" class="label">메시지 · 프롬프트</label><textarea id="c5" placeholder="슬라이드에 없는 안내, 프롬프트, 링크를 입력합니다" class="textarea"></textarea></div>
+            <div class="flex flex-col gap-2"><label for="c6" class="label">출석코드 표시 시간</label>
+              <div class="relative"><select id="c6" class="select"><option>10분</option></select>[[icon:nav-arrow-down pointer-events-none absolute right-3 top-3.5 size-4 text-muted-foreground]]</div>
+            </div>
+            <label for="c7" class="flex min-h-11 items-center gap-3 text-sm font-medium"><input id="c7" type="checkbox" checked class="size-5 accent-primary">이 기기에서 로그인 유지</label>
+            <div class="flex items-center justify-between gap-3"><span class="flex items-center gap-2 text-sm font-medium">[[icon:lock size-4]]채팅 읽기 전용</span>
+              <div class="flex items-center gap-4">
+                <button role="switch" aria-checked="false" aria-label="끔" class="switch"><span class="switch-thumb"></span></button>
+                <button role="switch" aria-checked="true" aria-label="켬" class="switch"><span class="switch-thumb"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-4">
+      <h2 class="text-2xl font-semibold tracking-tight">탭 · 배지 · 알림</h2>
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(min(24rem,100%),1fr))] gap-4">
+        <div class="card">
+          <div class="card-content flex flex-col gap-6">
+            <div class="flex flex-col gap-2"><span class="text-xs font-medium text-muted-foreground">세그먼트 탭</span>
+              <div class="tabs-list max-w-xs"><button data-state="active" class="tabs-trigger">자유</button><button data-state="inactive" class="tabs-trigger">읽기 전용</button></div>
+            </div>
+            <div class="flex flex-col gap-2"><span class="text-xs font-medium text-muted-foreground">밑줄 탭</span>
+              <div class="tabs-line"><button data-state="active" class="tabs-line-trigger">진행 중 <span class="badge badge-secondary ml-2">3</span></button><button data-state="inactive" class="tabs-line-trigger">보관됨 <span class="badge badge-secondary ml-2">1</span></button></div>
+            </div>
+            <div class="flex flex-col gap-2"><span class="text-xs font-medium text-muted-foreground">배지</span>
+              <div class="flex flex-wrap gap-2">
+                <span class="badge badge-default">Default</span><span class="badge badge-secondary">Secondary</span><span class="badge badge-outline">Outline</span><span class="badge badge-destructive">Destructive</span>
+                <span class="badge badge-success">[[icon:check]]출석 완료</span><span class="badge badge-warning">이후 단계</span><span class="badge badge-info">프롬프트</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-col gap-3">
+          <div class="alert alert-destructive">[[icon:warning-circle]]<div class="flex flex-col gap-0.5"><div class="alert-title">이 GitHub 계정은 사용할 수 없습니다</div><div class="alert-description">허용 목록에 없는 계정입니다.</div></div></div>
+          <div class="alert alert-warning">[[icon:lock]]<div class="flex flex-col gap-0.5"><div class="alert-title">교수님이 채팅을 읽기 전용으로 바꿨습니다</div><div class="alert-description">새 글은 쓸 수 없습니다.</div></div></div>
+          <div class="alert alert-info">[[icon:info-circle]]<div class="flex flex-col gap-0.5"><div class="alert-title">수업이 끝나면 공개할 목록으로 정리됩니다</div><div class="alert-description">보낸 항목을 검토하고 승인합니다.</div></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-4">
+      <h2 class="text-2xl font-semibold tracking-tight">카드 · 표 · 메뉴 · 대화상자</h2>
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(min(24rem,100%),1fr))] items-start gap-4">
+        <div class="card">
+          <div class="card-header">
+            <div class="flex items-start justify-between gap-3"><div class="flex flex-col gap-1"><h3 class="card-title text-lg">웹 프로그래밍</h3><p class="card-description">월수반 · 2026-2학기</p></div><span class="badge badge-success">진행 중</span></div>
+          </div>
+          <div class="card-content flex flex-col gap-1.5 text-sm text-muted-foreground"><span class="flex items-center gap-2">[[icon:group size-4]]수강생 42명</span><span class="flex items-center gap-2">[[icon:calendar-check size-4]]진행: 3주차 1회차</span></div>
+          <div class="card-footer"><button class="btn btn-default flex-1">열기</button><button class="btn btn-outline flex-1">분반 만들기</button></div>
+        </div>
+
+        <div class="card">
+          <div class="card-content overflow-x-auto">
+            <table class="table">
+              <thead><tr><th>학번</th><th>이름</th><th>상태</th></tr></thead>
+              <tbody>
+                <tr><td class="font-mono text-xs">20260001</td><td>수강생 01</td><td><span class="badge badge-success">출석</span></td></tr>
+                <tr><td class="font-mono text-xs">20260007</td><td>수강생 07</td><td><button class="btn btn-default px-4">보정 승인</button></td></tr>
+                <tr><td class="font-mono text-xs">20260040</td><td>수강생 40</td><td><span class="badge badge-secondary">미출석</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="menu w-60">
+          <div class="menu-label">@your-github-id<div class="text-xs font-normal text-muted-foreground">GitHub 계정</div></div>
+          <div class="menu-separator"></div>
+          <a href="MyPage.dc.html" class="menu-item">[[icon:user]]마이페이지</a>
+          <a href="Settings.dc.html" class="menu-item">[[icon:settings]]설정</a>
+          <div class="menu-separator"></div>
+          <a href="Login.dc.html" class="menu-item menu-item-destructive">[[icon:log-out]]로그아웃</a>
+        </div>
+
+        <div class="dialog">
+          <div class="flex flex-col gap-1.5"><h3 class="text-lg font-semibold leading-none">수업을 끝낼까요?</h3><p class="text-sm text-muted-foreground">출석과 퀴즈 응답이 마감되고, 공개할 항목 목록이 만들어집니다.</p></div>
+          <div class="flex justify-end gap-2"><button class="btn btn-outline">취소</button><button class="btn btn-destructive">수업 종료</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-4">
+      <h2 class="text-2xl font-semibold tracking-tight">서비스 전용 구성</h2>
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))] items-start gap-4">
+
+        <div class="card gap-3 py-4">
+          <div class="card-content flex flex-col gap-3">
+            <span class="text-xs font-medium text-muted-foreground">출석코드 카드</span>
+            <div class="flex items-center gap-4 rounded-lg border border-warning/40 bg-warning-tint px-3 py-2">
+              <div class="flex flex-col"><span class="flex items-center gap-1 text-xs text-warning-text">[[icon:qr-code size-3.5]]출석코드 · 프로젝터 표시 중</span><span class="font-mono text-2xl font-semibold tabular-nums tracking-wider text-warning-text">482 913</span></div>
+              <div class="flex w-28 flex-col gap-1.5"><div class="progress bg-warning/25"><div class="progress-bar bg-warning-text" style="width: 70%"></div></div><span class="text-xs text-warning-text">11초 후 갱신</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card gap-3 py-4">
+          <div class="card-content flex flex-col gap-3">
+            <span class="text-xs font-medium text-muted-foreground">채팅 메시지 · 학생 / 나 / 교수</span>
+            <div class="flex flex-col items-start gap-0.5"><span class="text-xs font-medium text-muted-foreground">단단한 바위 · 14:03</span><span class="max-w-[17.5rem] rounded-2xl bg-muted px-3.5 py-2.5 text-sm">상태 코드 404는 서버 쪽 오류인가요?</span></div>
+            <div class="flex flex-col items-end gap-0.5"><span class="text-xs font-medium text-muted-foreground">나 · 14:08</span><span class="max-w-[17.5rem] rounded-2xl bg-primary px-3.5 py-2.5 text-sm text-primary-foreground">4xx는 클라이언트 쪽 아닌가요?</span></div>
+            <div class="flex flex-col items-start gap-0.5"><span class="text-xs font-medium text-info-text">교수 · 14:05</span><span class="max-w-[17.5rem] rounded-2xl border border-info/50 bg-info-tint px-3.5 py-2.5 text-sm">아래 요청에 서버가 어떤 응답을 돌려줄지 적어 보세요. GET /users/42</span></div>
+          </div>
+        </div>
+
+        <div class="card gap-3 py-4">
+          <div class="card-content flex flex-col gap-3">
+            <span class="text-xs font-medium text-muted-foreground">슬라이드 미리보기</span>
+            <div class="flex aspect-video w-full flex-col justify-between rounded-lg bg-inverse p-5 text-inverse-foreground">
+              <div class="flex flex-col gap-1.5"><span class="font-mono text-xs text-info">HTTP</span><span class="text-2xl font-bold leading-tight">GET과 POST</span><div class="flex gap-2 text-sm text-inverse-foreground"><span class="text-info">—</span><span>GET: 데이터를 조회한다</span></div></div>
+              <span class="self-end font-mono text-xs text-inverse-muted">3 / 4</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+[[script {"$preview":{"width":1280,"height":1000}}]]
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+[[end]]

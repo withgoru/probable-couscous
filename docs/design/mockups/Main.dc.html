@@ -1,0 +1,221 @@
+[[head 교수 수업 화면]]
+<div class="flex min-h-screen flex-col bg-muted/40 font-sans leading-6 antialiased">
+
+  <header class="flex flex-wrap items-center gap-x-6 gap-y-3 border-b bg-background px-6 py-3">
+    <div class="flex min-w-60 flex-1 flex-col">
+      <span class="text-xs text-muted-foreground">웹 프로그래밍 · 월수반</span>
+      <span class="text-base font-semibold">3주차 1회차 — HTTP 요청과 응답</span>
+    </div>
+
+    <div class="flex items-center gap-5 text-sm text-muted-foreground">
+      <span class="flex items-center gap-1.5">[[icon:clock size-4]]경과 <strong class="font-semibold tabular-nums text-foreground">07:07</strong></span>
+      <span class="flex items-center gap-1.5">[[icon:group size-4]]접속 <strong class="font-semibold tabular-nums text-foreground">38</strong> / 42</span>
+      <span class="flex items-center gap-1.5">[[icon:user-badge-check size-4]]출석 <strong class="font-semibold tabular-nums text-foreground">36</strong></span>
+    </div>
+
+    <div class="flex items-center gap-4 rounded-lg border border-warning/40 bg-warning-tint px-3 py-2">
+      <div class="flex flex-col">
+        <span class="flex items-center gap-1 text-xs text-warning-text">[[icon:qr-code size-3.5]]출석코드 · 프로젝터 표시 중</span>
+        <span class="font-mono text-2xl font-semibold tabular-nums tracking-wider text-warning-text">{{codeText}}</span>
+      </div>
+      <div class="flex w-28 flex-col gap-1.5">
+        <div class="progress bg-warning/25"><div class="progress-bar bg-warning-text" style="width: {{codeBarW}}"></div></div>
+        <span class="text-xs text-warning-text">{{sec}}초 후 갱신 · 표시 종료 2:53</span>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <span class="flex items-center gap-1.5 text-sm font-medium">[[icon:lock size-4]]{{roLabel}}</span>
+      <button role="switch" aria-checked="{{readonly}}" aria-label="채팅 읽기 전용" onClick="{{toggleReadonly}}" class="switch"><span class="switch-thumb"></span></button>
+    </div>
+    <button class="btn btn-outline border-destructive text-destructive-strong hover:bg-destructive/10 hover:text-destructive-strong">수업 종료</button>
+  </header>
+
+  <div class="flex flex-wrap items-start gap-5 px-6 pb-8 pt-5">
+
+    <section class="flex min-w-0 flex-[999_1_35rem] flex-col gap-4">
+      <div class="card gap-0 p-3">
+        <div class="flex aspect-video w-full flex-col justify-between rounded-lg bg-inverse p-[6%] text-inverse-foreground">
+          <div class="flex flex-col gap-3">
+            <span class="font-mono text-sm tracking-wide text-info">{{slide.kicker}}</span>
+            <span class="text-4xl font-bold leading-tight">{{slide.title}}</span>
+            <sc-for list="{{slide.bullets}}" as="b" hint-placeholder-count="3">
+              <div class="flex items-baseline gap-3 text-xl text-inverse-foreground"><span class="text-info">—</span><span>{{b.text}}</span></div>
+            </sc-for>
+          </div>
+          <span class="self-end font-mono text-sm text-inverse-muted">{{pageLabel}}</span>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <button onClick="{{prev}}" class="btn btn-outline {{prevCls}}">[[icon:nav-arrow-left]]이전</button>
+        <button onClick="{{next}}" class="btn btn-default {{nextCls}}">다음[[icon:nav-arrow-right]]</button>
+        <span class="ml-auto flex items-center gap-1.5 text-sm text-muted-foreground">[[icon:laptop size-4]]학생 화면 동기화 중 · 따라가는 중 <strong class="font-semibold text-foreground">34명</strong> · 직접 넘겨 보는 중 <strong class="font-semibold text-foreground">4명</strong></span>
+      </div>
+
+      <div class="flex flex-wrap gap-4">
+        <div class="card min-w-60 flex-1 gap-3 py-4">
+          <div class="card-content flex flex-col gap-2">
+            <span class="text-xs font-medium text-muted-foreground">다음 슬라이드</span>
+            <div class="flex min-h-14 items-center rounded-md bg-inverse px-4 text-sm font-semibold text-inverse-foreground">{{nextTitle}}</div>
+          </div>
+        </div>
+        <div class="card min-w-80 flex-[2] gap-3 py-4">
+          <div class="card-content flex flex-col gap-2">
+            <span class="text-xs font-medium text-muted-foreground">발표자 노트</span>
+            <span class="text-sm">{{slide.note}}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="card min-w-80 max-w-[27.5rem] flex-[1_1_22rem] gap-0 overflow-hidden py-0">
+      <div class="tabs-line">
+        <button onClick="{{showChat}}" data-state="{{chatState}}" class="tabs-line-trigger flex-1">채팅 <span class="badge badge-secondary ml-2">{{chatCount}}</span></button>
+        <button onClick="{{showPush}}" data-state="{{pushState}}" class="tabs-line-trigger flex-1">메시지·자료 보내기</button>
+      </div>
+
+      <sc-if value="{{isChat}}" hint-placeholder-val="{{ true }}">
+        <div class="flex flex-col">
+          <div class="flex items-center gap-2 border-b px-4 py-2.5 {{modeCls}}">
+            <span class="text-sm font-semibold">{{modeLabel}}</span>
+            <span class="text-xs">{{modeHint}}</span>
+          </div>
+
+          <div class="flex max-h-[27.5rem] flex-col overflow-y-auto">
+            <sc-for list="{{messages}}" as="item" hint-placeholder-count="5">
+              <div class="flex items-start gap-3 border-b py-3 pl-4 pr-2">
+                <sc-if value="{{item.isVisible}}" hint-placeholder-val="{{ true }}">
+                  <span class="avatar"><span class="avatar-fallback">{{item.initial}}</span></span>
+                  <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <div class="flex items-baseline gap-2"><span class="text-sm font-semibold">{{item.nick}}</span><span class="text-xs text-muted-foreground">{{item.time}}</span></div>
+                    <span class="text-sm">{{item.text}}</span>
+                  </div>
+                  <button onClick="{{item.hide}}" aria-label="이 글 숨기기" class="btn btn-ghost btn-icon shrink-0">[[icon:eye-closed]]</button>
+                </sc-if>
+                <sc-if value="{{item.isHidden}}" hint-placeholder-val="{{ false }}">
+                  <div class="flex min-w-0 flex-1 flex-col gap-0.5 py-1">
+                    <span class="text-sm font-semibold text-muted-foreground">숨김 처리됨 · {{item.nick}}</span>
+                    <span class="text-xs text-muted-foreground">학생에게 보이지 않습니다. 원문은 보존됩니다.</span>
+                  </div>
+                  <button onClick="{{item.restore}}" class="btn btn-outline shrink-0">[[icon:undo]]복원</button>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <p class="border-t bg-muted/50 px-4 py-3 text-xs text-muted-foreground">학생에게는 닉네임으로만 보입니다. 이 화면에도 실명은 표시되지 않으며, 신원 조회는 관리 페이지에서만 가능합니다.</p>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isPush}}" hint-placeholder-val="{{ false }}">
+        <div class="flex flex-col gap-4 p-4">
+          <div class="flex flex-col gap-2">
+            <label for="draft" class="label">수업 중 메시지 · 프롬프트</label>
+            <textarea id="draft" value="{{draft}}" onChange="{{onDraft}}" placeholder="슬라이드에 없는 안내, 프롬프트, 링크를 입력합니다" class="textarea min-h-28"></textarea>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-outline">[[icon:attachment]]파일·링크 첨부</button>
+            <button onClick="{{send}}" class="btn btn-default flex-1">[[icon:send]]학생에게 보내기</button>
+          </div>
+
+          <div class="flex flex-col border-t pt-3">
+            <span class="mb-1 text-xs font-medium text-muted-foreground">보낸 항목</span>
+            <sc-for list="{{sent}}" as="s" hint-placeholder-count="1">
+              <div class="flex gap-3 border-b py-2.5">
+                <span class="pt-0.5 text-xs tabular-nums text-muted-foreground">{{s.time}}</span>
+                <span class="min-w-0 text-sm">{{s.text}}</span>
+              </div>
+            </sc-for>
+            <span class="mt-3 text-xs text-muted-foreground">보낸 항목은 수업이 끝난 뒤 공개할 목록으로 정리됩니다.</span>
+          </div>
+        </div>
+      </sc-if>
+    </aside>
+  </div>
+</div>
+[[script {"$preview":{"width":1440,"height":900}}]]
+class Component extends DCLogic {
+  state = {
+    page: 2,
+    tab: 'chat',
+    readonly: false,
+    hidden: {},
+    draft: '',
+    sent: [{ id: 's1', time: '14:05', text: '프롬프트 예시: 아래 요청에 서버가 어떤 응답을 돌려줄지 적어 보세요. GET /users/42' }],
+    sec: 11,
+    codeIdx: 0
+  };
+
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      this.setState((s) => (s.sec <= 1 ? { sec: 15, codeIdx: (s.codeIdx + 1) % 5 } : { sec: s.sec - 1 }));
+    }, 1000);
+  }
+
+  componentWillUnmount() {
+    clearInterval(this.timer);
+  }
+
+  renderVals() {
+    const s = this.state;
+    const codes = ['482913', '067254', '931580', '215468', '708391'];
+    const c = codes[s.codeIdx];
+    const slides = [
+      { kicker: '3주차 1회차', title: 'HTTP 기초', bullets: [], note: '지난 주 복습 질문 두 개로 시작한다.' },
+      { kicker: 'HTTP', title: '요청과 응답', bullets: ['클라이언트가 요청(Request)을 보낸다', '서버가 상태 코드와 함께 응답(Response)한다', '요청은 서로 독립적으로 처리된다'], note: '브라우저 개발자 도구의 Network 탭을 열어 실제 요청을 보여 준다.' },
+      { kicker: 'HTTP', title: 'GET과 POST', bullets: ['GET: 데이터를 조회한다, 본문이 없다', 'POST: 데이터를 만들거나 보낸다, 본문이 있다', '같은 요청을 반복해도 결과가 같은가?'], note: '여기서 학생들에게 프롬프트를 보낸다: GET /users/42 의 응답을 예상해 보기.' },
+      { kicker: 'HTTP', title: '상태 코드', bullets: ['2xx 성공', '4xx 클라이언트 오류 (예: 404 Not Found)', '5xx 서버 오류'], note: '4xx와 5xx의 책임이 어느 쪽에 있는지 구분해서 설명한다.' }
+    ];
+    const slide = slides[s.page];
+    const nextSlide = slides[s.page + 1];
+    const base = [
+      { id: 'm1', nick: '느긋한 고래', time: '14:02', text: '슬라이드 2에서 요청이랑 응답이 서로 독립이라는 게 무슨 뜻인가요?' },
+      { id: 'm2', nick: '단단한 바위', time: '14:03', text: '상태 코드 404는 서버 쪽 오류인가요?' },
+      { id: 'm3', nick: '수줍은 여우', time: '14:05', text: '방금 보내주신 프롬프트 다시 볼 수 있나요?' },
+      { id: 'm4', nick: '빠른 거북', time: '14:06', text: '오늘 점심 뭐 먹지' },
+      { id: 'm5', nick: '조용한 구름', time: '14:06', text: '교수님 슬라이드 PDF는 어디서 받아요?' }
+    ];
+    const messages = base.map((m) => ({
+      ...m,
+      initial: m.nick.slice(0, 1),
+      isHidden: !!s.hidden[m.id],
+      isVisible: !s.hidden[m.id],
+      hide: () => this.setState((st) => ({ hidden: { ...st.hidden, [m.id]: true } })),
+      restore: () => this.setState((st) => ({ hidden: { ...st.hidden, [m.id]: false } }))
+    }));
+    const visibleCount = messages.filter((m) => m.isVisible).length;
+    const chatActive = s.tab === 'chat';
+    return {
+      codeText: c.slice(0, 3) + ' ' + c.slice(3),
+      sec: s.sec,
+      codeBarW: Math.round((s.sec / 15) * 100) + '%',
+      readonly: s.readonly,
+      toggleReadonly: () => this.setState((st) => ({ readonly: !st.readonly })),
+      roLabel: s.readonly ? '읽기 전용 켜짐' : '채팅 읽기 전용',
+      slide: { kicker: slide.kicker, title: slide.title, note: slide.note, bullets: slide.bullets.map((t) => ({ text: t })) },
+      pageLabel: (s.page + 1) + ' / ' + slides.length,
+      nextTitle: nextSlide ? nextSlide.title : '마지막 슬라이드입니다',
+      prev: () => this.setState((st) => ({ page: Math.max(0, st.page - 1) })),
+      next: () => this.setState((st) => ({ page: Math.min(slides.length - 1, st.page + 1) })),
+      prevCls: s.page === 0 ? 'opacity-50' : '',
+      nextCls: s.page === slides.length - 1 ? 'opacity-50' : '',
+      isChat: chatActive,
+      isPush: !chatActive,
+      showChat: () => this.setState({ tab: 'chat' }),
+      showPush: () => this.setState({ tab: 'push' }),
+      chatState: chatActive ? 'active' : 'inactive',
+      pushState: chatActive ? 'inactive' : 'active',
+      chatCount: visibleCount,
+      modeLabel: s.readonly ? '읽기 전용' : '자유 모드',
+      modeHint: s.readonly ? '학생은 새 글을 쓸 수 없고 기존 글만 볼 수 있습니다' : '학생이 닉네임으로 자유롭게 씁니다',
+      modeCls: s.readonly ? 'bg-warning-tint text-warning-text' : 'bg-info-tint text-info-text',
+      messages,
+      draft: s.draft,
+      onDraft: (e) => this.setState({ draft: e.target.value }),
+      send: () => this.setState((st) => (st.draft.trim() ? { sent: [...st.sent, { id: 's' + (st.sent.length + 1), time: '14:07', text: st.draft.trim() }], draft: '' } : null)),
+      sent: s.sent
+    };
+  }
+}
+[[end]]

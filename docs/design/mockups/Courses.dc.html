@@ -1,0 +1,116 @@
+[[head 내 강좌]]
+<div class="min-h-screen bg-muted/40 font-sans leading-6 antialiased">
+  [[navbar]]
+
+  <main class="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8 sm:px-8">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h1 class="text-3xl font-bold tracking-tight">내 강좌</h1>
+      <button onClick="{{startCreate}}" class="btn btn-default">[[icon:plus]]새 강좌 만들기</button>
+    </div>
+
+    <sc-if value="{{creating}}" hint-placeholder-val="{{ false }}">
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">새 강좌 만들기</h2>
+          <p class="card-description">분반은 만든 뒤에 강좌를 복제해서 추가할 수도 있습니다.</p>
+        </div>
+        <div class="card-content grid grid-cols-[repeat(auto-fit,minmax(min(15rem,100%),1fr))] gap-4">
+          <div class="flex flex-col gap-2">
+            <label for="newName" class="label">강좌 이름</label>
+            <input id="newName" type="text" value="{{newName}}" onChange="{{onName}}" placeholder="강좌 이름을 입력하세요" class="input">
+          </div>
+          <div class="flex flex-col gap-2">
+            <label for="newSection" class="label">분반 이름 (선택)</label>
+            <input id="newSection" type="text" value="{{newSection}}" onChange="{{onSection}}" placeholder="예: 월수반" class="input">
+          </div>
+        </div>
+        <div class="card-footer">
+          <button onClick="{{create}}" class="btn btn-default {{createCls}}">만들기</button>
+          <button onClick="{{cancelCreate}}" class="btn btn-outline">취소</button>
+        </div>
+      </section>
+    </sc-if>
+
+    <div class="tabs-line">
+      <button onClick="{{showActive}}" data-state="{{activeState}}" class="tabs-line-trigger">진행 중 <span class="badge badge-secondary ml-2">{{activeCount}}</span></button>
+      <button onClick="{{showArchived}}" data-state="{{archivedState}}" class="tabs-line-trigger">보관됨 <span class="badge badge-secondary ml-2">{{archivedCount}}</span></button>
+    </div>
+
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))] gap-4">
+      <sc-for list="{{items}}" as="c" hint-placeholder-count="3">
+        <div class="card gap-4">
+          <div class="card-header">
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex min-w-0 flex-col gap-1">
+                <h2 class="card-title text-lg leading-tight">{{c.name}}</h2>
+                <p class="card-description">{{c.section}} · {{c.term}}</p>
+              </div>
+              <span class="{{c.chipCls}}">{{c.chipLabel}}</span>
+            </div>
+          </div>
+          <div class="card-content flex flex-col gap-1.5 text-sm text-muted-foreground">
+            <span class="flex items-center gap-2">[[icon:group size-4]]{{c.studentsLabel}}</span>
+            <span class="flex items-center gap-2">[[icon:calendar-check size-4]]{{c.progress}}</span>
+          </div>
+          <div class="card-footer">
+            <a href="Admin.dc.html" class="btn btn-default flex-1">{{c.openLabel}}</a>
+            <button class="btn btn-outline flex-1">{{c.secondLabel}}</button>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </main>
+</div>
+[[script {"$preview":{"width":1280,"height":800}}]]
+class Component extends DCLogic {
+  state = { menuOpen: false, tab: 'active', creating: false, newName: '', newSection: '', created: [] };
+
+  renderVals() {
+    const s = this.state;
+    const base = [
+      { name: '웹 프로그래밍', section: '월수반', term: '2026-2학기', students: 42, progress: '진행: 3주차 1회차' },
+      { name: '웹 프로그래밍', section: '화목반', term: '2026-2학기', students: 38, progress: '진행: 3주차 1회차' },
+      { name: '데이터베이스', section: '수요반', term: '2026-2학기', students: 55, progress: '진행: 2주차 2회차' }
+    ];
+    const archived = [
+      { name: '웹 프로그래밍', section: '월수반', term: '2026-1학기', students: 40, progress: '종료: 16주차 2회차' }
+    ];
+    const active = s.created.concat(base);
+    const isActive = s.tab === 'active';
+    const list = isActive ? active : archived;
+    const items = list.map((c) => ({
+      name: c.name,
+      section: c.section,
+      term: c.term,
+      studentsLabel: '수강생 ' + c.students + '명',
+      progress: c.progress,
+      chipLabel: isActive ? '진행 중' : '보관됨',
+      chipCls: isActive ? 'badge badge-success' : 'badge badge-secondary',
+      openLabel: isActive ? '열기' : '기록 보기',
+      secondLabel: isActive ? '분반 만들기' : '새 학기로 복제'
+    }));
+    return {
+      menuOpen: s.menuOpen,
+      toggleMenu: () => this.setState((st) => ({ menuOpen: !st.menuOpen })),
+      creating: s.creating,
+      startCreate: () => this.setState({ creating: true, tab: 'active' }),
+      cancelCreate: () => this.setState({ creating: false, newName: '', newSection: '' }),
+      newName: s.newName,
+      newSection: s.newSection,
+      onName: (e) => this.setState({ newName: e.target.value }),
+      onSection: (e) => this.setState({ newSection: e.target.value }),
+      createCls: s.newName.trim() ? '' : 'opacity-50',
+      create: () => this.setState((st) => (st.newName.trim()
+        ? { created: [{ name: st.newName.trim(), section: st.newSection.trim() || '분반 없음', term: '2026-2학기', students: 0, progress: '아직 수업이 없습니다' }, ...st.created], creating: false, newName: '', newSection: '' }
+        : null)),
+      showActive: () => this.setState({ tab: 'active' }),
+      showArchived: () => this.setState({ tab: 'archived' }),
+      activeState: isActive ? 'active' : 'inactive',
+      archivedState: isActive ? 'inactive' : 'active',
+      activeCount: active.length,
+      archivedCount: archived.length,
+      items
+    };
+  }
+}
+[[end]]

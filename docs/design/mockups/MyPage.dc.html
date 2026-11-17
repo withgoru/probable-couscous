@@ -1,0 +1,58 @@
+[[head 마이페이지]]
+<div class="min-h-screen bg-muted/40 font-sans leading-6 antialiased">
+  [[navbar 마이페이지]]
+
+  <main class="mx-auto flex max-w-3xl flex-col gap-5 px-6 py-8">
+    <section class="card py-5">
+      <div class="card-content flex items-center gap-4">
+        <span class="avatar size-14"><span class="avatar-fallback text-xl">교</span></span>
+        <div class="flex min-w-0 flex-col">
+          <span class="text-lg font-semibold">@your-github-id</span>
+          <span class="flex items-center gap-1.5 text-sm text-muted-foreground">[[icon:github size-4]]GitHub 계정으로 로그인됨</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-[repeat(auto-fit,minmax(min(11rem,100%),1fr))] gap-3">
+      <div class="card gap-1 py-5">
+        <div class="card-content flex flex-col gap-1"><span class="text-sm text-muted-foreground">진행 중 강좌</span><span class="text-3xl font-bold tabular-nums">3</span></div>
+      </div>
+      <div class="card gap-1 py-5">
+        <div class="card-content flex flex-col gap-1"><span class="text-sm text-muted-foreground">보관된 강좌</span><span class="text-3xl font-bold tabular-nums">1</span></div>
+      </div>
+      <div class="card gap-1 py-5">
+        <div class="card-content flex flex-col gap-1"><span class="text-sm text-muted-foreground">진행 중 수강생 합계</span><span class="text-3xl font-bold tabular-nums">135</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">진행 중 강좌</h2></div>
+      <div class="card-content flex flex-col">
+        <div class="flex items-center gap-3 border-t py-3">
+          <div class="flex min-w-0 flex-1 flex-col"><span class="font-medium">웹 프로그래밍 · 월수반</span><span class="text-sm text-muted-foreground">수강생 42명 · 3주차 1회차</span></div>
+          <a href="Admin.dc.html" class="btn btn-outline">열기</a>
+        </div>
+        <div class="flex items-center gap-3 border-t py-3">
+          <div class="flex min-w-0 flex-1 flex-col"><span class="font-medium">웹 프로그래밍 · 화목반</span><span class="text-sm text-muted-foreground">수강생 38명 · 3주차 1회차</span></div>
+          <a href="Admin.dc.html" class="btn btn-outline">열기</a>
+        </div>
+        <div class="flex items-center gap-3 border-t py-3">
+          <div class="flex min-w-0 flex-1 flex-col"><span class="font-medium">데이터베이스 · 수요반</span><span class="text-sm text-muted-foreground">수강생 55명 · 2주차 2회차</span></div>
+          <a href="Admin.dc.html" class="btn btn-outline">열기</a>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+[[script {"$preview":{"width":1280,"height":800}}]]
+class Component extends DCLogic {
+  state = { menuOpen: false };
+
+  renderVals() {
+    return {
+      menuOpen: this.state.menuOpen,
+      toggleMenu: () => this.setState((st) => ({ menuOpen: !st.menuOpen }))
+    };
+  }
+}
+[[end]]

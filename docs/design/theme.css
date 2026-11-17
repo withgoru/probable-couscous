@@ -1,0 +1,196 @@
+@import "tailwindcss";
+/* 구현에서는 Tailwind가 클라이언트 소스를 자동 감지한다. 필요하면 @source "../../client/src"; 처럼 경로를 지정한다 */
+
+/* shadcn/ui 구조 + 프로젝트 팔레트 (WCAG 2.2 AA 대비 검증 완료) */
+:root {
+  --radius: 0.625rem;
+  --background: #ffffff;
+  --foreground: #1e1b18;
+  --card: #ffffff;
+  --card-foreground: #1e1b18;
+  --popover: #ffffff;
+  --popover-foreground: #1e1b18;
+  --primary: #0a2463;
+  --primary-foreground: #fffaff;
+  --secondary: #fffaff;
+  --secondary-foreground: #1e1b18;
+  --muted: #f4eff3;
+  --muted-foreground: #6b6560;
+  --accent: #eaf3fa;
+  --accent-foreground: #1e1b18;
+  --destructive: #d8315b;
+  --destructive-strong: #b82a4d;
+  --border: #e6e0e4;
+  /* 입력·보조 버튼 테두리: 흰 배경 3.69:1 (UI 구성요소 3:1 이상) */
+  --input: #8a8480;
+  /* 포커스 링: 투명도 없이 primary (흰 배경 14.5:1) */
+  --ring: #0a2463;
+  --info: #3e92cc;
+  --info-foreground: #1e1b18;
+  --info-tint: #e2eff7;
+  --info-text: #285f86;
+  --success: #17713f;
+  --success-text: #0f5c36;
+  --success-tint: #e7f5ee;
+  --warning: #a16207;
+  --warning-text: #7a4a00;
+  --warning-tint: #fff6dc;
+  --inverse: #1e1b18;
+  --inverse-foreground: #fffaff;
+  --inverse-muted: #b9b2ad;
+}
+
+@theme inline {
+  --font-sans: Inter, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "Noto Sans KR", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-strong: var(--destructive-strong);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-tint: var(--info-tint);
+  --color-info-text: var(--info-text);
+  --color-success: var(--success);
+  --color-success-text: var(--success-text);
+  --color-success-tint: var(--success-tint);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-warning-tint: var(--warning-tint);
+  --color-inverse: var(--inverse);
+  --color-inverse-foreground: var(--inverse-foreground);
+  --color-inverse-muted: var(--inverse-muted);
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { font-family: var(--font-sans); }
+  body { @apply bg-background text-foreground; margin: 0; }
+}
+
+/* shadcn/ui 컴포넌트 클래스. 포커스는 반투명 링 대신 2px 불투명 링 + 간격 */
+@layer components {
+  /* Button — 교실 태블릿용으로 높이는 44px(h-11) 이상 */
+  .btn {
+    @apply inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all outline-none cursor-pointer;
+    @apply focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+    @apply disabled:pointer-events-none disabled:opacity-50;
+    @apply h-11 px-5 py-2 no-underline;
+  }
+  .btn svg { @apply pointer-events-none size-5 shrink-0; }
+  .btn-default { @apply bg-primary text-primary-foreground shadow-xs hover:bg-primary/90; }
+  .btn-secondary { @apply border border-input bg-secondary text-secondary-foreground shadow-xs hover:bg-accent; }
+  .btn-outline { @apply border border-input bg-background shadow-xs hover:bg-accent hover:text-accent-foreground; }
+  .btn-ghost { @apply hover:bg-accent hover:text-accent-foreground; }
+  .btn-destructive { @apply bg-destructive text-white shadow-xs hover:bg-destructive-strong; }
+  .btn-link { @apply text-primary underline underline-offset-4 hover:no-underline; }
+  .btn-lg { @apply h-12 px-6 text-base; }
+  .btn-icon { @apply size-11 p-0; }
+
+  /* Input · Textarea · Label · Select */
+  .input {
+    @apply flex h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-base shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground md:text-sm;
+    @apply focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+    @apply aria-invalid:border-destructive aria-invalid:border-2;
+  }
+  .input-lg { @apply h-14 px-4 text-lg md:text-base; }
+  .textarea {
+    @apply flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground md:text-sm;
+    @apply focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+  .label { @apply flex items-center gap-2 text-sm leading-none font-medium select-none; }
+  .select {
+    @apply flex h-11 w-full min-w-0 cursor-pointer appearance-none rounded-md border border-input bg-background px-3 py-1 pr-10 text-base shadow-xs outline-none transition-[color,box-shadow] md:text-sm;
+    @apply focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  /* Card */
+  .card { @apply flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm; }
+  .card-header { @apply flex flex-col gap-1.5 px-6; }
+  .card-title { @apply leading-none font-semibold; }
+  .card-description { @apply text-sm text-muted-foreground; }
+  .card-content { @apply px-6; }
+  .card-footer { @apply flex items-center gap-2 px-6; }
+
+  /* Badge */
+  .badge { @apply inline-flex w-fit shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium [&>svg]:pointer-events-none [&>svg]:size-3; }
+  .badge-default { @apply border-transparent bg-primary text-primary-foreground; }
+  .badge-secondary { @apply border-transparent bg-muted text-foreground; }
+  .badge-outline { @apply border-input text-foreground; }
+  .badge-destructive { @apply border-transparent bg-destructive text-white; }
+  .badge-success { @apply border-success/40 bg-success-tint text-success-text; }
+  .badge-warning { @apply border-warning/40 bg-warning-tint text-warning-text; }
+  .badge-info { @apply border-info/50 bg-info-tint text-info-text; }
+
+  /* Tabs / Toggle group (세그먼트) */
+  .tabs-list { @apply inline-flex w-fit items-center justify-center gap-1 rounded-lg bg-muted p-1 text-muted-foreground; }
+  .tabs-trigger { @apply inline-flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-4 text-sm font-medium cursor-pointer transition-[color,box-shadow] outline-none focus-visible:ring-2 focus-visible:ring-ring; }
+  .tabs-trigger[data-state="active"] { @apply border-input bg-background text-foreground shadow-sm; }
+  .tabs-line { @apply flex w-full border-b; }
+  .tabs-line-trigger { @apply inline-flex h-12 items-center justify-center gap-1.5 border-b-2 border-transparent px-5 text-sm font-medium text-muted-foreground cursor-pointer outline-none -mb-px focus-visible:ring-2 focus-visible:ring-ring; }
+  .tabs-line-trigger[data-state="active"] { @apply border-primary text-foreground; }
+
+  /* Switch */
+  .switch { @apply relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border border-transparent bg-input shadow-xs transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background; }
+  .switch[aria-checked="true"] { @apply bg-primary; }
+  .switch-thumb { @apply pointer-events-none block size-6 translate-x-0.5 rounded-full bg-background shadow-sm transition-transform; }
+  .switch[aria-checked="true"] .switch-thumb { @apply translate-x-[1.375rem]; }
+
+  /* Alert */
+  .alert { @apply relative flex w-full items-start gap-3 rounded-lg border bg-background px-4 py-3 text-sm; }
+  .alert svg { @apply mt-0.5 size-4 shrink-0; }
+  .alert-title { @apply font-medium tracking-tight; }
+  .alert-description { @apply text-sm text-muted-foreground; }
+  .alert-destructive { @apply border-destructive bg-background text-destructive-strong; }
+  .alert-destructive .alert-description { @apply text-destructive-strong; }
+  .alert-warning { @apply border-warning/50 bg-warning-tint text-warning-text; }
+  .alert-warning .alert-description { @apply text-warning-text; }
+  .alert-info { @apply border-info/50 bg-info-tint text-info-text; }
+  .alert-info .alert-description { @apply text-info-text; }
+
+  /* Avatar */
+  .avatar { @apply relative flex size-9 shrink-0 overflow-hidden rounded-full; }
+  .avatar-fallback { @apply flex size-full items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground; }
+
+  /* Table */
+  .table { @apply w-full caption-bottom text-sm; }
+  .table th { @apply h-11 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground; }
+  .table td { @apply px-3 py-1.5 align-middle whitespace-nowrap; }
+  .table tbody tr { @apply border-t; }
+
+  /* Dropdown menu */
+  .menu { @apply z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md; }
+  .menu-label { @apply px-2 py-1.5 text-sm font-medium; }
+  .menu-item { @apply relative flex min-h-11 cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm no-underline outline-none select-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring; }
+  .menu-item svg { @apply pointer-events-none size-4 shrink-0 text-muted-foreground; }
+  .menu-item-destructive { @apply text-destructive-strong hover:bg-destructive/10; }
+  .menu-item-destructive svg { @apply text-destructive-strong; }
+  .menu-separator { @apply -mx-1 my-1 h-px bg-border; }
+
+  /* Progress */
+  .progress { @apply relative h-2 w-full overflow-hidden rounded-full bg-primary/20; }
+  .progress-bar { @apply h-full bg-primary transition-all; }
+
+  /* Dialog */
+  .dialog { @apply grid w-full max-w-lg gap-4 rounded-lg border bg-background p-6 shadow-lg; }
+  .separator { @apply h-px w-full shrink-0 bg-border; }
+}

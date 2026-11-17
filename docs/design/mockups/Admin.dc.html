@@ -1,0 +1,224 @@
+[[head 교수 관리 페이지]]
+<div class="min-h-screen bg-muted/40 font-sans leading-6 antialiased">
+  [[navbar 웹 프로그래밍 · 월수반]]
+
+  <main class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:px-8">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h1 class="text-3xl font-bold tracking-tight">관리 페이지</h1>
+      <div class="flex items-center gap-3">
+        <label for="session" class="label">회차</label>
+        <div class="relative">
+          <select id="session" class="select w-44">
+            <option>3주차 1회차</option>
+            <option>2주차 2회차</option>
+            <option>2주차 1회차</option>
+          </select>
+          [[icon:nav-arrow-down pointer-events-none absolute right-3 top-3.5 size-4 text-muted-foreground]]
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(min(32rem,100%),1fr))] items-start gap-6">
+
+      <div class="flex min-w-0 flex-col gap-6">
+        <section class="card">
+          <div class="card-header">
+            <div class="flex items-center justify-between gap-3">
+              <h2 class="card-title">이 회차의 자료</h2>
+              <button class="btn btn-default">[[icon:plus]]자료 추가</button>
+            </div>
+          </div>
+          <div class="card-content flex flex-col">
+            <div class="flex items-center gap-3 border-t py-3">
+              [[icon:presentation size-5 text-muted-foreground]]
+              <div class="flex min-w-0 flex-1 flex-col"><span class="text-sm font-medium">슬라이드 (Slidev 빌드)</span><span class="text-xs text-muted-foreground">week03-session01.zip</span></div>
+              <span class="badge badge-success">업로드됨</span>
+            </div>
+            <div class="flex items-center gap-3 border-t py-3">
+              [[icon:page size-5 text-muted-foreground]]
+              <div class="flex min-w-0 flex-1 flex-col"><span class="text-sm font-medium">슬라이드 PDF</span><span class="text-xs text-muted-foreground">수업 종료 후 학생에게 공개</span></div>
+              <span class="badge badge-success">업로드됨</span>
+            </div>
+            <div class="flex items-center gap-3 border-t py-3">
+              [[icon:attachment size-5 text-muted-foreground]]
+              <div class="flex min-w-0 flex-1 flex-col"><span class="text-sm font-medium">보충 자료</span><span class="text-xs text-muted-foreground">아직 없음</span></div>
+              <span class="badge badge-secondary">비어 있음</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div class="flex items-baseline justify-between gap-3">
+              <h2 class="card-title">출석 현황</h2>
+              <span class="text-sm text-muted-foreground">출석 {{attendCount}} / 42</span>
+            </div>
+          </div>
+          <div class="card-content overflow-x-auto">
+            <table class="table min-w-[26rem]">
+              <thead>
+                <tr><th>학번</th><th>이름</th><th>출석 시각</th><th>상태</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{students}}" as="st" hint-placeholder-count="6">
+                  <tr>
+                    <td class="font-mono text-xs">{{st.id}}</td>
+                    <td>{{st.name}}</td>
+                    <td class="tabular-nums">{{st.time}}</td>
+                    <td>
+                      <sc-if value="{{st.needsFix}}" hint-placeholder-val="{{ false }}">
+                        <button onClick="{{st.approve}}" class="btn btn-default">보정 승인</button>
+                      </sc-if>
+                      <sc-if value="{{st.showStatus}}" hint-placeholder-val="{{ true }}">
+                        <span class="{{st.statusCls}}">{{st.status}}</span>
+                      </sc-if>
+                    </td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="flex min-w-0 flex-col gap-6">
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title flex items-center gap-2">[[icon:key size-5]]작성자 확인</h2>
+            <p class="card-description">심각한 사안에 한해 사용합니다. 모든 조회는 사유와 함께 기록되며 지울 수 없습니다. 채팅 내용은 참여 점수에 반영되지 않습니다.</p>
+          </div>
+          <div class="card-content flex flex-col gap-5">
+            <div class="flex flex-col gap-2">
+              <span class="label">1. 대상 글</span>
+              <sc-for list="{{targets}}" as="t" hint-placeholder-count="4">
+                <button onClick="{{t.pick}}" aria-pressed="{{t.selected}}" class="{{t.cls}}">
+                  <span class="text-xs text-muted-foreground">{{t.nick}} · {{t.time}}</span>
+                  <span class="text-sm">{{t.text}}</span>
+                </button>
+              </sc-for>
+            </div>
+
+            <div class="flex flex-col gap-2">
+              <label for="reason" class="label">2. 사유 (목록에서만 선택)</label>
+              <div class="relative">
+                <select id="reason" value="{{reason}}" onChange="{{onReason}}" class="select">
+                  <option value="">사유를 선택하세요</option>
+                  <option value="협박·위해 예고">협박·위해 예고</option>
+                  <option value="심한 괴롭힘·혐오 표현">심한 괴롭힘·혐오 표현</option>
+                  <option value="자해·위기 신호">자해·위기 신호</option>
+                  <option value="불법 정보">불법 정보</option>
+                  <option value="부정행위">부정행위</option>
+                </select>
+                [[icon:nav-arrow-down pointer-events-none absolute right-3 top-3.5 size-4 text-muted-foreground]]
+              </div>
+              <p class="text-xs text-muted-foreground">단순한 욕설, 수업 방해, 교수에 대한 비판은 사유 목록에 없습니다.</p>
+            </div>
+
+            <button onClick="{{lookup}}" class="btn btn-outline h-12 border-destructive text-destructive-strong hover:bg-destructive/10 hover:text-destructive-strong {{lookupCls}}">[[icon:eye]]작성자 확인 (기록됩니다)</button>
+
+            <sc-if value="{{hasResult}}" hint-placeholder-val="{{ false }}">
+              <div role="status" class="alert alert-warning">
+                [[icon:info-circle]]
+                <div class="flex flex-col gap-0.5">
+                  <div class="alert-title">조회 결과 · {{result.nick}}</div>
+                  <div class="alert-description"><span class="font-mono">{{result.id}}</span> · {{result.name}}</div>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header"><h2 class="card-title">조회 기록</h2></div>
+          <div class="card-content flex flex-col">
+            <sc-if value="{{noLog}}" hint-placeholder-val="{{ true }}">
+              <p class="text-sm text-muted-foreground">이 강의실에서 작성자를 확인한 기록이 없습니다.</p>
+            </sc-if>
+            <sc-for list="{{log}}" as="l" hint-placeholder-count="1">
+              <div class="flex flex-wrap gap-x-3 gap-y-1 border-t py-3 text-sm">
+                <span class="tabular-nums text-muted-foreground">{{l.time}}</span>
+                <span class="font-medium">{{l.reason}}</span>
+                <span class="text-muted-foreground">대상 글: {{l.target}}</span>
+                <span class="text-muted-foreground">조회자: 교수</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+[[script {"$preview":{"width":1280,"height":900}}]]
+class Component extends DCLogic {
+  state = { approved: {}, sel: '', reason: '', result: null, log: [], menuOpen: false };
+
+  renderVals() {
+    const s = this.state;
+    const base = [
+      { id: '20260001', name: '수강생 01', time: '14:01', kind: 'ok' },
+      { id: '20260002', name: '수강생 02', time: '14:01', kind: 'ok' },
+      { id: '20260007', name: '수강생 07', time: '—', kind: 'fix' },
+      { id: '20260012', name: '수강생 12', time: '14:03', kind: 'ok' },
+      { id: '20260031', name: '수강생 31', time: '—', kind: 'fix' },
+      { id: '20260040', name: '수강생 40', time: '—', kind: 'absent' }
+    ];
+    const students = base.map((b) => {
+      const fixed = b.kind === 'fix' && s.approved[b.id];
+      const needsFix = b.kind === 'fix' && !fixed;
+      let status = '출석';
+      let statusCls = 'badge badge-success';
+      if (fixed) { status = '출석 (수기 보정)'; }
+      if (b.kind === 'absent') { status = '미출석'; statusCls = 'badge badge-secondary'; }
+      return {
+        id: b.id,
+        name: b.name,
+        time: fixed ? '14:08' : b.time,
+        needsFix,
+        showStatus: !needsFix,
+        status,
+        statusCls,
+        approve: () => this.setState((st) => ({ approved: { ...st.approved, [b.id]: true } }))
+      };
+    });
+    const attendCount = 36 + Object.keys(s.approved).length;
+
+    const msgs = [
+      { id: 'm1', nick: '느긋한 고래', time: '14:02', text: '슬라이드 2에서 요청이랑 응답이 서로 독립이라는 게 무슨 뜻인가요?', who: { id: '20260012', name: '수강생 12' } },
+      { id: 'm2', nick: '단단한 바위', time: '14:03', text: '상태 코드 404는 서버 쪽 오류인가요?', who: { id: '20260031', name: '수강생 31' } },
+      { id: 'm3', nick: '수줍은 여우', time: '14:05', text: '방금 보내주신 프롬프트 다시 볼 수 있나요?', who: { id: '20260007', name: '수강생 07' } },
+      { id: 'm5', nick: '조용한 구름', time: '14:06', text: '교수님 슬라이드 PDF는 어디서 받아요?', who: { id: '20260040', name: '수강생 40' } }
+    ];
+    const targets = msgs.map((m) => ({
+      nick: m.nick,
+      time: m.time,
+      text: m.text,
+      selected: s.sel === m.id,
+      cls: 'flex w-full flex-col gap-0.5 rounded-md border p-3 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ' + (s.sel === m.id ? 'border-primary bg-accent ring-1 ring-primary' : 'bg-background hover:bg-accent/60'),
+      pick: () => this.setState({ sel: m.id, result: null })
+    }));
+    const canLookup = !!s.sel && !!s.reason;
+    return {
+      attendCount,
+      students,
+      targets,
+      reason: s.reason,
+      onReason: (e) => this.setState({ reason: e.target.value, result: null }),
+      lookupCls: canLookup ? '' : 'opacity-50',
+      lookup: () => this.setState((st) => {
+        const m = msgs.find((x) => x.id === st.sel);
+        if (!m || !st.reason) { return null; }
+        return {
+          result: { nick: m.nick, id: m.who.id, name: m.who.name },
+          log: [{ time: '14:09', reason: st.reason, target: m.nick + ' ' + m.time }, ...st.log]
+        };
+      }),
+      hasResult: !!s.result,
+      result: s.result || { nick: '', id: '', name: '' },
+      noLog: s.log.length === 0,
+      log: s.log,
+      menuOpen: s.menuOpen,
+      toggleMenu: () => this.setState((st) => ({ menuOpen: !st.menuOpen }))
+    };
+  }
+}
+[[end]]
