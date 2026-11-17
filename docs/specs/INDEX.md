@@ -5,7 +5,7 @@
 | id | 제목 | 마일스톤 | spec | plan | tasks | 구현 |
 |---|---|---|---|---|---|---|
 | 000-prototype-validation | 프로토타입 검증 (스펙 아님, 결과 메모) | M1 전 | - | - | - | 완료 |
-| 001-classroom-entry | 로그인, 강좌, 학생 입장 | M1 | approved | 없음 | 없음 | 대기 |
+| 001-classroom-entry | 로그인, 강좌, 학생 입장 | M1 | approved | draft | 없음 | 대기 |
 | 002-slide-sync | 슬라이드 동기화와 교수 메시지·자료 푸시 | M1 | 없음 | 없음 | 없음 | 대기 |
 | 003-attendance | 출석 (코드, 수기 보정) | M1 | 없음 | 없음 | 없음 | 대기 |
 | 004-chat-identity | 채팅 최소형 + 작성자 확인 최소형 | M1 | 없음 | 없음 | 없음 | 대기 |
