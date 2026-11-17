@@ -11,6 +11,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # TypeScript 7(typescript-go)은 SvelteKit 3이 아직 지원하지 않는다(peer: ^6). 지원하면 규칙을 지운다.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # 타입은 CI와 로컬의 Node 버전(22)을 따라간다. Node를 올릴 때 함께 올린다.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: pip
     directory: "/server"
     schedule:
