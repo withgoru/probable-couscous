@@ -21,7 +21,7 @@ updated: 2026-11-17
   - 완료 기준: `server/pyproject.toml`, `client/package.json`과 lockfile이 커밋되고(버전 고정) CI의 `server`, `client` 작업이 건너뛰지 않고 통과한다. 키 이름만 있는 `.env.example`과 설정 로더가 있다. `.github/dependabot.yml`의 npm·pip 주석을 푼다. 색 토큰(`docs/design/theme.css`)이 클라이언트에 연결된다
   - 관련 원칙: C15, C17, C18
 
-- [ ] **T002. DB 연결, 마이그레이션 실행기, 시계**
+- [x] **T002. DB 연결, 마이그레이션 실행기, 시계**
   - 대응 AC: 없음 (기반·검증)
   - 의존: T001
   - 먼저 쓸 테스트: 빈 DB에 번호 순서대로 마이그레이션이 적용되고 두 번 실행해도 같은 결과이며, `journal_mode=WAL`과 `synchronous=FULL`이 설정되는 테스트
