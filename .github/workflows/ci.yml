@@ -61,7 +61,7 @@ jobs:
         run: |
           if [ -f client/package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; echo "client/ 없음: 건너뜀"; fi
       - if: steps.detect.outputs.exists == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -95,7 +95,7 @@ jobs:
           pip install -e ".[dev]"
           pytest -q -m constitution
       - if: steps.detect.outputs.client == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
