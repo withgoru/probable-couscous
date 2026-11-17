@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
+from app.clock import Clock, SystemClock
 from app.config import Settings, load_settings
+from app.db import MIGRATIONS_DIR, connect, migrate
 
 NOT_BUILT = "클라이언트가 아직 빌드되지 않았습니다. client 폴더에서 npm run build를 실행하세요."
 
@@ -21,11 +25,24 @@ def _safe_file(dist: Path, relative: str) -> Path | None:
     return None
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, clock: Clock | None = None) -> FastAPI:
     settings = settings or load_settings()
+    clock = clock or SystemClock()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # 서버가 뜰 때마다 DB를 열어 아직 적용하지 않은 마이그레이션을 적용한다(C13)
+        conn = connect(settings.database_path)
+        try:
+            migrate(conn, MIGRATIONS_DIR, clock)
+        finally:
+            conn.close()
+        yield
+
     app = FastAPI(title="강의 상호작용 도구", docs_url="/api/docs", redoc_url=None,
-                  openapi_url="/api/openapi.json")
+                  openapi_url="/api/openapi.json", lifespan=lifespan)
     app.state.settings = settings
+    app.state.clock = clock
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
