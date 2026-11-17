@@ -1,0 +1,47 @@
+"""FastAPI 앱 조립. 클라이언트 빌드 결과를 같은 서버가 `/`에서 내려준다(같은 출처)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+
+from app.config import Settings, load_settings
+
+NOT_BUILT = "클라이언트가 아직 빌드되지 않았습니다. client 폴더에서 npm run build를 실행하세요."
+
+
+def _safe_file(dist: Path, relative: str) -> Path | None:
+    """dist 밖으로 나가는 경로는 파일로 인정하지 않는다."""
+    root = dist.resolve()
+    candidate = (root / relative).resolve()
+    if candidate.is_file() and candidate.is_relative_to(root):
+        return candidate
+    return None
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or load_settings()
+    app = FastAPI(title="강의 상호작용 도구", docs_url="/api/docs", redoc_url=None,
+                  openapi_url="/api/openapi.json")
+    app.state.settings = settings
+
+    @app.get("/api/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def client_app(full_path: str):
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="찾을 수 없는 API 주소입니다.")
+        dist = settings.client_dist
+        asset = _safe_file(dist, full_path) if full_path else None
+        if asset is not None:
+            return FileResponse(asset)
+        index = _safe_file(dist, "index.html")
+        if index is None:
+            raise HTTPException(status_code=503, detail=NOT_BUILT)
+        return FileResponse(index)
+
+    return app

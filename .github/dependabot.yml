@@ -6,14 +6,13 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-  # server/, client/ 가 생기면 아래 두 항목의 주석("# ")을 푼다 (없는 폴더를 가리키면 Dependabot이 오류를 낸다).
-  # - package-ecosystem: npm
-  #   directory: "/client"
-  #   schedule:
-  #     interval: weekly
-  #   open-pull-requests-limit: 5
-  # - package-ecosystem: pip
-  #   directory: "/server"
-  #   schedule:
-  #     interval: weekly
-  #   open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: "/client"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: pip
+    directory: "/server"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
