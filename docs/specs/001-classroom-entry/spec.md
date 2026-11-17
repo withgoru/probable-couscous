@@ -2,7 +2,7 @@
 id: 001-classroom-entry
 title: 로그인, 강좌, 학생 입장
 milestone: M1
-status: draft        # draft | approved | stale
+status: approved        # draft | approved | stale
 depends_on: []       # 먼저 approved여야 하는 스펙 id
 screens: [교수 로그인(Login), 강좌 목록(Courses), 마이페이지(MyPage), 교수 관리 페이지(Admin), 학생 모바일 화면(Student)]
 updated: 2026-11-17
