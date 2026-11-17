@@ -20,7 +20,7 @@ jobs:
     name: sdd-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v7
@@ -37,7 +37,7 @@ jobs:
     name: server
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: detect
         run: |
           if [ -f server/pyproject.toml ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; echo "server/ 없음: 건너뜀"; fi
@@ -56,7 +56,7 @@ jobs:
     name: client
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: detect
         run: |
           if [ -f client/package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; echo "client/ 없음: 건너뜀"; fi
@@ -80,7 +80,7 @@ jobs:
     name: constitution-tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: detect
         run: |
           echo "server=$([ -f server/pyproject.toml ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
