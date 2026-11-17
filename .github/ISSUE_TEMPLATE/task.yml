@@ -1,0 +1,19 @@
+name: Task / backlog item
+description: 해야 할 일 (원본 작업 목록은 tasks.md, 이 이슈는 스펙 밖 작업용)
+labels: ["Type: Maintenance", "Status: Available"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 할 일
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 끝난 기준
+      placeholder: "- [ ] ..."
+  - type: textarea
+    id: context
+    attributes:
+      label: 배경 / 참고
