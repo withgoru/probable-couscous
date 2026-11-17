@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: 스펙 주도 개발 규칙 점검
@@ -42,7 +42,7 @@ jobs:
         run: |
           if [ -f server/pyproject.toml ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; echo "server/ 없음: 건너뜀"; fi
       - if: steps.detect.outputs.exists == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - if: steps.detect.outputs.exists == 'true'
@@ -86,7 +86,7 @@ jobs:
           echo "server=$([ -f server/pyproject.toml ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "client=$([ -f client/package.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - if: steps.detect.outputs.server == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - if: steps.detect.outputs.server == 'true'
