@@ -1,0 +1,123 @@
+[[head 프로젝터 화면]]
+<div class="relative h-[720px] w-[1280px] overflow-hidden bg-inverse font-sans leading-normal text-inverse-foreground antialiased">
+
+  <div class="absolute inset-y-0 left-0 box-border flex flex-col justify-between pb-14 pl-24 pr-[4.5rem] pt-[4.5rem]" style="width: {{slideW}}">
+    <div class="flex flex-col gap-7">
+      <span class="font-mono text-2xl tracking-wide text-info">HTTP</span>
+      <span class="{{titleCls}} font-bold leading-tight">GET과 POST</span>
+      <div class="mt-2 flex flex-col gap-4">
+        <div class="{{bulletCls}} flex items-baseline gap-4 text-inverse-foreground"><span class="text-info">—</span><span>GET: 데이터를 조회한다, 본문이 없다</span></div>
+        <div class="{{bulletCls}} flex items-baseline gap-4 text-inverse-foreground"><span class="text-info">—</span><span>POST: 데이터를 만들거나 보낸다, 본문이 있다</span></div>
+        <div class="{{bulletCls}} flex items-baseline gap-4 text-inverse-foreground"><span class="text-info">—</span><span>같은 요청을 반복해도 결과가 같은가?</span></div>
+      </div>
+    </div>
+    <span class="self-start font-mono text-[22px] text-inverse-muted">3 / 4</span>
+  </div>
+
+  <sc-if value="{{chatOn}}" hint-placeholder-val="{{ true }}">
+    <aside class="absolute inset-y-0 right-0 flex w-[400px] flex-col border-l bg-muted text-foreground">
+      <sc-if value="{{showCode}}" hint-placeholder-val="{{ true }}">
+        <div class="m-5 mb-0 flex items-center gap-4 rounded-xl border border-warning/40 bg-white px-4 py-3">
+          <div class="relative size-[76px] shrink-0">
+            <svg width="76" height="76" viewBox="0 0 88 88" role="img" aria-label="코드 갱신까지 남은 시간">
+              <circle cx="44" cy="44" r="38" fill="none" stroke-width="8" class="stroke-warning/30"></circle>
+              <circle cx="44" cy="44" r="38" fill="none" stroke-width="8" stroke-linecap="round" transform="rotate(-90 44 44)" stroke-dasharray="238.76" class="stroke-warning-text" style="stroke-dashoffset: {{ringOffset}}"></circle>
+            </svg>
+            <span class="absolute inset-0 flex items-center justify-center font-mono text-2xl font-semibold text-warning-text">{{sec}}</span>
+          </div>
+          <div class="flex min-w-0 flex-col">
+            <span class="text-lg font-semibold text-muted-foreground">출석코드</span>
+            <span class="font-mono text-[46px] font-semibold leading-none tabular-nums tracking-wide text-warning-text">{{codeText}}</span>
+            <span class="mt-1 text-[15px] text-muted-foreground">15초마다 바뀝니다</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <div class="flex items-center justify-between pb-1 pl-5 pr-3 pt-4">
+        <span class="flex items-center gap-2 text-[22px] font-bold">[[icon:chat-bubble size-6]]채팅</span>
+        <div class="flex items-center gap-3">
+          <span class="text-base font-medium">표시</span>
+          <button role="switch" aria-checked="{{chatOn}}" aria-label="채팅 표시" onClick="{{toggleChat}}" class="switch"><span class="switch-thumb"></span></button>
+        </div>
+      </div>
+
+      <div class="flex min-h-0 flex-1 flex-col justify-end gap-3 overflow-hidden px-5 py-2">
+        <sc-for list="{{messages}}" as="m" hint-placeholder-count="4">
+          <div class="{{m.cls}}">
+            <span class="{{m.nickCls}}">{{m.nick}}</span>
+            <span class="text-xl leading-snug">{{m.text}}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <p class="border-t px-5 py-3 text-sm text-muted-foreground">닉네임으로만 표시됩니다. 교수님이 숨긴 글은 나오지 않습니다.</p>
+    </aside>
+  </sc-if>
+
+  <sc-if value="{{chatOff}}" hint-placeholder-val="{{ false }}">
+    <div class="absolute bottom-7 right-8 flex items-center gap-3 rounded-full border bg-white py-1 pl-5 pr-2 text-foreground shadow-md">
+      <span class="text-base font-medium">채팅 표시</span>
+      <button role="switch" aria-checked="{{chatOn}}" aria-label="채팅 표시" onClick="{{toggleChat}}" class="switch"><span class="switch-thumb"></span></button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{floatCode}}" hint-placeholder-val="{{ false }}">
+    <div class="absolute right-8 top-8 flex items-center gap-5 rounded-2xl border border-warning/40 bg-white py-4 pl-5 pr-7 text-foreground shadow-md">
+      <div class="relative size-[88px] shrink-0">
+        <svg width="88" height="88" viewBox="0 0 88 88" role="img" aria-label="코드 갱신까지 남은 시간">
+          <circle cx="44" cy="44" r="38" fill="none" stroke-width="8" class="stroke-warning/30"></circle>
+          <circle cx="44" cy="44" r="38" fill="none" stroke-width="8" stroke-linecap="round" transform="rotate(-90 44 44)" stroke-dasharray="238.76" class="stroke-warning-text" style="stroke-dashoffset: {{ringOffset}}"></circle>
+        </svg>
+        <span class="absolute inset-0 flex items-center justify-center font-mono text-[28px] font-semibold text-warning-text">{{sec}}</span>
+      </div>
+      <div class="flex flex-col">
+        <span class="text-[22px] font-semibold text-muted-foreground">출석코드</span>
+        <span class="font-mono text-[56px] font-semibold leading-none tabular-nums tracking-wide text-warning-text">{{codeText}}</span>
+        <span class="mt-1 text-lg text-muted-foreground">학생 앱에서 입력하세요 · 15초마다 바뀝니다</span>
+      </div>
+    </div>
+  </sc-if>
+</div>
+[[script {"showCode":{"editor":"boolean","default":true},"$preview":{"width":1280,"height":720}}]]
+class Component extends DCLogic {
+  state = { sec: 11, codeIdx: 0, chatOn: true };
+
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      this.setState((s) => (s.sec <= 1 ? { sec: 15, codeIdx: (s.codeIdx + 1) % 5 } : { sec: s.sec - 1 }));
+    }, 1000);
+  }
+
+  componentWillUnmount() {
+    clearInterval(this.timer);
+  }
+
+  renderVals() {
+    const s = this.state;
+    const codes = ['482913', '067254', '931580', '215468', '708391'];
+    const c = codes[s.codeIdx];
+    const total = 238.76;
+    const student = 'flex flex-col gap-0.5 rounded-xl border border-border bg-white px-3.5 py-2.5';
+    const prof = 'flex flex-col gap-0.5 rounded-xl border border-info/50 bg-info-tint px-3.5 py-2.5';
+    return {
+      showCode: this.props.showCode ?? true,
+      sec: s.sec,
+      codeText: c.slice(0, 3) + ' ' + c.slice(3),
+      ringOffset: (total * (1 - s.sec / 15)).toFixed(2),
+      chatOn: s.chatOn,
+      chatOff: !s.chatOn,
+      floatCode: (this.props.showCode ?? true) && !s.chatOn,
+      toggleChat: () => this.setState((st) => ({ chatOn: !st.chatOn })),
+      slideW: s.chatOn ? '880px' : '1280px',
+      titleCls: s.chatOn ? 'text-6xl' : 'text-7xl',
+      bulletCls: s.chatOn ? 'text-3xl' : 'text-4xl',
+      messages: [
+        { nick: '단단한 바위', text: '상태 코드 404는 서버 쪽 오류인가요?', cls: student, nickCls: 'text-[15px] font-semibold text-muted-foreground' },
+        { nick: '교수', text: '아래 요청에 서버가 어떤 응답을 돌려줄지 적어 보세요. GET /users/42', cls: prof, nickCls: 'text-[15px] font-semibold text-info-text' },
+        { nick: '수줍은 여우', text: '방금 보내주신 프롬프트 다시 볼 수 있나요?', cls: student, nickCls: 'text-[15px] font-semibold text-muted-foreground' },
+        { nick: '조용한 구름', text: '교수님 슬라이드 PDF는 어디서 받아요?', cls: student, nickCls: 'text-[15px] font-semibold text-muted-foreground' }
+      ]
+    };
+  }
+}
+[[end]]

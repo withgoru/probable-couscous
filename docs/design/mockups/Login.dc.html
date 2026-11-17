@@ -1,0 +1,33 @@
+[[head 교수 로그인]]
+<div class="flex min-h-screen items-center justify-center bg-muted/40 px-5 py-8 font-sans leading-6 antialiased">
+  <main class="card w-full max-w-md">
+    <div class="card-header">
+      <div class="flex items-center gap-2 text-sm font-medium text-muted-foreground">[[icon:presentation size-4]]강의 상호작용 도구</div>
+      <h1 class="card-title mt-2 text-2xl leading-tight">교수 로그인</h1>
+      <p class="card-description">GitHub 계정으로 로그인합니다. 허용된 계정만 강좌를 만들고 관리할 수 있습니다.</p>
+    </div>
+
+    <div class="card-content flex flex-col gap-4">
+      <sc-if value="{{showDenied}}" hint-placeholder-val="{{ false }}">
+        <div role="alert" class="alert alert-destructive">
+          [[icon:warning-circle]]
+          <div class="flex flex-col gap-0.5">
+            <div class="alert-title">이 GitHub 계정은 사용할 수 없습니다</div>
+            <div class="alert-description">허용 목록에 없는 계정입니다. 허용된 계정으로 다시 로그인해 주세요.</div>
+          </div>
+        </div>
+      </sc-if>
+      <a href="Courses.dc.html" class="btn btn-default btn-lg w-full">[[icon:github]]GitHub로 로그인</a>
+    </div>
+
+    <div class="px-6"><div class="separator"></div></div>
+    <p class="card-footer text-sm text-muted-foreground">학생이신가요? 가입 없이, 교수님이 보낸 초대 링크를 열어 이메일로 입장합니다.</p>
+  </main>
+</div>
+[[script {"showDenied":{"editor":"boolean","default":false},"$preview":{"width":1280,"height":800}}]]
+class Component extends DCLogic {
+  renderVals() {
+    return { showDenied: this.props.showDenied ?? false };
+  }
+}
+[[end]]

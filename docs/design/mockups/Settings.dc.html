@@ -1,0 +1,92 @@
+[[head 설정]]
+<div class="min-h-screen bg-muted/40 font-sans leading-6 antialiased">
+  [[navbar 설정]]
+
+  <main class="mx-auto flex max-w-3xl flex-col gap-5 px-6 py-8">
+    <h1 class="text-3xl font-bold tracking-tight">설정</h1>
+
+    <section class="card">
+      <div class="card-header">
+        <h2 class="card-title">계정</h2>
+        <p class="card-description">이 계정으로만 강좌를 만들고 관리할 수 있습니다. 로그인 정보는 이메일 주소와 프로필만 읽습니다.</p>
+      </div>
+      <div class="card-content flex items-center gap-4">
+        <span class="avatar size-12"><span class="avatar-fallback">교</span></span>
+        <div class="flex min-w-0 flex-col">
+          <span class="font-semibold">@your-github-id</span>
+          <span class="flex items-center gap-1.5 text-sm text-muted-foreground">[[icon:github size-4]]GitHub 계정으로 로그인됨</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <h2 class="card-title">새 강좌 기본값</h2>
+        <p class="card-description">새로 만드는 강좌에 처음 적용됩니다. 강좌마다 따로 바꿀 수 있습니다.</p>
+      </div>
+      <div class="card-content flex flex-col gap-5">
+        <div class="flex max-w-60 flex-col gap-2">
+          <label for="codeMin" class="label">출석코드 표시 시간 (수업 시작 후)</label>
+          <div class="relative">
+            <select id="codeMin" value="{{codeMin}}" onChange="{{onCodeMin}}" class="select">
+              <option value="5">5분</option>
+              <option value="10">10분</option>
+              <option value="15">15분</option>
+            </select>
+            [[icon:nav-arrow-down pointer-events-none absolute right-3 top-3.5 size-4 text-muted-foreground]]
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <span class="label">채팅 시작 모드</span>
+          <div class="tabs-list max-w-xs">
+            <button onClick="{{setFree}}" data-state="{{freeState}}" class="tabs-trigger">자유</button>
+            <button onClick="{{setReadonly}}" data-state="{{roState}}" class="tabs-trigger">읽기 전용</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <button onClick="{{save}}" class="btn btn-default">저장</button>
+        <sc-if value="{{saved}}" hint-placeholder-val="{{ false }}">
+          <span class="flex items-center gap-1.5 text-sm font-medium text-success-text">[[icon:check size-4]]저장했습니다</span>
+        </sc-if>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="card-title">수업 자료 공개 저장소</h2>
+          <span class="badge badge-secondary">이후 단계</span>
+        </div>
+        <p class="card-description">수업이 끝난 뒤 승인한 자료를 공개 저장소에 올릴 때 사용합니다. 저장소 쓰기 권한은 로그인과 별도로, 연결할 저장소 한 곳에만 요청합니다.</p>
+      </div>
+      <div class="card-footer flex-wrap gap-3">
+        <span class="text-sm text-muted-foreground">연결된 저장소 없음</span>
+        <button class="btn btn-outline">[[icon:git-branch]]저장소 연결</button>
+      </div>
+    </section>
+  </main>
+</div>
+[[script {"$preview":{"width":1280,"height":800}}]]
+class Component extends DCLogic {
+  state = { codeMin: '10', mode: 'free', saved: false, menuOpen: false };
+
+  renderVals() {
+    const s = this.state;
+    const free = s.mode === 'free';
+    return {
+      codeMin: s.codeMin,
+      onCodeMin: (e) => this.setState({ codeMin: e.target.value, saved: false }),
+      freeState: free ? 'active' : 'inactive',
+      roState: free ? 'inactive' : 'active',
+      setFree: () => this.setState({ mode: 'free', saved: false }),
+      setReadonly: () => this.setState({ mode: 'readonly', saved: false }),
+      save: () => this.setState({ saved: true }),
+      saved: s.saved,
+      menuOpen: s.menuOpen,
+      toggleMenu: () => this.setState((st) => ({ menuOpen: !st.menuOpen }))
+    };
+  }
+}
+[[end]]

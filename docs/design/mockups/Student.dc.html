@@ -1,0 +1,320 @@
+[[head 학생 모바일 화면]]
+<div class="relative flex h-[844px] w-[390px] flex-col overflow-hidden bg-background font-sans leading-6 antialiased">
+
+  <sc-if value="{{stepEmail}}" hint-placeholder-val="{{ true }}">
+    <div class="flex min-h-0 flex-1 flex-col justify-between gap-6 overflow-y-auto px-6 pb-7 pt-10">
+      <div class="flex flex-col gap-6">
+        <div class="flex flex-col gap-2">
+          <span class="flex items-center gap-1.5 text-sm text-muted-foreground">[[icon:link size-4]]초대 링크로 들어왔습니다</span>
+          <h1 class="text-2xl font-bold leading-tight">웹 프로그래밍 · 월수반<br>수업에 입장</h1>
+          <p class="text-sm text-muted-foreground">수강생 명단에 있는 이메일로 입장합니다. 가입은 필요 없습니다.</p>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label for="email" class="label">이메일</label>
+          <input id="email" type="email" inputMode="email" autoComplete="email" value="{{email}}" onChange="{{onEmail}}" placeholder="이메일 주소를 입력하세요" aria-invalid="{{emailError}}" class="input input-lg">
+          <sc-if value="{{emailError}}" hint-placeholder-val="{{ false }}">
+            <span class="flex items-center gap-1.5 text-sm font-medium text-destructive-strong">[[icon:warning-circle size-4]]이메일 형식을 확인해 주세요.</span>
+          </sc-if>
+        </div>
+
+        <button onClick="{{submitEmail}}" class="btn btn-default btn-lg w-full">[[icon:mail]]인증 코드 받기</button>
+      </div>
+
+      <p class="text-sm text-muted-foreground">이메일은 출석 기록에 쓰이고, 채팅에는 닉네임만 표시됩니다.</p>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{stepVerify}}" hint-placeholder-val="{{ false }}">
+    <div class="flex min-h-0 flex-1 flex-col justify-between gap-6 overflow-y-auto px-6 pb-7 pt-10">
+      <div class="flex flex-col gap-5">
+        <div class="flex flex-col gap-2">
+          <h1 class="text-2xl font-bold leading-tight">인증 코드를 입력하세요</h1>
+          <p class="text-sm text-muted-foreground">{{emailShown}}으로 보낸 6자리 코드를 입력하세요.</p>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label for="otp" class="label">인증 코드 6자리</label>
+          <input id="otp" type="text" inputMode="numeric" maxLength="6" autoComplete="one-time-code" value="{{otp}}" onChange="{{onOtp}}" placeholder="000000" aria-invalid="{{otpError}}" class="input h-[72px] text-center font-mono text-4xl font-semibold tracking-[0.3em]">
+          <sc-if value="{{otpError}}" hint-placeholder-val="{{ false }}">
+            <span class="flex items-center gap-1.5 text-sm font-medium text-destructive-strong">[[icon:warning-circle size-4]]6자리를 모두 입력해 주세요.</span>
+          </sc-if>
+        </div>
+
+        <label for="keep" class="flex min-h-11 items-center gap-3 text-sm font-medium">
+          <input id="keep" type="checkbox" checked="{{keep}}" onChange="{{toggleKeep}}" class="size-5 accent-primary">
+          이 기기에서 로그인 유지
+        </label>
+
+        <button onClick="{{submitOtp}}" class="btn btn-default btn-lg w-full">확인하고 계속</button>
+      </div>
+
+      <div class="card gap-3 py-4">
+        <div class="card-content flex flex-col gap-3">
+          <div class="flex flex-col gap-0.5">
+            <span class="text-sm font-semibold">메일이 오지 않나요?</span>
+            <span class="text-sm text-muted-foreground">스팸함도 확인해 주세요. 계속 오지 않으면 교수님께 알려 주세요.</span>
+          </div>
+          <div class="flex gap-2">
+            <button onClick="{{resend}}" class="btn btn-outline flex-1 px-3">[[icon:refresh]]{{resendLabel}}</button>
+            <button onClick="{{backToEmail}}" class="btn btn-outline flex-1 px-3">이메일 다시 입력</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{stepNotice}}" hint-placeholder-val="{{ false }}">
+    <div class="flex min-h-0 flex-1 flex-col justify-between gap-6 overflow-y-auto px-6 pb-7 pt-10">
+      <div class="flex flex-col gap-5">
+        <div class="flex flex-col gap-1">
+          <span class="text-sm text-muted-foreground">웹 프로그래밍 · 월수반</span>
+          <h1 class="text-2xl font-bold leading-tight">3주차 1회차에<br>입장합니다</h1>
+        </div>
+
+        <div class="card py-4">
+          <div class="card-content flex items-center gap-3">
+            <span class="avatar size-11"><span class="avatar-fallback text-base">느</span></span>
+            <div class="flex flex-col">
+              <span class="text-xs text-muted-foreground">이 수업에서 쓰는 닉네임</span>
+              <span class="text-base font-semibold">느긋한 고래</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card gap-4 py-5">
+          <div class="card-header"><h2 class="card-title">채팅 이용 안내</h2></div>
+          <div class="card-content flex flex-col gap-4 text-sm">
+            <div class="flex gap-3">[[icon:eye-closed size-5 mt-0.5 text-muted-foreground]]<span>채팅은 닉네임으로만 보입니다. 다른 학생은 작성자를 알 수 없습니다.</span></div>
+            <div class="flex gap-3">[[icon:key size-5 mt-0.5 text-muted-foreground]]<span>교수님은 심각한 사안에 한해 사유를 기록하고 작성자를 확인할 수 있습니다.</span></div>
+            <div class="flex gap-3">[[icon:shield-check size-5 mt-0.5 text-muted-foreground]]<span>채팅 내용은 참여 점수에 반영되지 않고, 공개되지 않습니다.</span></div>
+          </div>
+        </div>
+      </div>
+
+      <button onClick="{{goCode}}" class="btn btn-default btn-lg w-full">확인하고 입장</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{stepCode}}" hint-placeholder-val="{{ false }}">
+    <div class="flex min-h-0 flex-1 flex-col justify-between gap-6 overflow-y-auto px-6 pb-7 pt-10">
+      <div class="flex flex-col gap-5">
+        <div class="flex flex-col gap-2">
+          <h1 class="text-2xl font-bold leading-tight">출석코드를 입력하세요</h1>
+          <p class="text-sm text-muted-foreground">교실 화면 오른쪽 위의 숫자 6자리입니다. 15초마다 바뀌니 보이는 숫자를 바로 입력하세요.</p>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label for="code" class="label">출석코드 6자리</label>
+          <input id="code" type="text" inputMode="numeric" maxLength="6" autoComplete="off" value="{{code}}" onChange="{{onCode}}" placeholder="000000" aria-invalid="{{hasError}}" class="input h-[72px] text-center font-mono text-4xl font-semibold tracking-[0.3em]">
+          <sc-if value="{{hasError}}" hint-placeholder-val="{{ false }}">
+            <span class="flex items-center gap-1.5 text-sm font-medium text-destructive-strong">[[icon:warning-circle size-4]]6자리를 모두 입력해 주세요.</span>
+          </sc-if>
+        </div>
+
+        <button onClick="{{submitCode}}" class="btn btn-default btn-lg w-full">출석하기</button>
+      </div>
+
+      <div class="card gap-3 py-4">
+        <div class="card-content flex flex-col gap-3">
+          <span class="text-sm font-semibold">코드가 안 보이거나 입력이 안 되나요?</span>
+          <sc-if value="{{notRequested}}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{requestManual}}" class="btn btn-outline w-full">[[icon:send]]수기 출석 요청 보내기</button>
+          </sc-if>
+          <sc-if value="{{requested}}" hint-placeholder-val="{{ false }}">
+            <div role="status" class="alert alert-warning">[[icon:check]]<div class="alert-title">요청을 보냈습니다. 교수님이 확인하면 출석 처리됩니다.</div></div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{stepLive}}" hint-placeholder-val="{{ false }}">
+    <div class="flex aspect-video w-full shrink-0 flex-col justify-between bg-inverse px-[18px] py-4 text-inverse-foreground">
+      <div class="flex flex-col gap-1.5">
+        <span class="font-mono text-[11px] text-info">{{slide.kicker}}</span>
+        <span class="text-xl font-bold leading-tight">{{slide.title}}</span>
+        <sc-for list="{{slide.bullets}}" as="b" hint-placeholder-count="3">
+          <div class="flex gap-2 text-xs text-inverse-foreground"><span class="text-info">—</span><span>{{b.text}}</span></div>
+        </sc-for>
+      </div>
+      <span class="self-end font-mono text-[11px] text-inverse-muted">{{pageLabel}}</span>
+    </div>
+
+    <div class="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2.5">
+      <div class="flex min-w-0 flex-col">
+        <span class="text-xs text-muted-foreground">웹 프로그래밍 · 3주차 1회차</span>
+        <span class="text-sm font-semibold">느긋한 고래</span>
+      </div>
+      <span class="badge badge-success shrink-0">[[icon:check]]출석 완료 14:07</span>
+    </div>
+
+    <div class="flex min-h-[3.75rem] shrink-0 items-center gap-2 border-b px-3 py-1.5">
+      <sc-if value="{{follow}}" hint-placeholder-val="{{ true }}">
+        <span class="flex flex-1 items-center gap-1.5 text-sm font-medium text-success-text">[[icon:laptop size-4]]교수 화면 따라가는 중</span>
+        <button onClick="{{setFree}}" class="btn btn-outline px-4">직접 넘겨 보기</button>
+      </sc-if>
+      <sc-if value="{{free}}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{prev}}" aria-label="이전 슬라이드" class="btn btn-outline btn-icon {{prevCls}}">[[icon:nav-arrow-left]]</button>
+        <button onClick="{{next}}" aria-label="다음 슬라이드" class="btn btn-outline btn-icon {{nextCls}}">[[icon:nav-arrow-right]]</button>
+        <button onClick="{{backToProf}}" class="btn btn-secondary flex-1 px-3">교수 화면으로 (3 / 4)</button>
+      </sc-if>
+    </div>
+
+    <div class="tabs-line shrink-0">
+      <button onClick="{{goChat}}" data-state="{{chatState}}" class="tabs-line-trigger flex-1">[[icon:chat-bubble size-4]]채팅</button>
+      <button onClick="{{goMaterial}}" data-state="{{materialState}}" class="tabs-line-trigger flex-1">[[icon:page size-4]]자료</button>
+    </div>
+
+    <div class="flex min-h-0 flex-1 flex-col">
+
+      <sc-if value="{{tabChat}}" hint-placeholder-val="{{ true }}">
+        <div class="flex min-h-0 flex-1 flex-col">
+          <sc-if value="{{chatReadonly}}" hint-placeholder-val="{{ false }}">
+            <div role="status" class="alert alert-warning rounded-none border-x-0 border-t-0">[[icon:lock]]<div class="alert-title">교수님이 채팅을 읽기 전용으로 바꿨습니다. 새 글은 쓸 수 없습니다.</div></div>
+          </sc-if>
+          <div class="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-4">
+            <sc-for list="{{chat}}" as="m" hint-placeholder-count="4">
+              <div class="{{m.rowCls}}">
+                <span class="{{m.nickCls}}">{{m.nick}} · {{m.time}}</span>
+                <span class="{{m.bubbleCls}}">{{m.text}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div class="flex gap-2 border-t bg-background p-3">
+            <label for="chatInput" class="sr-only">채팅 입력</label>
+            <input id="chatInput" type="text" value="{{draft}}" onChange="{{onDraft}}" placeholder="{{inputHint}}" class="input {{inputCls}}">
+            <button onClick="{{sendChat}}" class="btn btn-default shrink-0 px-4 {{sendCls}}">[[icon:send]]보내기</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{tabMaterial}}" hint-placeholder-val="{{ false }}">
+        <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+          <span class="text-xs font-medium text-muted-foreground">교수님이 보낸 메시지·자료</span>
+          <div class="card gap-3 py-4">
+            <div class="card-content flex flex-col gap-3">
+              <span class="flex items-center gap-1.5 text-xs text-muted-foreground">14:05 <span class="badge badge-info">프롬프트</span></span>
+              <span class="text-sm">아래 요청에 서버가 어떤 응답을 돌려줄지 적어 보세요. GET /users/42</span>
+              <button onClick="{{copy}}" class="btn btn-outline w-full">[[icon:copy]]{{copyLabel}}</button>
+            </div>
+          </div>
+          <div class="card gap-1 py-4">
+            <div class="card-content flex flex-col gap-1">
+              <span class="text-sm font-semibold">슬라이드 PDF</span>
+              <span class="text-sm text-muted-foreground">수업이 끝난 뒤 교수님이 올리면 여기서 받을 수 있습니다.</span>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+</div>
+[[script {"chatReadonly":{"editor":"boolean","default":false},"$preview":{"width":390,"height":844}}]]
+class Component extends DCLogic {
+  state = {
+    step: 'email',
+    email: '',
+    emailError: false,
+    otp: '',
+    otpError: false,
+    keep: true,
+    resent: false,
+    code: '',
+    codeError: false,
+    requested: false,
+    tab: 'chat',
+    follow: true,
+    localPage: 2,
+    draft: '',
+    mine: [],
+    copied: false
+  };
+
+  renderVals() {
+    const s = this.state;
+    const ro = this.props.chatReadonly ?? false;
+    const slides = [
+      { kicker: '3주차 1회차', title: 'HTTP 기초', bullets: [] },
+      { kicker: 'HTTP', title: '요청과 응답', bullets: ['클라이언트가 요청(Request)을 보낸다', '서버가 상태 코드와 함께 응답(Response)한다', '요청은 서로 독립적으로 처리된다'] },
+      { kicker: 'HTTP', title: 'GET과 POST', bullets: ['GET: 데이터를 조회한다, 본문이 없다', 'POST: 데이터를 만들거나 보낸다, 본문이 있다', '같은 요청을 반복해도 결과가 같은가?'] },
+      { kicker: 'HTTP', title: '상태 코드', bullets: ['2xx 성공', '4xx 클라이언트 오류 (예: 404 Not Found)', '5xx 서버 오류'] }
+    ];
+    const profPage = 2;
+    const page = s.follow ? profPage : s.localPage;
+    const slide = slides[page];
+    const base = [
+      { nick: '단단한 바위', time: '14:03', text: '상태 코드 404는 서버 쪽 오류인가요?', kind: 'other' },
+      { nick: '교수', time: '14:05', text: '아래 요청에 서버가 어떤 응답을 돌려줄지 적어 보세요. GET /users/42', kind: 'prof' },
+      { nick: '수줍은 여우', time: '14:05', text: '방금 보내주신 프롬프트 다시 볼 수 있나요?', kind: 'other' },
+      { nick: '조용한 구름', time: '14:06', text: '교수님 슬라이드 PDF는 어디서 받아요?', kind: 'other' }
+    ];
+    const all = base.concat(s.mine.map((t) => ({ nick: '나', time: '14:08', text: t, kind: 'mine' })));
+    const bubble = 'max-w-[17.5rem] rounded-2xl px-3.5 py-2.5 text-sm ';
+    const chat = all.map((m) => ({
+      nick: m.nick,
+      time: m.time,
+      text: m.text,
+      rowCls: 'flex flex-col gap-0.5 ' + (m.kind === 'mine' ? 'items-end' : 'items-start'),
+      nickCls: 'text-xs font-medium ' + (m.kind === 'prof' ? 'text-info-text' : 'text-muted-foreground'),
+      bubbleCls: bubble + (m.kind === 'mine' ? 'bg-primary text-primary-foreground' : m.kind === 'prof' ? 'border border-info/50 bg-info-tint text-foreground' : 'bg-muted text-foreground')
+    }));
+    const tab = s.tab;
+    return {
+      stepEmail: s.step === 'email',
+      stepVerify: s.step === 'verify',
+      email: s.email,
+      onEmail: (e) => this.setState({ email: e.target.value, emailError: false }),
+      emailError: s.emailError,
+      submitEmail: () => this.setState((st) => (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(st.email.trim()) ? { step: 'verify', emailError: false, resent: false } : { emailError: true })),
+      emailShown: s.email.trim() || '입력한 이메일',
+      otp: s.otp,
+      onOtp: (e) => this.setState({ otp: e.target.value.replace(/\D/g, '').slice(0, 6), otpError: false }),
+      otpError: s.otpError,
+      submitOtp: () => this.setState((st) => (st.otp.length === 6 ? { step: 'notice' } : { otpError: true })),
+      keep: s.keep,
+      toggleKeep: () => this.setState((st) => ({ keep: !st.keep })),
+      resend: () => this.setState({ resent: true }),
+      resendLabel: s.resent ? '다시 보냈습니다' : '코드 다시 받기',
+      backToEmail: () => this.setState({ step: 'email', otp: '', otpError: false }),
+      stepNotice: s.step === 'notice',
+      stepCode: s.step === 'code',
+      stepLive: s.step === 'live',
+      goCode: () => this.setState({ step: 'code' }),
+      code: s.code,
+      onCode: (e) => this.setState({ code: e.target.value.replace(/\D/g, '').slice(0, 6), codeError: false }),
+      hasError: s.codeError,
+      submitCode: () => this.setState((st) => (st.code.length === 6 ? { step: 'live' } : { codeError: true })),
+      requested: s.requested,
+      notRequested: !s.requested,
+      requestManual: () => this.setState({ requested: true }),
+      tabChat: tab === 'chat',
+      tabMaterial: tab === 'material',
+      goChat: () => this.setState({ tab: 'chat' }),
+      goMaterial: () => this.setState({ tab: 'material' }),
+      chatState: tab === 'chat' ? 'active' : 'inactive',
+      materialState: tab === 'material' ? 'active' : 'inactive',
+      slide: { kicker: slide.kicker, title: slide.title, bullets: slide.bullets.map((t) => ({ text: t })) },
+      pageLabel: (page + 1) + ' / ' + slides.length,
+      follow: s.follow,
+      free: !s.follow,
+      setFree: () => this.setState((st) => ({ follow: false, localPage: st.follow ? 2 : st.localPage })),
+      prev: () => this.setState((st) => ({ localPage: Math.max(0, st.localPage - 1) })),
+      next: () => this.setState((st) => ({ localPage: Math.min(slides.length - 1, st.localPage + 1) })),
+      prevCls: s.localPage === 0 ? 'opacity-50' : '',
+      nextCls: s.localPage === slides.length - 1 ? 'opacity-50' : '',
+      backToProf: () => this.setState({ follow: true }),
+      chatReadonly: ro,
+      chat,
+      draft: s.draft,
+      onDraft: (e) => this.setState({ draft: e.target.value }),
+      inputHint: ro ? '읽기 전용입니다' : '질문이나 의견을 입력하세요',
+      inputCls: ro ? 'bg-muted' : '',
+      sendCls: ro ? 'opacity-50' : '',
+      sendChat: () => this.setState((st) => (!ro && st.draft.trim() ? { mine: [...st.mine, st.draft.trim()], draft: '' } : null)),
+      copy: () => this.setState({ copied: true }),
+      copyLabel: s.copied ? '복사됨' : '프롬프트 복사'
+    };
+  }
+}
+[[end]]
