@@ -1,0 +1,27 @@
+name: Bug report
+description: 동작이 기대와 다를 때
+labels: ["Type: Bug", "Status: Pending"]
+body:
+  - type: input
+    id: spec
+    attributes:
+      label: 관련 스펙
+      description: 예) 003-attendance
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 방법
+      placeholder: "1. ...\n2. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 동작과 실제 동작
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 환경
+      description: 기기, 브라우저, 네트워크(교실 와이파이 등)

@@ -1,0 +1,27 @@
+name: Spec change proposal
+description: 승인된 스펙을 바꾸자는 제안 (구현 중 스펙에 없는 필요 포함)
+labels: ["Type: Spec Change", "Status: Pending"]
+body:
+  - type: input
+    id: spec
+    attributes:
+      label: 대상 스펙
+      description: 예) 002-slide-sync
+    validations:
+      required: true
+  - type: textarea
+    id: need
+    attributes:
+      label: 왜 필요한가
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: 제안하는 변경
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: 영향 (plan, tasks, 이미 구현된 부분)
