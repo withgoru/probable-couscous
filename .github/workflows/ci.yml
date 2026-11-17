@@ -1,0 +1,107 @@
+# CI 뼈대. server/ 와 client/ 가 아직 없으면 해당 작업은 "건너뜀"으로 통과한다.
+# 실제 폴더 이름, 설치·테스트 명령은 plan에서 확정한 값으로 바꾼다.
+# 액션 버전은 작성 시점의 예시다. 최신 버전과 보안 공지를 확인하고 필요하면 커밋 해시로 고정한다 (C17).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdd-check:
+    name: sdd-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 스펙 주도 개발 규칙 점검
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+          ALLOW_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'true' || 'false' }}
+        run: python scripts/sdd-check.py
+
+  server:
+    name: server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: detect
+        run: |
+          if [ -f server/pyproject.toml ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; echo "server/ 없음: 건너뜀"; fi
+      - if: steps.detect.outputs.exists == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.detect.outputs.exists == 'true'
+        working-directory: server
+        run: |
+          pip install -e ".[dev]"
+          ruff check .
+          pytest -q -m "not constitution"
+
+  client:
+    name: client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: detect
+        run: |
+          if [ -f client/package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; echo "client/ 없음: 건너뜀"; fi
+      - if: steps.detect.outputs.exists == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - if: steps.detect.outputs.exists == 'true'
+        working-directory: client
+        run: |
+          npm ci
+          npm run lint --if-present
+          npm run check --if-present
+          npm test --if-present
+          npm run build
+
+  # constitution의 필수 회귀 테스트만 따로 돌린다. 이 작업은 항상 필수 체크로 둔다.
+  constitution-tests:
+    name: constitution-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: detect
+        run: |
+          echo "server=$([ -f server/pyproject.toml ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "client=$([ -f client/package.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - if: steps.detect.outputs.server == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.detect.outputs.server == 'true'
+        working-directory: server
+        run: |
+          pip install -e ".[dev]"
+          pytest -q -m constitution
+      - if: steps.detect.outputs.client == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - if: steps.detect.outputs.client == 'true'
+        working-directory: client
+        run: |
+          npm ci
+          npm run test:constitution --if-present
