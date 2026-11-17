@@ -1,0 +1,1 @@
+{"name":"proto-slides","private":true,"type":"module","dependencies":{"@slidev/cli":"^53.1.0","@slidev/theme-default":"latest","vue":"latest"},"scripts":{"build":"slidev build --base /slides/ --out dist"}}
