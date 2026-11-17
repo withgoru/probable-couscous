@@ -57,8 +57,8 @@ chore: 의존성 갱신
 ## 이슈와 마일스톤
 
 - 마일스톤 `M1`, `M2`, `M3`을 만들어 스펙 단위 이슈를 묶고 싶을 때만 씁니다. 작업 목록의 원본은 `tasks.md`입니다(이슈로 복제하지 않습니다).
-- **스펙 변경 제안**과 **버그**는 이슈 템플릿으로 올립니다. 라벨은 `spec-change`, `bug`.
-- 구현 중 스펙에 없는 필요가 생기면 구현하지 않고 `spec-change` 이슈로 올립니다(GitHub CLI가 없으면 `docs/specs/<id>/change-requests.md`).
+- **스펙 변경 제안**과 **버그**는 이슈 템플릿으로 올립니다. 라벨은 `Type: Spec Change`, `Type: Bug`.
+- 구현 중 스펙에 없는 필요가 생기면 구현하지 않고 `Type: Spec Change` 이슈로 올립니다(GitHub CLI가 없으면 `docs/specs/<id>/change-requests.md`).
 
 ## CI가 점검하는 것
 
@@ -78,7 +78,7 @@ chore: 의존성 갱신
 | 브랜치 생성, 커밋, push | main에 직접 push |
 | Draft PR 열기, 본문 작성 | PR 머지 |
 | 문서와 코드 작성, 테스트 실행 | `status: approved`로 변경 |
-| `spec-change` 이슈 제안 | force push, 브랜치 보호 규칙 변경 |
+| `Type: Spec Change` 이슈 제안 | force push, 브랜치 보호 규칙 변경 |
 | tasks.md 체크 | 시크릿·토큰을 커밋에 포함 |
 
 Claude가 만든 커밋에는 공동 작성자 표시가 붙을 수 있고, `approved` 변경 커밋에 그 표시가 있으면 CI가 실패합니다. 승인 변경은 사용자가 직접 커밋하세요.
@@ -95,7 +95,7 @@ CI와 규칙 파일은 저장소에 들어 있지만, **아래 설정은 GitHub 
    - Require linear history (Squash만 쓰므로 가능)
    - 우회 허용 목록은 **비워서** 본인도 규칙을 따르게 한다
 3. **보안**: Dependabot alerts와 security updates 켜기. 갱신 PR은 CI와 변경 내용을 확인한 뒤 합칩니다.
-4. **라벨과 마일스톤**: 라벨 `spec-change`, `bug`, 마일스톤 `M1`, `M2`, `M3`.
+4. **라벨과 마일스톤**: 라벨은 [Sane GitHub Labels](https://medium.com/@dave_lunny/sane-github-labels-c5d2e6004b63) 체계(`Status:`, `Type:`, `Priority:` 접두어, 20개), 마일스톤 `M1`, `M2`, `M3`.
 5. **GitHub CLI**: Claude Code가 PR을 열려면 `gh auth login`이 필요합니다. 없으면 Claude Code가 PR 제목과 본문만 출력합니다.
 
 ## 배포 (미결정)
