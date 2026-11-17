@@ -1,33 +1,40 @@
-## 요약
+## 무엇을 하나요
 
-<!-- 무엇을 왜 바꿨는지 1~3줄 -->
+<!-- 한두 문장. 제목은 영어 Conventional Commits 형식: `docs(001): write spec` 또는 `feat(001): T003 send email verification code` -->
 
-## 관련 스펙·작업
+## 관련 문서
 
-<!-- 예: 001-classroom-entry T003. 해당 없으면 "없음" -->
+- 스펙: `docs/specs/<번호>-<이름>/spec.md`
+- 작업: T___ (구현 PR일 때)
+- 관련 이슈: closes #
 
 ## 변경 유형
 
-- [ ] spec / plan / tasks 문서
-- [ ] 기능 구현(feat)
-- [ ] 버그 수정(fix)
-- [ ] 기타(chore, docs, ci)
+- [ ] 스펙·계획·작업 문서 (`docs`)
+- [ ] 기능 구현 (`feat`)
+- [ ] 버그 수정 (`fix`)
+- [ ] 기타 (`chore`, `ci`, `test`)
 
-## 자기 검토 체크리스트
+## 문서 PR일 때
 
-- [ ] PR 제목이 Conventional Commits 형식이고 영어다 (예: `feat(001): T003 send email verification code`)
-- [ ] `python scripts/sdd-check.py` 통과
-- [ ] 테스트를 먼저 썼고 통과한다 (구현 PR)
-- [ ] tasks.md에서 해당 작업을 체크했고 인수 조건(AC)을 대조했다 (구현 PR)
-- [ ] `status: approved`는 내가 직접 바꿨다 (Claude가 바꾸지 않았다)
-- [ ] constitution(C1~C17)을 어기지 않는다
-- [ ] 화면 문구는 한국어이고 접근성(WCAG 2.2 AA)을 확인했다 (UI 변경)
-- [ ] 시크릿·토큰이 없다
+- [ ] 내가 직접 읽었고, `status`를 내가 직접 `approved`로 바꿨다 (Claude가 바꾸지 않았다)
+- [ ] Draft PR에서 검토했고, 이제 Ready로 바꾼다
 
-## 확인 방법
+## 구현 PR일 때: 수용 기준 대조
 
-<!-- 실행한 명령, 확인한 화면 -->
+| AC | 확인한 방법 (테스트 이름 또는 화면에서 확인한 동작) |
+|---|---|
+| AC1 | |
 
-## 남은 일 / 미결정
+## constitution 점검
 
-<!-- 없으면 "없음" -->
+- [ ] 관련된 원칙(C번호): ___ 를 지켰다
+- [ ] 필수 회귀 테스트가 통과한다
+- [ ] 스펙에 없는 동작을 넣지 않았다 (필요하면 `Type: Spec Change` 이슈로 올렸다)
+- [ ] UI가 있으면 대비, 포커스 링, 터치 영역 44px을 확인했다 (C14)
+- [ ] 새 의존성이 있으면 다운로드 수와 최신 갱신을 확인했고 버전을 고정했다 (C17)
+
+## 머지 전
+
+- [ ] CI(`sdd-check`, `server`, `client`, `constitution-tests`)가 모두 통과했다
+- [ ] Squash and merge로 합친다 (제목이 곧 main의 커밋 메시지)
