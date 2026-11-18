@@ -1,0 +1,181 @@
+"""권한 판단은 이 모듈의 `decide` 한 곳에서만 한다(C8).
+
+화면이나 개별 라우트에 권한 판단을 흩어 놓지 않는다. 라우트는 `guard(...)` 의존성으로 이 함수를 부르고,
+부르지 않는 라우트는 `PUBLIC_ROUTES`에 이름이 있어야 한다. 테스트가 라우트를 전수 검사한다.
+"""
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Annotated, Any, Literal
+
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.dependencies.models import Dependant
+from fastapi.routing import APIRoute, APIWebSocketRoute
+
+
+class Action(StrEnum):
+    CLASSROOM_READ = "classroom.read"
+    CLASSROOM_MANAGE = "classroom.manage"
+    ROSTER_MANAGE = "roster.manage"
+    JOINREQUEST_DECIDE = "joinrequest.decide"
+    PENDINGAUTH_VIEW = "pendingauth.view"
+    STUDENT_ENTER = "student.enter"
+
+
+@dataclass(frozen=True)
+class Actor:
+    kind: Literal["anonymous", "professor", "student"]
+    github_id: int | None = None
+    membership_id: int | None = None
+    classroom_id: int | None = None
+
+    @classmethod
+    def anonymous(cls) -> "Actor":
+        return cls("anonymous")
+
+    @classmethod
+    def professor(cls, github_id: int) -> "Actor":
+        return cls("professor", github_id=github_id)
+
+    @classmethod
+    def student(cls, membership_id: int, classroom_id: int) -> "Actor":
+        return cls("student", membership_id=membership_id, classroom_id=classroom_id)
+
+
+@dataclass(frozen=True)
+class ClassroomRef:
+    id: int
+    owner_github_id: int
+    status: Literal["active", "archived"]
+
+
+@dataclass(frozen=True)
+class Decision:
+    allowed: bool
+    reason: str = "ok"
+
+    def __bool__(self) -> bool:
+        return self.allowed
+
+
+_OWNER_ONLY = {
+    Action.CLASSROOM_MANAGE,
+    Action.ROSTER_MANAGE,
+    Action.JOINREQUEST_DECIDE,
+    Action.PENDINGAUTH_VIEW,
+}
+
+
+def decide(actor: Actor, action: Action | str, classroom: ClassroomRef) -> Decision:
+    """이 행위자가 이 강좌에서 이 행동을 할 수 있는가. 기본은 거부다."""
+    try:
+        action = Action(action)
+    except ValueError:
+        return Decision(False, "unknown_action")
+
+    if action is Action.STUDENT_ENTER:
+        # 초대 링크로 들어오는 사람은 아직 로그인하지 않았다. 보관된 강좌만 막는다
+        return Decision(True) if classroom.status == "active" else Decision(False, "archived")
+
+    if actor.kind == "anonymous":
+        return Decision(False, "not_logged_in")
+
+    if action in _OWNER_ONLY:
+        if actor.kind != "professor":
+            return Decision(False, "forbidden")
+        return Decision(True) if actor.github_id == classroom.owner_github_id else Decision(False, "not_owner")
+
+    if action is Action.CLASSROOM_READ:
+        if actor.kind == "professor":
+            return Decision(True) if actor.github_id == classroom.owner_github_id else Decision(False, "not_owner")
+        if actor.classroom_id != classroom.id:
+            return Decision(False, "not_member")
+        return Decision(True) if classroom.status == "active" else Decision(False, "archived")
+
+    return Decision(False, "unknown_action")
+
+
+# --- 라우트에 거는 의존성 ---------------------------------------------------------
+
+_DENIAL: dict[str, tuple[int, str]] = {
+    "not_logged_in": (401, "로그인이 필요합니다. 로그인한 뒤 다시 시도해 주세요."),
+    "not_owner": (403, "이 강좌를 볼 권한이 없습니다."),
+    "forbidden": (403, "이 작업을 할 권한이 없습니다."),
+    "not_member": (403, "이 강좌에 입장한 학생만 볼 수 있습니다."),
+    "archived": (403, "이 강좌는 보관되었습니다. 교수님께 문의해 주세요."),
+    "unknown_action": (403, "허용되지 않은 요청입니다."),
+}
+_NOT_FOUND = "찾을 수 없는 강좌입니다."
+
+
+@dataclass(frozen=True)
+class Granted:
+    actor: Actor
+    resource: ClassroomRef
+
+
+def get_actor(request: Request) -> Actor:
+    """요청한 사람이 누구인가. T005가 로그인 상태를 읽도록 바꾼다. 그 전에는 모두 익명이다."""
+    return Actor.anonymous()
+
+
+def guard(action: Action, load: Callable[..., ClassroomRef | None]) -> Callable[..., Granted]:
+    """라우트에 `Depends(guard(행동, 강좌 불러오기))`로 건다. 허용되면 행위자와 강좌를 돌려준다."""
+
+    def check(
+        actor: Annotated[Actor, Depends(get_actor)],
+        classroom: Annotated[ClassroomRef | None, Depends(load)],
+    ) -> Granted:
+        if classroom is None:
+            # 로그인하지 않은 사람에게는 강좌가 있는지 없는지 알려 주지 않는다
+            if actor.kind == "anonymous" and action is not Action.STUDENT_ENTER:
+                status, message = _DENIAL["not_logged_in"]
+                raise HTTPException(status_code=status, detail=message)
+            raise HTTPException(status_code=404, detail=_NOT_FOUND)
+        decision = decide(actor, action, classroom)
+        if not decision:
+            status, message = _DENIAL.get(decision.reason, _DENIAL["unknown_action"])
+            raise HTTPException(status_code=status, detail=message)
+        return Granted(actor=actor, resource=classroom)
+
+    check.__authz_guard__ = True  # type: ignore[attr-defined]
+    check.__authz_action__ = action  # type: ignore[attr-defined]
+    return check
+
+
+# 권한 판단 없이 열려 있는 라우트. 로그인 전에도 열려야 하는 것만 여기에 이름을 올린다.
+# 라우트를 추가할 때 이 목록을 고치게 되므로 리뷰에서 보인다.
+PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/api/health"),
+        ("GET", "/api/docs"),
+        ("GET", "/api/openapi.json"),
+        ("GET", "/{full_path:path}"),  # 클라이언트 화면(SPA)과 정적 파일
+    }
+)
+
+
+def _has_guard(dependant: Dependant) -> bool:
+    for dep in dependant.dependencies:
+        if getattr(dep.call, "__authz_guard__", False) or _has_guard(dep):
+            return True
+    return False
+
+
+def routes_without_authz(app: FastAPI) -> list[tuple[str, str]]:
+    """`guard`도 없고 `PUBLIC_ROUTES`에도 없는 라우트를 (메서드, 경로)로 돌려준다."""
+    missing: list[tuple[str, str]] = []
+    for route in app.routes:
+        guarded: bool = False
+        methods: set[str] = set(getattr(route, "methods", None) or {"GET"})
+        if isinstance(route, APIRoute):
+            guarded = _has_guard(route.dependant)
+        elif isinstance(route, APIWebSocketRoute):
+            guarded = _has_guard(route.dependant)
+            methods = {"WEBSOCKET"}
+        path: Any = route.path  # type: ignore[attr-defined]
+        for method in sorted(methods - {"HEAD", "OPTIONS"}):
+            if not guarded and (method, path) not in PUBLIC_ROUTES:
+                missing.append((method, path))
+    return missing
