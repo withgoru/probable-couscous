@@ -387,5 +387,5 @@ def test_clearing_browser_data_means_a_new_device_that_needs_its_own_code(env):
 def test_c7_no_table_has_a_column_that_could_hold_the_code(env):
     # 코드는 저장하지 않는다. 어느 표에도 코드, 해시된 코드, 평문 비밀번호로 보이는 열이 없다
     for (table,) in env.db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
-        for col in env.db.execute(f"PRAGMA table_info({table})").fetchall():  # noqa: S608
-            assert not re.search(r"code|otp|passw", col["name"], re.I), f"{table}.{col['name']}"
+        for col in env.db.execute(f"PRAGMA table_info({table})").fetchall():
+            assert not re.search(r"code|otp|passw", col["name"], re.IGNORECASE), f"{table}.{col['name']}"
