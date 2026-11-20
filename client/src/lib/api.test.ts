@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, logout } from './api';
+import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, logout } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -115,5 +115,23 @@ describe('cloneClassroom', () => {
 		expect(err).toBeInstanceOf(ApiError);
 		expect(err.status).toBe(403);
 		expect(err.message).toBe('이 강좌를 볼 권한이 없습니다.');
+	});
+});
+
+describe('fetchMySummary', () => {
+	const BODY = {
+		github_id: 101, login: 'kim', counts: { active: 1, archived: 0 }, active_students: 0, active_classrooms: [ITEM]
+	};
+
+	it('마이페이지 요약을 돌려준다', async () => {
+		const fetch = vi.fn(() => json(200, BODY));
+		expect(await fetchMySummary(fetch)).toEqual(BODY);
+		expect(fetch).toHaveBeenCalledWith('/api/me/summary', expect.objectContaining({ credentials: 'same-origin' }));
+	});
+
+	it('실패하면 ApiError를 올린다', async () => {
+		const err = await fetchMySummary(() => json(401, { detail: '로그인이 필요합니다.' })).catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.status).toBe(401);
 	});
 });

@@ -9,6 +9,7 @@ import sqlite3
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.authz import Action, ClassroomRef, Granted, guard, guard_account
@@ -52,6 +53,7 @@ ReadGuard = Annotated[Granted, Depends(guard(Action.CLASSROOM_READ, load_classro
 CloneGuard = Annotated[Granted, Depends(guard(Action.CLASSROOM_CLONE, load_classroom))]
 CreateGuard = Annotated[Granted, Depends(guard_account(Action.CLASSROOM_CREATE))]
 ListGuard = Annotated[Granted, Depends(guard_account(Action.CLASSROOM_LIST))]
+MeGuard = Annotated[Granted, Depends(guard_account(Action.ME_READ))]
 
 
 class NewClassroom(BaseModel):
@@ -154,3 +156,25 @@ def list_classrooms(granted: ListGuard, db: Db):
 @router.get("/api/classrooms/{classroom_id}")
 def get_classroom(granted: ReadGuard, db: Db):
     return _item(db, granted.resource.id)
+
+
+@router.get("/api/me/summary")
+def me_summary(granted: MeGuard, db: Db):
+    """마이페이지(AC49). 로그인한 교수의 계정, 강좌 수, 진행 중 수강생 합계, 진행 중 강좌 목록."""
+    owner = granted.actor.github_id
+    professor = db.execute("SELECT github_id, login FROM professors WHERE github_id = ?", (owner,)).fetchone()
+    rows = db.execute(
+        _ITEM_SQL + " WHERE c.owner_github_id = ? ORDER BY c.created_at DESC, c.id DESC", (owner,)
+    ).fetchall()
+    classrooms = [dict(r) for r in rows]
+    active = [c for c in classrooms if c["status"] == "active"]
+    return JSONResponse(
+        {
+            "github_id": professor["github_id"],
+            "login": professor["login"],
+            "counts": {"active": len(active), "archived": len(classrooms) - len(active)},
+            "active_students": sum(c["student_count"] for c in active),
+            "active_classrooms": active,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
