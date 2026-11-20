@@ -139,7 +139,8 @@ class Granted:
 def get_actor(request: Request, db: Annotated[sqlite3.Connection, Depends(get_db)]) -> Actor:
     """요청한 사람이 누구인가. 유효한 교수 로그인 상태가 있으면 교수, 아니면 익명이다.
 
-    학생의 로그인 상태(기기 로그인)는 학생 입장 작업(T020)에서 여기에 더한다.
+    학생의 기기 로그인은 강좌를 가리키는 초대 링크 경로(`join.py`)가 `student_login.current_login`으로 직접 확인한다.
+    채팅처럼 입장한 학생만 쓰는 경로가 생기면(후속 스펙) 여기에 학생 행위자를 더한다.
     """
     token = request.cookies.get(SESSION_COOKIE)
     if token:

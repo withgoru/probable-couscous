@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import identity
+from app import identity, student_login
 from app.authz import Action, ClassroomRef, Granted, guard
 from app.challenges import (
     DEVICE_COOKIE,
@@ -29,7 +29,7 @@ from app.db import get_db, transaction
 from app.invites import resolve_token
 from app.mail import enqueue_code_mail
 from app.roster import find_live_by_email, is_valid_email, normalize_email
-from app.student_login import LOGIN_COOKIE, PERSISTENT_MAX_AGE, create_device_login
+from app.student_login import LOGIN_COOKIE, PERSISTENT_MAX_AGE, create_device_login, current_login
 
 router = APIRouter()
 
@@ -178,3 +178,72 @@ def check_code(body: CodeBody, granted: EnterGuard, request: Request, db: Db):
         path="/",
     )
     return response
+
+
+# --- 입장 확정과 내 상태 (AC28, AC35~AC37) -----------------------------------------------------------------------
+
+NOT_LOGGED_IN = "입장 인증이 끝나지 않았습니다. 이메일과 코드로 먼저 인증해 주세요."
+NOT_ON_ROSTER = "이 강좌의 수강생 명단에 없습니다. 교수님께 문의해 주세요."
+
+
+def _classroom_name(db: sqlite3.Connection, classroom_id: int) -> str:
+    return db.execute("SELECT name FROM classrooms WHERE id = ?", (classroom_id,)).fetchone()["name"]
+
+
+def _fresh_login(request: Request, db: sqlite3.Connection, classroom_id: int):
+    """이 강좌에서 쓸 수 있는 기기 로그인과 그 계정의 명단 항목. 쓸 수 없으면 None.
+
+    로그인이 유효해야 하고, 계정의 이메일이 이 강좌의 살아 있는 명단에 있어야 하며,
+    교수가 로그인을 끊은 뒤(`reverify_after`)에 인증한 로그인이어야 한다.
+    """
+    now = request.app.state.clock.now()
+    login = current_login(db, request.cookies.get(LOGIN_COOKIE), request.cookies.get(DEVICE_COOKIE), now)
+    if login is None:
+        return None, None, "login"
+    entry = find_live_by_email(db, classroom_id, student_login.account_email(db, login.account_id))
+    if entry is None:
+        return login, None, "not_on_roster"
+    existing = identity.find_membership(db, classroom_id, login.account_id)
+    if existing and existing.reverify_after and login.created_at <= existing.reverify_after:
+        return login, entry, "login"  # 끊긴 뒤에는 이메일 인증부터 다시 한다(AC20)
+    return login, entry, "ok"
+
+
+@router.get("/api/join/{token}/me")
+def my_state(granted: EnterGuard, request: Request, db: Db):
+    """이 기기의 이 강좌 상태: login(이메일 인증 필요), notice(인증됨, 안내 확인 전), entered(입장함).
+
+    인증된 기기로 다른 강좌 링크를 열면 그 강좌 명단에 있을 때 코드 없이 notice가 된다(AC37). 이때 그 강좌의
+    멤버십(닉네임)을 처음 만든다. 같은 요청을 되풀이해도 결과가 같다(멱등).
+    """
+    classroom_id = granted.resource.id
+    login, entry, status = _fresh_login(request, db, classroom_id)
+    if status != "ok":
+        return {"state": "login"}
+    now = request.app.state.clock.now()
+    with transaction(db):
+        membership = identity.membership_for(db, classroom_id, login.account_id, entry["id"], now)
+        # 이 로그인은 끊긴 뒤에 만들어진 것이 확인됐으므로(_fresh_login) 그 로그인의 입장 기록이면 유효하다
+        entered = student_login.verified_at(db, login.id, classroom_id) is not None
+    return {
+        "state": "entered" if entered else "notice",
+        "nickname": membership.nickname,
+        "classroom": _classroom_name(db, classroom_id),
+    }
+
+
+@router.post("/api/join/{token}/enter")
+def enter_classroom(granted: EnterGuard, request: Request, db: Db):
+    """'확인하고 입장'. 채팅 이용 안내를 확인한 것으로 기록하고 이 기기를 이 강좌에서 인증된 기기로 남긴다(AC28)."""
+    classroom_id = granted.resource.id
+    login, entry, status = _fresh_login(request, db, classroom_id)
+    if status == "not_on_roster":
+        raise HTTPException(status_code=403, detail=NOT_ON_ROSTER)
+    if status != "ok":
+        raise HTTPException(status_code=401, detail=NOT_LOGGED_IN)
+    now = request.app.state.clock.now()
+    with transaction(db):
+        membership = identity.membership_for(db, classroom_id, login.account_id, entry["id"], now)
+        identity.acknowledge_notice(db, membership.id, now)
+        student_login.record_verification(db, login.id, classroom_id, membership.id, now)
+    return {"next": "entered", "nickname": membership.nickname, "classroom": _classroom_name(db, classroom_id)}
