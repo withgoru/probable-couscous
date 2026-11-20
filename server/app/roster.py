@@ -100,18 +100,23 @@ def find_duplicate(db: sqlite3.Connection, classroom_id: int, entry: CleanEntry)
     return None
 
 
+def add_entry_unlocked(db: sqlite3.Connection, classroom_id: int, entry: CleanEntry, now: str) -> int:
+    """`add_entry`의 본체. 호출하는 쪽이 이미 연 쓰기 트랜잭션 안에서 부른다(예: 입장 요청 승인과 함께 저장하려고)."""
+    duplicate = find_duplicate(db, classroom_id, entry)
+    if duplicate:
+        raise duplicate
+    if live_count(db, classroom_id) >= ROSTER_LIMIT:
+        raise RosterError(
+            "roster_full",
+            f"명단은 {ROSTER_LIMIT}명까지 등록할 수 있습니다. 다른 학생을 빼고 다시 추가해 주세요.",
+        )
+    return _insert(db, classroom_id, entry, now)
+
+
 def add_entry(db: sqlite3.Connection, classroom_id: int, entry: CleanEntry, now: str) -> int:
     """한 명을 추가한다. 중복과 200명 상한은 쓰기 잠금을 잡은 같은 트랜잭션 안에서 센다."""
     with transaction(db):
-        duplicate = find_duplicate(db, classroom_id, entry)
-        if duplicate:
-            raise duplicate
-        if live_count(db, classroom_id) >= ROSTER_LIMIT:
-            raise RosterError(
-                "roster_full",
-                f"명단은 {ROSTER_LIMIT}명까지 등록할 수 있습니다. 다른 학생을 빼고 다시 추가해 주세요.",
-            )
-        return _insert(db, classroom_id, entry, now)
+        return add_entry_unlocked(db, classroom_id, entry, now)
 
 
 def _insert(db: sqlite3.Connection, classroom_id: int, entry: CleanEntry, now: str) -> int:
