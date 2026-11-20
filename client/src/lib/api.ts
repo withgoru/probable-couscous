@@ -35,10 +35,13 @@ export type ClassroomList = {
 /** 서버가 오류로 답했을 때. message는 서버가 준 한국어 안내라서 화면에 그대로 보여 줄 수 있다. */
 export class ApiError extends Error {
 	status: number;
-	constructor(status: number, message: string) {
+	/** 입력 칸에 대한 오류면 그 칸 이름, 칸과 무관한 오류(예: 200명 초과)면 null, 칸 개념이 없는 오류면 undefined. */
+	field?: string | null;
+	constructor(status: number, message: string, field?: string | null) {
 		super(message);
 		this.name = 'ApiError';
 		this.status = status;
+		this.field = field;
 	}
 }
 
@@ -49,10 +52,13 @@ async function failure(res: Response): Promise<ApiError> {
 	} catch {
 		// 본문이 JSON이 아니면 안내 없이 상태 번호만 쓴다
 	}
-	return new ApiError(
-		res.status,
-		typeof detail === 'string' ? detail : `요청을 처리하지 못했습니다 (${res.status})`
-	);
+	if (typeof detail === 'string') return new ApiError(res.status, detail);
+	// 명단 API는 {field, message}로 어느 입력 칸의 오류인지 알려 준다
+	if (detail && typeof detail === 'object' && typeof (detail as { message?: unknown }).message === 'string') {
+		const { field, message } = detail as { field?: string | null; message: string };
+		return new ApiError(res.status, message, field ?? null);
+	}
+	return new ApiError(res.status, `요청을 처리하지 못했습니다 (${res.status})`);
 }
 
 async function getJson<T>(fetchFn: FetchFn, url: string): Promise<T> {
@@ -105,4 +111,41 @@ export type MySummary = {
 
 export function fetchMySummary(fetchFn: FetchFn): Promise<MySummary> {
 	return getJson<MySummary>(fetchFn, '/api/me/summary');
+}
+
+export type RosterEntry = { id: number; student_no: string; name: string; email: string; entered: boolean };
+export type Roster = { entries: RosterEntry[]; count: number; limit: number };
+export type NewStudent = { student_no: string; name: string; email: string };
+export type ImportResult = { added: number; skipped: number; skipped_lines: { line: number; reason: string }[] };
+
+export function fetchRoster(classroomId: number, fetchFn: FetchFn): Promise<Roster> {
+	return getJson<Roster>(fetchFn, `/api/classrooms/${classroomId}/roster`);
+}
+
+/** 학생 한 명 추가. 실패하면 ApiError(field가 있으면 그 입력 칸의 오류). */
+export async function addStudent(
+	classroomId: number,
+	input: NewStudent,
+	fetchFn: FetchFn = fetch
+): Promise<Omit<RosterEntry, 'entered'>> {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/roster`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+		body: JSON.stringify(input)
+	});
+	if (!res.ok) throw await failure(res);
+	return (await res.json()) as Omit<RosterEntry, 'entered'>;
+}
+
+/** CSV 올리기. 파일 내용을 그대로 본문으로 보낸다(서버가 1MB까지 받는다). */
+export async function importRoster(classroomId: number, file: File, fetchFn: FetchFn = fetch): Promise<ImportResult> {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/roster/import`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'text/csv', Accept: 'application/json' },
+		body: file
+	});
+	if (!res.ok) throw await failure(res);
+	return (await res.json()) as ImportResult;
 }

@@ -297,3 +297,12 @@ def test_checker_accepts_a_guarded_route_and_a_listed_public_route():
     flagged = routes_without_authz(app)
     assert ("GET", "/api/classrooms/{classroom_id}") not in flagged
     assert ("GET", "/api/health") not in flagged
+
+
+@pytest.mark.constitution
+def test_c9_member_identities_is_touched_only_by_the_identity_module():
+    # 멤버십과 사람을 잇는 표는 identity 모듈만 읽고 쓴다. 다른 모듈이 직접 건드리면 닉네임과 실명이 한곳에서 만난다
+    offenders = [
+        p.name for p in APP_DIR.rglob("*.py") if p.name != "identity.py" and "member_identities" in p.read_text()
+    ]
+    assert offenders == [], f"identity.py 밖에서 member_identities를 쓰는 파일: {offenders}"

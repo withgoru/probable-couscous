@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, logout } from './api';
+import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, logout } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -133,5 +133,65 @@ describe('fetchMySummary', () => {
 		const err = await fetchMySummary(() => json(401, { detail: '로그인이 필요합니다.' })).catch((e) => e);
 		expect(err).toBeInstanceOf(ApiError);
 		expect(err.status).toBe(401);
+	});
+});
+
+describe('명단 API', () => {
+	const ROSTER = { entries: [{ id: 1, student_no: '1', name: '김', email: 'a@x.kr', entered: false }], count: 1, limit: 200 };
+
+	it('fetchRoster는 명단을 돌려준다', async () => {
+		const fetch = vi.fn(() => json(200, ROSTER));
+		expect(await fetchRoster(7, fetch)).toEqual(ROSTER);
+		expect(fetch).toHaveBeenCalledWith('/api/classrooms/7/roster', expect.objectContaining({ credentials: 'same-origin' }));
+	});
+
+	it('addStudent는 JSON으로 보내고 추가된 학생을 돌려준다', async () => {
+		const fetch = vi.fn(() => json(201, { id: 5, student_no: '1', name: '김', email: 'a@x.kr' }));
+		const input = { student_no: '1', name: '김', email: 'a@x.kr' };
+		expect((await addStudent(7, input, fetch)).id).toBe(5);
+		expect(fetch).toHaveBeenCalledWith(
+			'/api/classrooms/7/roster',
+			expect.objectContaining({ method: 'POST', body: JSON.stringify(input) })
+		);
+	});
+
+	it('칸에 대한 오류는 field와 안내를 담은 ApiError다', async () => {
+		const err = await addStudent(7, { student_no: '1', name: '김', email: 'x' }, () =>
+			json(422, { detail: { field: 'email', message: '이메일 형식을 확인해 주세요.' } })
+		).catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.field).toBe('email');
+		expect(err.message).toBe('이메일 형식을 확인해 주세요.');
+	});
+
+	it('칸이 없는 오류(200명 초과)는 field가 null이다', async () => {
+		const err = await importRoster(7, new File(['x'], 'a.csv'), () =>
+			json(422, { detail: { field: null, message: '명단은 200명까지 등록할 수 있습니다. 3명을 줄여 다시 올려 주세요.' } })
+		).catch((e) => e);
+		expect(err.field).toBeNull();
+		expect(err.message).toContain('200명까지');
+	});
+
+	it('문자열 detail은 field가 없다', async () => {
+		const err = await fetchRoster(7, () => json(403, { detail: '이 강좌를 볼 권한이 없습니다.' })).catch((e) => e);
+		expect(err.field).toBeUndefined();
+		expect(err.message).toBe('이 강좌를 볼 권한이 없습니다.');
+	});
+
+	it('importRoster는 파일을 그대로 text/csv 본문으로 보낸다', async () => {
+		const result = { added: 2, skipped: 1, skipped_lines: [{ line: 3, reason: '빈 칸' }] };
+		const fetch = vi.fn(() => json(200, result));
+		const file = new File(['학번,이름,이메일\n'], 'a.csv', { type: 'text/csv' });
+		expect(await importRoster(7, file, fetch)).toEqual(result);
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/roster/import');
+		expect(init.method).toBe('POST');
+		expect(init.body).toBe(file);
+		expect((init.headers as Record<string, string>)['Content-Type']).toBe('text/csv');
+	});
+
+	it('칸 정보가 없는 객체 detail은 field가 null이다', async () => {
+		const err = await fetchRoster(7, () => json(422, { detail: { message: '안내' } })).catch((e) => e);
+		expect(err.field).toBeNull();
 	});
 });
