@@ -12,6 +12,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from fastapi import Request
+
 from app.clock import Clock
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
@@ -25,7 +27,11 @@ class MigrationError(RuntimeError):
 def connect(path: str | Path, busy_timeout_ms: int = 5000) -> sqlite3.Connection:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, isolation_level=None, timeout=busy_timeout_ms / 1000)
+    # 같은 요청의 의존성과 처리 함수가 서로 다른 스레드에서 실행될 수 있어 check_same_thread를 푼다.
+    # 연결은 요청 하나가 차례로만 쓰고 동시에 쓰지 않는다.
+    conn = sqlite3.connect(
+        path, isolation_level=None, timeout=busy_timeout_ms / 1000, check_same_thread=False
+    )
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
     conn.execute("PRAGMA journal_mode = WAL")
@@ -121,3 +127,12 @@ def migrate(conn: sqlite3.Connection, directory: str | Path, clock: Clock) -> li
             raise MigrationError(f"{version}: 적용하지 못했습니다. {err}") from err
         done.append(version)
     return done
+
+
+def get_db(request: Request) -> Iterator[sqlite3.Connection]:
+    """요청마다 연결을 하나 열고 끝나면 닫는다. 같은 요청 안에서는 같은 연결을 쓴다."""
+    conn = connect(request.app.state.settings.database_path)
+    try:
+        yield conn
+    finally:
+        conn.close()
