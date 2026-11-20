@@ -18,6 +18,7 @@ from app.config import Settings, load_settings
 from app.db import MIGRATIONS_DIR, connect, migrate
 from app.invites import router as invites_router
 from app.join import router as join_router
+from app.join_requests import router as join_requests_router
 from app.mail import Mailer, MailWorker, OutboxMailer
 from app.routes_auth import router as auth_router
 
@@ -97,6 +98,7 @@ def create_app(
     app.include_router(classrooms_router)
     app.include_router(invites_router)
     app.include_router(join_router)
+    app.include_router(join_requests_router)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

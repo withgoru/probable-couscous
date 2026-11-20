@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import identity, student_login
+from app import identity, join_requests, student_login
 from app.authz import Action, ClassroomRef, Granted, guard
 from app.challenges import (
     DEVICE_COOKIE,
@@ -28,7 +28,7 @@ from app.challenges import (
 from app.db import get_db, transaction
 from app.invites import resolve_token
 from app.mail import enqueue_code_mail
-from app.roster import find_live_by_email, is_valid_email, normalize_email
+from app.roster import RosterError, clean_entry, find_live_by_email, is_valid_email, normalize_email
 from app.student_login import LOGIN_COOKIE, PERSISTENT_MAX_AGE, create_device_login, current_login
 
 router = APIRouter()
@@ -95,7 +95,11 @@ def _request_code(request: Request, db: sqlite3.Connection, classroom_id: int, e
     """명단에 있으면 코드 메일을 요청하고, 없으면 입장 요청 안내를 준다(메일은 보내지 않는다). 첫 요청과 다시 받기가 같다."""
     entry = find_live_by_email(db, classroom_id, email)
     if entry is None:
-        return {"next": "request_access", "message": NOT_IN_ROSTER}
+        # 이미 요청했거나 거절된 학생에게는 그 상태를 알려 주고, 아니면 입장 요청 안내를 준다(AC42, AC43)
+        return join_requests.status_answer(db, classroom_id, email) or {
+            "next": "request_access",
+            "message": NOT_IN_ROSTER,
+        }
 
     device = _device(request, db)
     now = request.app.state.clock.now()
@@ -124,6 +128,34 @@ def check_email(body: EmailBody, granted: EnterGuard, request: Request, db: Db):
 def resend_code(body: EmailBody, granted: EnterGuard, request: Request, db: Db):
     """코드 다시 받기. 직전 요청 60초 뒤부터 새 코드를 보내고 이전 코드는 쓸 수 없게 한다(AC32)."""
     return _request_code(request, db, granted.resource.id, _clean_email(body.email))
+
+
+class AccessBody(BaseModel):
+    email: object = None
+    name: object = None
+    student_no: object = None
+
+
+@router.post("/api/join/{token}/request-access", status_code=201)
+def request_access(body: AccessBody, granted: EnterGuard, request: Request, db: Db):
+    """명단에 없는 이메일로 입장 요청을 보낸다(AC39). 같은 이메일의 처리 전 요청은 하나로 합친다(AC43)."""
+    email = _clean_email(body.email)
+    try:
+        who = clean_entry(body.student_no, body.name, email)  # 이름·학번도 명단과 같은 규칙으로 검사한다
+    except RosterError as err:
+        raise _problem(422, err.field, err.message) from err
+    classroom_id = granted.resource.id
+    if find_live_by_email(db, classroom_id, email) is not None:
+        return JSONResponse(
+            {"next": "already_on_roster", "message": join_requests.ALREADY_ON_ROSTER}, status_code=200
+        )
+    answer = join_requests.status_answer(db, classroom_id, email)
+    if answer is None:
+        now = request.app.state.clock.now().isoformat()
+        if join_requests.create_request(db, classroom_id, email, who.name, who.student_no, now):
+            return {"next": "requested", "message": join_requests.REQUESTED}
+        answer = {"next": "already_requested", "message": join_requests.ALREADY}  # 동시에 들어온 같은 요청
+    return JSONResponse(answer, status_code=200)
 
 
 class CodeBody(BaseModel):
