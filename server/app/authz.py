@@ -25,7 +25,10 @@ class Action(StrEnum):
     JOINREQUEST_DECIDE = "joinrequest.decide"
     PENDINGAUTH_VIEW = "pendingauth.view"
     STUDENT_ENTER = "student.enter"
-    ME_READ = "me.read"  # 강좌와 무관한 계정 단계 행동(내 정보 보기)
+    # 강좌와 무관한 계정 단계 행동. 로그인한 교수만 할 수 있다
+    ME_READ = "me.read"
+    CLASSROOM_CREATE = "classroom.create"
+    CLASSROOM_LIST = "classroom.list"
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,9 @@ _OWNER_ONLY = {
 }
 
 
+_ACCOUNT_LEVEL = {Action.ME_READ, Action.CLASSROOM_CREATE, Action.CLASSROOM_LIST}
+
+
 def decide(actor: Actor, action: Action | str, classroom: ClassroomRef | None = None) -> Decision:
     """이 행위자가 이 강좌에서 이 행동을 할 수 있는가. 기본은 거부다."""
     try:
@@ -79,7 +85,7 @@ def decide(actor: Actor, action: Action | str, classroom: ClassroomRef | None = 
     except ValueError:
         return Decision(False, "unknown_action")
 
-    if action is Action.ME_READ:  # 강좌와 무관하다
+    if action in _ACCOUNT_LEVEL:  # 강좌와 무관하다
         if actor.kind == "anonymous":
             return Decision(False, "not_logged_in")
         return Decision(True) if actor.kind == "professor" else Decision(False, "forbidden")

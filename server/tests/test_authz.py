@@ -88,6 +88,14 @@ def test_account_level_action_me_read_needs_a_professor():
     assert decide(MEMBER, Action.ME_READ, None).reason == "forbidden"
 
 
+@pytest.mark.parametrize("action", [Action.CLASSROOM_CREATE, Action.CLASSROOM_LIST])
+def test_creating_and_listing_classrooms_are_professor_only_account_actions(action):
+    assert decide(OWNER, action, None).allowed
+    assert decide(STRANGER, action, None).allowed  # 어느 교수든 자기 강좌를 만들고 목록을 본다
+    assert decide(ANON, action, None).reason == "not_logged_in"
+    assert decide(MEMBER, action, None).reason == "forbidden"
+
+
 def test_unknown_action_is_denied_by_default():
     d = decide(OWNER, "classroom.delete", OWN)  # type: ignore[arg-type]
     assert d == Decision(False, "unknown_action")
