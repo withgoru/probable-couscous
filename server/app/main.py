@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,8 +17,10 @@ from app.clock import Clock, SystemClock
 from app.config import Settings, load_settings
 from app.db import MIGRATIONS_DIR, connect, migrate
 from app.invites import router as invites_router
+from app.mail import Mailer, MailWorker, OutboxMailer
 from app.routes_auth import router as auth_router
 
+log = logging.getLogger(__name__)
 NOT_BUILT = "클라이언트가 아직 빌드되지 않았습니다. client 폴더에서 npm run build를 실행하세요."
 BAD_ORIGIN = "허용되지 않은 출처의 요청입니다. 서비스 주소에서 다시 시도해 주세요."
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
@@ -41,11 +44,18 @@ def create_app(
     settings: Settings | None = None,
     clock: Clock | None = None,
     auth_provider: AuthProvider | None = None,
+    mailer: Mailer | None = None,
+    start_mail_worker: bool = True,
 ) -> FastAPI:
     settings = settings or load_settings()
     clock = clock or SystemClock()
     if auth_provider is None and settings.github_client_id and settings.github_client_secret:
         auth_provider = GitHubProvider(settings.github_client_id, settings.github_client_secret)
+
+    mailer = mailer or OutboxMailer()
+    mail_worker = MailWorker(
+        lambda: connect(settings.database_path), mailer, settings.server_secret, clock, settings.mail_rate_per_sec
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -55,13 +65,22 @@ def create_app(
             migrate(conn, MIGRATIONS_DIR, clock)
         finally:
             conn.close()
-        yield
+        if isinstance(mailer, OutboxMailer):
+            log.warning("메일 발송이 설정되지 않아 메일을 실제로 보내지 않고 메모리에만 모읍니다. 학생은 교수 대체 경로로 입장합니다.")
+        if start_mail_worker:
+            mail_worker.start()
+        try:
+            yield
+        finally:
+            mail_worker.stop()
 
     app = FastAPI(title="강의 상호작용 도구", docs_url="/api/docs", redoc_url=None,
                   openapi_url="/api/openapi.json", swagger_ui_oauth2_redirect_url=None,
                   lifespan=lifespan)
     app.state.settings = settings
     app.state.clock = clock
+    app.state.mailer = mailer
+    app.state.mail_worker = mail_worker
     app.state.auth_provider = auth_provider  # 설정이 없으면 None. 로그인 시작이 안내와 함께 503을 준다
     allowed_origin = _origin_of(settings.base_url)
 
