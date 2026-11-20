@@ -94,3 +94,15 @@ export function cloneClassroom(
 ): Promise<Classroom> {
 	return postClassroom(fetchFn, `/api/classrooms/${sourceId}/clone`, input);
 }
+
+export type MySummary = {
+	github_id: number;
+	login: string;
+	counts: { active: number; archived: number };
+	active_students: number;
+	active_classrooms: Classroom[];
+};
+
+export function fetchMySummary(fetchFn: FetchFn): Promise<MySummary> {
+	return getJson<MySummary>(fetchFn, '/api/me/summary');
+}
