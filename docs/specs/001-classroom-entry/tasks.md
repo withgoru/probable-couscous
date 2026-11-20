@@ -168,7 +168,7 @@ updated: 2026-11-17
   - 완료 기준: `POST /join/{token}/notify-professor`와 `GET /classrooms/{id}/pending-auth`가 동작하고 테스트가 통과한다
   - 관련 원칙: C6, C8, C9
 
-- [ ] **T023. 교수 화면 실시간(RoomBus, WebSocket)**
+- [x] **T023. 교수 화면 실시간(RoomBus, WebSocket)**
   - 대응 AC: AC40, AC45
   - 의존: T021, T022
   - 먼저 쓸 테스트: 연결에 로그인과 강좌 소유 확인이 필요하고, 입장 요청과 대기 중인 인증이 생기면 DB 기록 뒤에 이벤트가 전달되며, 소유하지 않은 강좌는 연결이 거부되고, 재접속 뒤 목록을 HTTP로 다시 받는다

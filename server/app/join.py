@@ -23,12 +23,15 @@ from app.challenges import (
     ensure_device,
     find_device,
     issue_challenge_unlocked,
+    notified_active_ids,
     notify_professor,
     verify_code_unlocked,
+    was_notified,
 )
 from app.db import get_db, transaction
 from app.invites import resolve_token
 from app.mail import enqueue_code_mail
+from app.realtime import publish_admin
 from app.roster import RosterError, clean_entry, find_live_by_email, is_valid_email, normalize_email
 from app.student_login import LOGIN_COOKIE, PERSISTENT_MAX_AGE, create_device_login, current_login
 
@@ -107,12 +110,15 @@ def _request_code(request: Request, db: sqlite3.Connection, classroom_id: int, e
     try:
         # 챌린지와 메일 발송 요청은 함께 저장되거나 함께 사라진다. 메일 없는 챌린지가 남지 않게 한다
         with transaction(db):
+            superseded = notified_active_ids(db, classroom_id, email)  # 새 코드가 나오면 이것들은 쓸 수 없게 된다
             challenge_id = issue_challenge_unlocked(
                 db, request.app.state.settings.server_secret, classroom_id, email, device.device_id, now
             )
             enqueue_code_mail(db, classroom_id, challenge_id, entry["email_norm"], now)
     except ResendTooSoon as err:
         raise _problem(429, None, str(err), wait_seconds=err.seconds) from err
+    for old_id in superseded:  # 저장이 끝난 뒤에 알린다
+        publish_admin(request, classroom_id, "pending_auth.updated", id=old_id)
     response = JSONResponse({"next": "code", "wait_seconds": int(RESEND_INTERVAL.total_seconds())})
     if device.is_new:
         _set_device_cookie(request, response, device.token)
@@ -145,9 +151,13 @@ def notify_professor_route(body: EmailBody, granted: EnterGuard, request: Reques
     """'교수님께 알리기'(AC44). 메일이 오지 않을 때 교수가 코드를 알려 줄 수 있게 교수의 대기 중인 인증 목록에 올린다."""
     email = _clean_email(body.email)
     device_id = find_device(db, request.cookies.get(DEVICE_COOKIE))
-    outcome = notify_professor(db, granted.resource.id, email, device_id, request.app.state.clock.now())
-    if outcome != "ok":
+    outcome, challenge_id = notify_professor(
+        db, granted.resource.id, email, device_id, request.app.state.clock.now()
+    )
+    if outcome not in ("ok", "again"):
         raise _problem(422, None, NOTIFY_FAILURES[outcome])
+    if outcome == "ok":  # 처음 알렸을 때만 알린다. 반복하면 화면이 다시 불러오고, 불러올 때마다 코드 열람이 기록된다
+        publish_admin(request, granted.resource.id, "pending_auth.created", id=challenge_id)
     return {"next": "notified", "message": NOTIFIED}
 
 
@@ -173,7 +183,9 @@ def request_access(body: AccessBody, granted: EnterGuard, request: Request, db: 
     answer = join_requests.status_answer(db, classroom_id, email)
     if answer is None:
         now = request.app.state.clock.now().isoformat()
-        if join_requests.create_request(db, classroom_id, email, who.name, who.student_no, now):
+        request_id = join_requests.create_request(db, classroom_id, email, who.name, who.student_no, now)
+        if request_id is not None:
+            publish_admin(request, classroom_id, "join_request.created", id=request_id)
             return {"next": "requested", "message": join_requests.REQUESTED}
         answer = {"next": "already_requested", "message": join_requests.ALREADY}  # 동시에 들어온 같은 요청
     return JSONResponse(answer, status_code=200)
@@ -219,6 +231,8 @@ def check_code(body: CodeBody, granted: EnterGuard, request: Request, db: Db):
             login = create_device_login(db, account_id, device_id, keep_login, now)
     if failure is not None:
         raise failure  # 틀린 횟수 등의 기록은 위에서 이미 저장됐다
+    if was_notified(db, result.challenge_id):  # 교수에게 알린 코드가 쓰였다
+        publish_admin(request, classroom_id, "pending_auth.updated", id=result.challenge_id)
     response = JSONResponse({"next": "notice", "nickname": membership.nickname})
     secure = request.app.state.settings.base_url.lower().startswith("https://")
     response.set_cookie(
