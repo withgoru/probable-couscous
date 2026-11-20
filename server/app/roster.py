@@ -51,6 +51,11 @@ def full_message(over: int) -> str:
     return f"명단은 {ROSTER_LIMIT}명까지 등록할 수 있습니다. {over}명을 줄여 다시 올려 주세요."
 
 
+def is_valid_email(text: str) -> bool:
+    """이메일 형식 검사. 명단 입력과 학생 입장이 같은 규칙을 쓴다."""
+    return bool(_EMAIL.match(text))
+
+
 def clean_entry(student_no: object, name: object, email: object) -> CleanEntry:
     """공백을 정리하고 빈 칸, 길이, 이메일 형식을 검사한다. 화면의 칸 순서대로 첫 오류를 올린다."""
     values: dict[str, str] = {}
@@ -61,7 +66,7 @@ def clean_entry(student_no: object, name: object, email: object) -> CleanEntry:
         if len(text) > LIMITS[field]:
             raise RosterError("too_long", f"{LABELS[field]}은 {LIMITS[field]}자 이하로 입력해 주세요.", field)
         values[field] = text
-    if not _EMAIL.match(values["email"]):
+    if not is_valid_email(values["email"]):
         raise RosterError("email_format", "이메일 형식을 확인해 주세요.", "email")
     return CleanEntry(values["student_no"], values["name"], normalize_email(values["email"]))
 
@@ -70,6 +75,14 @@ def live_count(db: sqlite3.Connection, classroom_id: int) -> int:
     return db.execute(
         "SELECT COUNT(*) FROM roster_entries WHERE classroom_id = ? AND removed_at IS NULL", (classroom_id,)
     ).fetchone()[0]
+
+
+def find_live_by_email(db: sqlite3.Connection, classroom_id: int, email_norm: str) -> sqlite3.Row | None:
+    """이 강좌의 살아 있는 명단에서 이메일(정규화한 값)로 학생을 찾는다. 빼기한 학생은 찾지 않는다."""
+    return db.execute(
+        "SELECT * FROM roster_entries WHERE classroom_id = ? AND email_norm = ? AND removed_at IS NULL",
+        (classroom_id, email_norm),
+    ).fetchone()
 
 
 def find_duplicate(db: sqlite3.Connection, classroom_id: int, entry: CleanEntry) -> RosterError | None:
