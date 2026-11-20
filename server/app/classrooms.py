@@ -15,7 +15,15 @@ from pydantic import BaseModel
 from app.authz import Action, ClassroomRef, Granted, guard, guard_account
 from app.clock import Clock
 from app.db import get_db, transaction
-from app.roster import RosterError, add_entry, clean_entry
+from app.roster import (
+    IMPORT_MAX_BYTES,
+    TOO_LARGE,
+    RosterError,
+    add_entry,
+    clean_entry,
+    import_rows,
+    parse_csv,
+)
 
 router = APIRouter()
 
@@ -167,14 +175,19 @@ class NewStudent(BaseModel):
     email: object = None
 
 
+def _roster_problem(err: RosterError, status: int = 422) -> HTTPException:
+    # detail은 `{field, message}`라서 화면이 그 입력 칸(field가 없으면 명단 전체) 옆에 보여 준다
+    return HTTPException(status_code=status, detail={"field": err.field, "message": err.message})
+
+
 @router.post("/api/classrooms/{classroom_id}/roster", status_code=201)
 def add_student(body: NewStudent, granted: RosterGuard, db: Db, clock: ClockDep):
-    """학생 한 명 추가(AC15). 오류의 detail은 `{field, message}`라서 화면이 그 입력 칸 옆에 보여 준다."""
+    """학생 한 명 추가(AC15)."""
     try:
         entry = clean_entry(body.student_no, body.name, body.email)
         entry_id = add_entry(db, granted.resource.id, entry, clock.now().isoformat())
     except RosterError as err:
-        raise HTTPException(status_code=422, detail={"field": err.field, "message": err.message}) from err
+        raise _roster_problem(err) from err
     return {"id": entry_id, "student_no": entry.student_no, "name": entry.name, "email": entry.email_norm}
 
 
@@ -198,3 +211,27 @@ def me_summary(granted: MeGuard, db: Db):
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+async def csv_body(request: Request) -> bytes:
+    """본문을 1MB까지만 읽는다. 헤더의 크기와 실제로 받은 크기를 둘 다 본다."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > IMPORT_MAX_BYTES:
+        raise _roster_problem(RosterError("too_large", TOO_LARGE), 413)
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > IMPORT_MAX_BYTES:
+            raise _roster_problem(RosterError("too_large", TOO_LARGE), 413)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.post("/api/classrooms/{classroom_id}/roster/import")
+def import_roster(granted: RosterGuard, data: Annotated[bytes, Depends(csv_body)], db: Db, clock: ClockDep):
+    """CSV 올리기(AC13, AC14, AC18). 본문은 CSV 파일 그대로다. 권한을 먼저 보고, 통과한 뒤에만 본문을 읽는다."""
+    try:
+        rows = parse_csv(data)
+        return import_rows(db, granted.resource.id, rows, clock.now().isoformat())
+    except RosterError as err:
+        raise _roster_problem(err) from err
