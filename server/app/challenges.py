@@ -85,6 +85,14 @@ class Device:
     is_new: bool
 
 
+def find_device(db: sqlite3.Connection, token: str | None) -> int | None:
+    """쿠키의 기기 번호. 없거나 모르는 값이면 None(새 기기를 만들지 않는다)."""
+    if not token:
+        return None
+    row = db.execute("SELECT id FROM devices WHERE token_hash = ?", (hash_token(token),)).fetchone()
+    return row["id"] if row else None
+
+
 def ensure_device(db: sqlite3.Connection, token: str | None, now: datetime) -> Device:
     """쿠키의 기기를 찾는다. 없거나 모르는 값이면 새 기기로 만든다(브라우저 데이터를 지우면 새 기기, AC33)."""
     if token:
@@ -165,41 +173,54 @@ def verify_code(
     now: datetime,
 ) -> VerifyResult:
     """입력한 코드를 확인한다. 상태 변경(횟수, 만료, 사용)은 한 쓰기 트랜잭션 안에서 한다."""
+    with transaction(db):
+        return verify_code_unlocked(db, secret, classroom_id, email_norm, device_id, typed, now)
+
+
+def verify_code_unlocked(
+    db: sqlite3.Connection,
+    secret: str,
+    classroom_id: int,
+    email_norm: str,
+    device_id: int,
+    typed: str,
+    now: datetime,
+) -> VerifyResult:
+    """`verify_code`의 본체. 호출하는 쪽이 이미 연 쓰기 트랜잭션 안에서 부른다(맞으면 멤버십 만들기와 함께 저장하려고)."""
     typed = typed.strip()
     if not (len(typed) == CODE_DIGITS and typed.isascii() and typed.isdigit()):
         # 형식이 틀린 입력은 횟수를 쓰지 않는다(오타로 기회를 잃지 않게)
         return VerifyResult(Outcome.BAD_FORMAT, f"코드는 {CODE_DIGITS}자리 숫자입니다. 메일의 코드를 확인해 주세요.")
-    with transaction(db):
-        row = db.execute(
-            "SELECT * FROM login_challenges WHERE classroom_id = ? AND email_norm = ? ORDER BY id DESC LIMIT 1",
-            (classroom_id, email_norm),
-        ).fetchone()
-        if row is None or row["device_id"] != device_id:
-            # 다른 기기이거나 요청한 적이 없다. 코드가 있는지, 쓰였는지도 알려 주지 않고 아무것도 바꾸지 않는다(AC33)
-            return VerifyResult(Outcome.WRONG, GENERIC_WRONG)
-        challenge_id = row["id"]  # 가장 최근 챌린지다. 더 새 챌린지가 생기면 이전 것은 superseded가 되어 여기에 오지 않는다
-        if row["status"] == "used":
-            return VerifyResult(Outcome.USED, "이미 사용한 코드입니다. 코드를 다시 받아 주세요.", challenge_id=challenge_id)
-        if row["status"] == "expired":
-            return _unusable(row)
-        if now >= _at(row["expires_at"]):
-            db.execute("UPDATE login_challenges SET status = 'expired' WHERE id = ?", (challenge_id,))
-            return VerifyResult(Outcome.EXPIRED, "코드가 만료되었습니다. 코드를 다시 받아 주세요.", challenge_id=challenge_id)
-        expected = compute_code(secret, challenge_id, row["nonce"])
-        if hmac.compare_digest(typed, expected):
-            db.execute(
-                "UPDATE login_challenges SET status = 'used', used_at = ? WHERE id = ?", (now.isoformat(), challenge_id)
-            )
-            return VerifyResult(Outcome.OK, challenge_id=challenge_id)
-        attempts = row["attempts"] + 1
-        if attempts >= MAX_ATTEMPTS:
-            db.execute(
-                "UPDATE login_challenges SET attempts = ?, status = 'expired' WHERE id = ?", (attempts, challenge_id)
-            )
-            return VerifyResult(Outcome.LOCKED, "코드를 다시 받아 주세요.", 0, challenge_id)
-        db.execute("UPDATE login_challenges SET attempts = ? WHERE id = ?", (attempts, challenge_id))
-        left = MAX_ATTEMPTS - attempts
-        return VerifyResult(Outcome.WRONG, f"{GENERIC_WRONG} {left}번 더 입력할 수 있습니다.", left, challenge_id)
+    row = db.execute(
+        "SELECT * FROM login_challenges WHERE classroom_id = ? AND email_norm = ? ORDER BY id DESC LIMIT 1",
+        (classroom_id, email_norm),
+    ).fetchone()
+    if row is None or row["device_id"] != device_id:
+        # 다른 기기이거나 요청한 적이 없다. 코드가 있는지, 쓰였는지도 알려 주지 않고 아무것도 바꾸지 않는다(AC33)
+        return VerifyResult(Outcome.WRONG, GENERIC_WRONG)
+    challenge_id = row["id"]  # 가장 최근 챌린지다. 더 새 챌린지가 생기면 이전 것은 superseded가 되어 여기에 오지 않는다
+    if row["status"] == "used":
+        return VerifyResult(Outcome.USED, "이미 사용된 코드입니다. 코드를 다시 받아 주세요.", challenge_id=challenge_id)
+    if row["status"] == "expired":
+        return _unusable(row)
+    if now >= _at(row["expires_at"]):
+        db.execute("UPDATE login_challenges SET status = 'expired' WHERE id = ?", (challenge_id,))
+        return VerifyResult(Outcome.EXPIRED, "코드가 만료되었습니다. 코드를 다시 받아 주세요.", challenge_id=challenge_id)
+    expected = compute_code(secret, challenge_id, row["nonce"])
+    if hmac.compare_digest(typed, expected):
+        db.execute(
+            "UPDATE login_challenges SET status = 'used', used_at = ? WHERE id = ?", (now.isoformat(), challenge_id)
+        )
+        return VerifyResult(Outcome.OK, challenge_id=challenge_id)
+    attempts = row["attempts"] + 1
+    if attempts >= MAX_ATTEMPTS:
+        db.execute(
+            "UPDATE login_challenges SET attempts = ?, status = 'expired' WHERE id = ?", (attempts, challenge_id)
+        )
+        return VerifyResult(Outcome.LOCKED, "코드를 다시 받아 주세요.", 0, challenge_id)
+    db.execute("UPDATE login_challenges SET attempts = ? WHERE id = ?", (attempts, challenge_id))
+    left = MAX_ATTEMPTS - attempts
+    return VerifyResult(Outcome.WRONG, f"{GENERIC_WRONG} {left}번 더 입력할 수 있습니다.", left, challenge_id)
 
 
 def _unusable(row: sqlite3.Row) -> VerifyResult:
