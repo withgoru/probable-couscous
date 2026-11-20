@@ -65,6 +65,6 @@ def world(tmp_path):
         database_path=tmp_path / "app.db",
         client_dist=tmp_path / "none",
     )
-    app = create_app(settings, clock=clock, auth_provider=FakeProvider())
+    app = create_app(settings, clock=clock, auth_provider=FakeProvider(), start_mail_worker=False)
     with TestClient(app, base_url=BASE):  # 시작 때 마이그레이션이 적용되도록 한 번 연다
         yield World(app=app, clock=clock, settings=settings)
