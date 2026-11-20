@@ -384,19 +384,26 @@ def test_events_that_happen_between_ready_and_the_list_are_not_lost(world):
         assert [e["type"] for e in drain(world, ws, cid)] == ["join_request.created"]  # 이벤트도 남아 있다(다시 불러올 뿐)
 
 
-def test_a_slow_screen_is_told_to_reload_everything(world):
-    prof, cid, _token = classroom(world)
+def test_a_burst_of_events_is_either_delivered_in_full_or_replaced_by_a_resync(world):
+    # 큐가 넘치는지는 서버가 얼마나 빨리 비우느냐에 달려 있어 환경마다 다르다(넘치는 경우는 test_room_bus가 정확히 확인한다).
+    # 여기서는 어느 쪽이든 이벤트가 조용히 빠지지 않는다는 것만 확인한다: 하나도 빠짐없이 순서대로 오거나, resync가 온다.
+    # (끝 표시를 따로 보내지 않는다. 넘친 큐에서는 끝 표시도 버려질 수 있다)
+    prof, cid, _ = classroom(world)
     with connect(prof, cid) as ws:
         ready(ws)
         bus = world.app.state.bus
-        for i in range(bus.max_queue + 20):
+        total = bus.max_queue * 3
+        for i in range(total):
             bus.publish(admin_room(cid), {"type": "roster.updated", "n": i})
-        events = []
+        seen = []
         while True:
-            events.append(ws.receive_json())
-            if events[-1]["type"] == "resync":
+            event = ws.receive_json()
+            if event["type"] == "resync":
+                break  # 놓친 것이 있으니 다시 불러오라는 신호
+            seen.append(event["n"])
+            if len(seen) == total:
                 break
-        assert events[-1] == {"type": "resync"}
+    assert seen == list(range(len(seen)))  # resync 전까지 받은 것은 빠짐없이 순서대로
 
 
 def test_closing_the_screen_removes_its_subscription(world):
