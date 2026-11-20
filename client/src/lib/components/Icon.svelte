@@ -1,16 +1,22 @@
 <script lang="ts" module>
 	// Iconoir regular(선 두께 1.5). 쓰는 아이콘만 가져와서 번들에 넣는다. 색은 currentColor
+	import check from 'iconoir/icons/regular/check.svg?raw';
 	import github from 'iconoir/icons/regular/github.svg?raw';
+	import group from 'iconoir/icons/regular/group.svg?raw';
 	import logOut from 'iconoir/icons/regular/log-out.svg?raw';
 	import navArrowDown from 'iconoir/icons/regular/nav-arrow-down.svg?raw';
+	import plus from 'iconoir/icons/regular/plus.svg?raw';
 	import presentation from 'iconoir/icons/regular/presentation.svg?raw';
 	import user from 'iconoir/icons/regular/user.svg?raw';
 	import warningCircle from 'iconoir/icons/regular/warning-circle.svg?raw';
 
 	const ICONS = {
+		check,
 		github,
+		group,
 		'log-out': logOut,
 		'nav-arrow-down': navArrowDown,
+		plus,
 		presentation,
 		user,
 		'warning-circle': warningCircle
