@@ -5,15 +5,20 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 
+from app.auth import AuthProvider, GitHubProvider
 from app.clock import Clock, SystemClock
 from app.config import Settings, load_settings
 from app.db import MIGRATIONS_DIR, connect, migrate
+from app.routes_auth import router as auth_router
 
 NOT_BUILT = "클라이언트가 아직 빌드되지 않았습니다. client 폴더에서 npm run build를 실행하세요."
+BAD_ORIGIN = "허용되지 않은 출처의 요청입니다. 서비스 주소에서 다시 시도해 주세요."
+MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 def _safe_file(dist: Path, relative: str) -> Path | None:
@@ -25,9 +30,20 @@ def _safe_file(dist: Path, relative: str) -> Path | None:
     return None
 
 
-def create_app(settings: Settings | None = None, clock: Clock | None = None) -> FastAPI:
+def _origin_of(url: str) -> str:
+    parts = urlparse(url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def create_app(
+    settings: Settings | None = None,
+    clock: Clock | None = None,
+    auth_provider: AuthProvider | None = None,
+) -> FastAPI:
     settings = settings or load_settings()
     clock = clock or SystemClock()
+    if auth_provider is None and settings.github_client_id and settings.github_client_secret:
+        auth_provider = GitHubProvider(settings.github_client_id, settings.github_client_secret)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -44,6 +60,17 @@ def create_app(settings: Settings | None = None, clock: Clock | None = None) -> 
                   lifespan=lifespan)
     app.state.settings = settings
     app.state.clock = clock
+    app.state.auth_provider = auth_provider  # 설정이 없으면 None. 로그인 시작이 안내와 함께 503을 준다
+    allowed_origin = _origin_of(settings.base_url)
+
+    @app.middleware("http")
+    async def check_origin(request: Request, call_next):
+        # 변경 요청(POST, PUT, PATCH, DELETE)은 서비스 주소에서 온 것만 받는다. SameSite=Lax에 더한 두 번째 방어
+        if request.method in MUTATING and request.headers.get("origin") != allowed_origin:
+            return JSONResponse(status_code=403, content={"detail": BAD_ORIGIN})
+        return await call_next(request)
+
+    app.include_router(auth_router)  # 아래의 모든 경로를 받는 클라이언트 라우트보다 먼저 등록한다
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

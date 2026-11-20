@@ -165,3 +165,37 @@ def test_duplicate_number_is_refused(conn, tmp_path):
 
 def test_missing_directory_means_nothing_to_apply(conn, tmp_path):
     assert migrate(conn, tmp_path / "does-not-exist", CLOCK) == []
+
+
+# --- 요청마다 여는 연결 ------------------------------------------------------------
+
+
+def test_get_db_gives_a_connection_per_request_and_closes_it(tmp_path):
+    from types import SimpleNamespace
+
+    from app.config import Settings
+    from app.db import get_db
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        settings=Settings(database_path=tmp_path / "req.db"))))
+    gen = get_db(request)
+    conn = next(gen)
+    assert conn.execute("SELECT 1 AS one").fetchone()["one"] == 1
+    with pytest.raises(StopIteration):
+        next(gen)
+    with pytest.raises(sqlite3.ProgrammingError):
+        conn.execute("SELECT 1")
+
+
+def test_connection_can_be_used_from_another_thread(tmp_path):
+    # FastAPI는 같은 요청의 의존성과 처리 함수를 서로 다른 스레드에서 실행할 수 있다.
+    # 연결은 요청 하나가 차례로 쓰므로 동시에 쓰이지 않는다.
+    import threading
+
+    conn = connect(tmp_path / "thread.db")
+    out: list[int] = []
+    t = threading.Thread(target=lambda: out.append(conn.execute("SELECT 1").fetchone()[0]))
+    t.start()
+    t.join()
+    conn.close()
+    assert out == [1]

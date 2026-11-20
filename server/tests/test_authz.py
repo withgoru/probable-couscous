@@ -22,6 +22,8 @@ from app.authz import (
     decide,
     get_actor,
     guard,
+    guard_account,
+    registered_routes,
     routes_without_authz,
 )
 from app.config import Settings
@@ -77,6 +79,13 @@ def test_student_enter_depends_only_on_the_classroom_being_active(actor):
     assert decide(actor, Action.STUDENT_ENTER, OWN).allowed
     archived = decide(actor, Action.STUDENT_ENTER, OWN_ARCHIVED)
     assert not archived.allowed and archived.reason == "archived"
+
+
+def test_account_level_action_me_read_needs_a_professor():
+    assert decide(OWNER, Action.ME_READ, None).allowed
+    assert decide(STRANGER, Action.ME_READ, None).allowed  # 강좌와 무관하다
+    assert decide(ANON, Action.ME_READ, None).reason == "not_logged_in"
+    assert decide(MEMBER, Action.ME_READ, None).reason == "forbidden"
 
 
 def test_unknown_action_is_denied_by_default():
@@ -172,15 +181,20 @@ def test_guard_really_calls_decide(monkeypatch):
     assert calls == [("professor", Action.CLASSROOM_READ, 1)]
 
 
-def test_default_actor_is_anonymous_until_login_exists():
-    # T005가 로그인 상태를 읽도록 get_actor를 바꾼다. 그 전에는 모두 익명이라 보호된 라우트는 열리지 않는다
+def test_guard_account_protects_routes_that_have_no_classroom():
     app = FastAPI()
 
-    @app.get("/c/{classroom_id}")
-    def read(granted: ReadGuard):
-        return {}
+    @app.get("/me")
+    def me(granted: Annotated[Granted, Depends(guard_account(Action.ME_READ))]):
+        return {"kind": granted.actor.kind}
 
-    assert TestClient(app).get("/c/1").status_code == 401
+    app.dependency_overrides[get_actor] = lambda: OWNER
+    assert TestClient(app).get("/me").json() == {"kind": "professor"}
+    app.dependency_overrides[get_actor] = lambda: ANON
+    assert TestClient(app).get("/me").status_code == 401
+    app.dependency_overrides[get_actor] = lambda: MEMBER
+    assert TestClient(app).get("/me").status_code == 403
+    assert ("GET", "/me") not in routes_without_authz(app)
 
 
 # --- 라우트 전수 검사 -----------------------------------------------------------
@@ -198,15 +212,50 @@ def test_c8_every_route_calls_authz_or_is_explicitly_public():
 
 @pytest.mark.constitution
 def test_c8_public_routes_list_has_no_stale_entries():
-    app = real_app()
-    existing = {
-        (method, route.path)
-        for route in app.routes
-        for method in (getattr(route, "methods", None) or {"GET"})
-        if method not in {"HEAD", "OPTIONS"}
-    }
-    stale = set(PUBLIC_ROUTES) - existing
+    stale = set(PUBLIC_ROUTES) - set(registered_routes(real_app()))
     assert stale == set(), f"더 이상 없는 라우트가 공개 목록에 남아 있다: {stale}"
+
+
+@pytest.mark.constitution
+def test_c8_check_sees_routes_added_with_include_router():
+    # FastAPI는 include_router로 붙인 라우트를 app.routes에 풀어 두지 않는다. 검사가 그 안까지 보지 못하면
+    # 포함된 라우터의 모든 라우트가 검사 없이 통과한다(헛통과). 실제 앱의 라우트가 보이는지 확인한다
+    app = real_app()
+    seen = set(registered_routes(app))
+    assert {("GET", "/api/me"), ("POST", "/api/auth/logout"), ("GET", "/api/auth/github/login")} <= seen
+    flagged = routes_without_authz(app)
+    assert ("GET", "/api/me") not in flagged  # guard가 걸려 있다
+    assert ("POST", "/api/auth/logout") not in flagged  # 공개 목록에 있다
+
+
+@pytest.mark.constitution
+def test_c8_unknown_kinds_of_routes_are_not_waved_through():
+    from starlette.routing import BaseRoute
+
+    class Mystery(BaseRoute):
+        def matches(self, scope):
+            return None, {}
+
+        async def handle(self, scope, receive, send):
+            pass
+
+    app = real_app()
+    app.router.routes.append(Mystery())
+    assert ("UNKNOWN", "Mystery") in routes_without_authz(app)
+
+
+def test_included_router_without_guard_is_flagged():
+    from fastapi import APIRouter
+
+    router = APIRouter()
+
+    @router.get("/api/leak")
+    def leak():
+        return []
+
+    app = real_app()
+    app.include_router(router)
+    assert ("GET", "/api/leak") in routes_without_authz(app)
 
 
 @pytest.mark.constitution
