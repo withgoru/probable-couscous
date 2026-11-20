@@ -15,8 +15,10 @@ from pydantic import BaseModel
 from app.authz import Action, ClassroomRef, Granted, guard, guard_account
 from app.clock import Clock
 from app.db import get_db, transaction
+from app.identity import entered_roster_ids
 from app.roster import (
     IMPORT_MAX_BYTES,
+    ROSTER_LIMIT,
     TOO_LARGE,
     RosterError,
     add_entry,
@@ -235,3 +237,19 @@ def import_roster(granted: RosterGuard, data: Annotated[bytes, Depends(csv_body)
         return import_rows(db, granted.resource.id, rows, clock.now().isoformat())
     except RosterError as err:
         raise _roster_problem(err) from err
+
+
+@router.get("/api/classrooms/{classroom_id}/roster")
+def list_roster(granted: RosterGuard, db: Db):
+    """명단 조회(AC17). 학번, 이름, 이메일, 입장 여부만 준다. 닉네임과 연결 정보는 싣지 않는다(C9)."""
+    rows = db.execute(
+        "SELECT id, student_no, name, email_norm AS email FROM roster_entries "
+        "WHERE classroom_id = ? AND removed_at IS NULL ORDER BY id",
+        (granted.resource.id,),
+    ).fetchall()
+    entered = entered_roster_ids(db, granted.resource.id)
+    entries = [{**dict(r), "entered": r["id"] in entered} for r in rows]
+    return JSONResponse(
+        {"entries": entries, "count": len(entries), "limit": ROSTER_LIMIT},
+        headers={"Cache-Control": "no-store"},
+    )

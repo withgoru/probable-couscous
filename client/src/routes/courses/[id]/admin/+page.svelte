@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { invalidate } from '$app/navigation';
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
+	import RosterSection from '#lib/components/RosterSection.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -12,7 +14,7 @@
 
 <svelte:head><title>관리 페이지 · 강의 상호작용 도구</title></svelte:head>
 
-<!-- 관리 페이지의 내용(명단, 초대 링크 등)은 T013 이후에 채운다. 지금은 열 수 있는지와 이유만 보여 준다 -->
+<!-- 초대 링크, 입장 요청 등은 이후 작업(T014~)에서 채운다 -->
 <main class="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-8 sm:px-8">
 	{#if data.notice}
 		<ErrorNotice title={data.notice.message} hint={HINTS[data.notice.status]} />
@@ -20,5 +22,12 @@
 	{:else if data.classroom}
 		<h1 class="text-3xl font-bold tracking-tight">관리 페이지</h1>
 		<p class="text-muted-foreground">{data.classroom.name}</p>
+		{#if data.roster}
+			<RosterSection
+				classroomId={data.classroom.id}
+				roster={data.roster}
+				onChanged={() => invalidate('app:roster')}
+			/>
+		{/if}
 	{/if}
 </main>
