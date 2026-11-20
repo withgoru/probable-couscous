@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.authz import Action, ClassroomRef, Granted, guard, guard_account
 from app.clock import Clock
 from app.db import get_db, transaction
+from app.roster import RosterError, add_entry, clean_entry
 
 router = APIRouter()
 
@@ -51,6 +52,7 @@ def load_classroom(classroom_id: int, db: Db) -> ClassroomRef | None:
 
 ReadGuard = Annotated[Granted, Depends(guard(Action.CLASSROOM_READ, load_classroom))]
 CloneGuard = Annotated[Granted, Depends(guard(Action.CLASSROOM_CLONE, load_classroom))]
+RosterGuard = Annotated[Granted, Depends(guard(Action.ROSTER_MANAGE, load_classroom))]
 CreateGuard = Annotated[Granted, Depends(guard_account(Action.CLASSROOM_CREATE))]
 ListGuard = Annotated[Granted, Depends(guard_account(Action.CLASSROOM_LIST))]
 MeGuard = Annotated[Granted, Depends(guard_account(Action.ME_READ))]
@@ -156,6 +158,24 @@ def list_classrooms(granted: ListGuard, db: Db):
 @router.get("/api/classrooms/{classroom_id}")
 def get_classroom(granted: ReadGuard, db: Db):
     return _item(db, granted.resource.id)
+
+
+class NewStudent(BaseModel):
+    # 형식 검사는 roster.clean_entry가 해서 칸마다 한국어 안내를 준다
+    student_no: object = None
+    name: object = None
+    email: object = None
+
+
+@router.post("/api/classrooms/{classroom_id}/roster", status_code=201)
+def add_student(body: NewStudent, granted: RosterGuard, db: Db, clock: ClockDep):
+    """학생 한 명 추가(AC15). 오류의 detail은 `{field, message}`라서 화면이 그 입력 칸 옆에 보여 준다."""
+    try:
+        entry = clean_entry(body.student_no, body.name, body.email)
+        entry_id = add_entry(db, granted.resource.id, entry, clock.now().isoformat())
+    except RosterError as err:
+        raise HTTPException(status_code=422, detail={"field": err.field, "message": err.message}) from err
+    return {"id": entry_id, "student_no": entry.student_no, "name": entry.name, "email": entry.email_norm}
 
 
 @router.get("/api/me/summary")
