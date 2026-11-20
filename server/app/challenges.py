@@ -228,3 +228,29 @@ def _unusable(row: sqlite3.Row) -> VerifyResult:
     if row["attempts"] >= MAX_ATTEMPTS:
         return VerifyResult(Outcome.LOCKED, "코드를 다시 받아 주세요.", 0, row["id"])
     return VerifyResult(Outcome.EXPIRED, "코드가 만료되었습니다. 코드를 다시 받아 주세요.", challenge_id=row["id"])
+
+
+def notify_professor(
+    db: sqlite3.Connection, classroom_id: int, email_norm: str, device_id: int | None, now: datetime
+) -> str:
+    """학생이 '교수님께 알리기'를 눌렀다. 알린 시각을 남기면 교수의 '대기 중인 인증' 목록에 코드가 보인다(AC44, AC45).
+
+    코드를 요청한 기기에서만 알릴 수 있다. 결과: "ok", "none"(알릴 코드가 없다. 다른 기기나 요청한 적 없음도 같다),
+    "used"(이미 사용), "expired"(만료됐거나 횟수를 다 썼다). 알린 시각은 처음 것을 그대로 둔다.
+    """
+    with transaction(db):
+        row = db.execute(
+            "SELECT * FROM login_challenges WHERE classroom_id = ? AND email_norm = ? ORDER BY id DESC LIMIT 1",
+            (classroom_id, email_norm),
+        ).fetchone()
+        if row is None or row["device_id"] != device_id:  # 기기 쿠키가 없는 경우(None)도 여기서 걸린다
+            return "none"
+        if row["status"] == "used":
+            return "used"
+        if row["status"] != "active" or now >= _at(row["expires_at"]):
+            return "expired"
+        db.execute(
+            "UPDATE login_challenges SET professor_notified_at = COALESCE(professor_notified_at, ?) WHERE id = ?",
+            (now.isoformat(), row["id"]),
+        )
+        return "ok"

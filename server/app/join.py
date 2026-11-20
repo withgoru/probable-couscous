@@ -23,6 +23,7 @@ from app.challenges import (
     ensure_device,
     find_device,
     issue_challenge_unlocked,
+    notify_professor,
     verify_code_unlocked,
 )
 from app.db import get_db, transaction
@@ -128,6 +129,26 @@ def check_email(body: EmailBody, granted: EnterGuard, request: Request, db: Db):
 def resend_code(body: EmailBody, granted: EnterGuard, request: Request, db: Db):
     """코드 다시 받기. 직전 요청 60초 뒤부터 새 코드를 보내고 이전 코드는 쓸 수 없게 한다(AC32)."""
     return _request_code(request, db, granted.resource.id, _clean_email(body.email))
+
+
+NOTIFIED = "교수님께 알렸습니다. 교수님이 알려 주는 코드를 입력하세요."
+NO_CHALLENGE = "알릴 인증 코드가 없습니다. 인증 코드 받기부터 다시 해 주세요."
+NOTIFY_FAILURES = {
+    "none": NO_CHALLENGE,
+    "used": "이미 사용된 코드입니다. 코드를 다시 받아 주세요.",
+    "expired": "코드가 만료되었습니다. 코드를 다시 받아 주세요.",
+}
+
+
+@router.post("/api/join/{token}/notify-professor")
+def notify_professor_route(body: EmailBody, granted: EnterGuard, request: Request, db: Db):
+    """'교수님께 알리기'(AC44). 메일이 오지 않을 때 교수가 코드를 알려 줄 수 있게 교수의 대기 중인 인증 목록에 올린다."""
+    email = _clean_email(body.email)
+    device_id = find_device(db, request.cookies.get(DEVICE_COOKIE))
+    outcome = notify_professor(db, granted.resource.id, email, device_id, request.app.state.clock.now())
+    if outcome != "ok":
+        raise _problem(422, None, NOTIFY_FAILURES[outcome])
+    return {"next": "notified", "message": NOTIFIED}
 
 
 class AccessBody(BaseModel):
