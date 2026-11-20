@@ -61,3 +61,31 @@ def membership_for(
         (membership_id, classroom_id, account_id, roster_entry_id),
     )
     return Membership(membership_id, nickname, True)
+
+
+@dataclass(frozen=True)
+class MembershipInfo:
+    id: int
+    nickname: str
+    reverify_after: datetime | None  # 교수가 로그인을 끊은 시각. 이 시각 뒤에 인증한 기기만 입장한다
+
+
+def find_membership(db: sqlite3.Connection, classroom_id: int, account_id: int) -> MembershipInfo | None:
+    """이 강좌에서 이 계정의 멤버십이 있으면 알려 준다(만들지 않는다)."""
+    row = db.execute(
+        "SELECT m.id, m.nickname, m.reverify_after FROM member_identities i "
+        "JOIN memberships m ON m.id = i.membership_id WHERE i.classroom_id = ? AND i.account_id = ?",
+        (classroom_id, account_id),
+    ).fetchone()
+    if row is None:
+        return None
+    after = datetime.fromisoformat(row["reverify_after"]) if row["reverify_after"] else None
+    return MembershipInfo(row["id"], row["nickname"], after)
+
+
+def acknowledge_notice(db: sqlite3.Connection, membership_id: int, now: datetime) -> None:
+    """채팅 이용 안내를 확인한 시각. 처음 확인한 시각을 그대로 둔다."""
+    db.execute(
+        "UPDATE memberships SET notice_ack_at = ? WHERE id = ? AND notice_ack_at IS NULL",
+        (now.isoformat(), membership_id),
+    )

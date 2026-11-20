@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from app.auth import hash_token
+from app.challenges import find_device
 
 LOGIN_COOKIE = "student_login"
 PERSISTENT_MAX_AGE = 60 * 60 * 24 * 365  # 쿠키 수명 1년(서버의 로그인 상태는 강좌가 보관될 때까지)
@@ -44,3 +45,57 @@ def create_device_login(
 
 
 
+
+
+@dataclass(frozen=True)
+class LoginRef:
+    id: int
+    account_id: int
+    created_at: datetime
+
+
+def current_login(
+    db: sqlite3.Connection, login_token: str | None, device_token: str | None, now: datetime
+) -> LoginRef | None:
+    """요청한 기기의 유효한 로그인 상태. 없거나, 끝났거나(만료·취소), 이 기기의 것이 아니면 None.
+
+    로그인 쿠키만 훔쳐도 쓸 수 없도록 로그인이 만들어진 기기의 쿠키가 함께 맞아야 한다.
+    """
+    if not login_token:
+        return None
+    device_id = find_device(db, device_token)
+    if device_id is None:
+        return None
+    row = db.execute(
+        "SELECT id, account_id, created_at, expires_at FROM device_logins "
+        "WHERE token_hash = ? AND device_id = ? AND revoked_at IS NULL",
+        (hash_token(login_token), device_id),
+    ).fetchone()
+    if row is None:
+        return None
+    if row["expires_at"] is not None and now >= datetime.fromisoformat(row["expires_at"]):
+        return None
+    return LoginRef(row["id"], row["account_id"], datetime.fromisoformat(row["created_at"]))
+
+
+def account_email(db: sqlite3.Connection, account_id: int) -> str:
+    return db.execute("SELECT email_norm FROM accounts WHERE id = ?", (account_id,)).fetchone()["email_norm"]
+
+
+def record_verification(
+    db: sqlite3.Connection, device_login_id: int, classroom_id: int, membership_id: int, now: datetime
+) -> None:
+    """이 기기가 이 강좌에서 인증을 마쳤다는 기록(입장 확정). 이미 있으면 처음 기록을 그대로 둔다."""
+    db.execute(
+        "INSERT OR IGNORE INTO classroom_verifications(device_login_id, classroom_id, membership_id, verified_at) "
+        "VALUES (?, ?, ?, ?)",
+        (device_login_id, classroom_id, membership_id, now.isoformat()),
+    )
+
+
+def verified_at(db: sqlite3.Connection, device_login_id: int, classroom_id: int) -> datetime | None:
+    row = db.execute(
+        "SELECT verified_at FROM classroom_verifications WHERE device_login_id = ? AND classroom_id = ?",
+        (device_login_id, classroom_id),
+    ).fetchone()
+    return datetime.fromisoformat(row["verified_at"]) if row else None
