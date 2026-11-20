@@ -40,7 +40,8 @@ def create_app(settings: Settings | None = None, clock: Clock | None = None) -> 
         yield
 
     app = FastAPI(title="강의 상호작용 도구", docs_url="/api/docs", redoc_url=None,
-                  openapi_url="/api/openapi.json", lifespan=lifespan)
+                  openapi_url="/api/openapi.json", swagger_ui_oauth2_redirect_url=None,
+                  lifespan=lifespan)
     app.state.settings = settings
     app.state.clock = clock
 
