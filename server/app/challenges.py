@@ -118,33 +118,41 @@ def resend_wait(db: sqlite3.Connection, classroom_id: int, email_norm: str, now:
     return max(0, math.ceil(remaining))
 
 
+def issue_challenge_unlocked(
+    db: sqlite3.Connection, secret: str, classroom_id: int, email_norm: str, device_id: int, now: datetime
+) -> int:
+    """`issue_challenge`의 본체. 호출하는 쪽이 이미 연 쓰기 트랜잭션 안에서 부른다(예: 메일 발송 요청과 함께 저장하려고)."""
+    _require_secret(secret)  # 비밀값이 비어 있으면 챌린지를 남기기 전에 알린다
+    wait = resend_wait(db, classroom_id, email_norm, now)
+    if wait > 0:
+        raise ResendTooSoon(wait)
+    db.execute(
+        "UPDATE login_challenges SET status = 'superseded' "
+        "WHERE classroom_id = ? AND email_norm = ? AND status = 'active'",
+        (classroom_id, email_norm),
+    )
+    cursor = db.execute(
+        "INSERT INTO login_challenges(classroom_id, email_norm, device_id, nonce, created_at, expires_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            classroom_id,
+            email_norm,
+            device_id,
+            secrets.token_hex(16),
+            now.isoformat(),
+            (now + CODE_LIFETIME).isoformat(),
+        ),
+    )
+    return cursor.lastrowid
+
+
 def issue_challenge(
     db: sqlite3.Connection, secret: str, classroom_id: int, email_norm: str, device_id: int, now: datetime
 ) -> int:
     """새 챌린지를 만든다. 이전 챌린지는 쓸 수 없게 하고, 60초 안의 다시 요청은 거부한다. 챌린지 번호를 돌려준다."""
-    _require_secret(secret)  # 비밀값이 비어 있으면 챌린지를 남기기 전에 알린다
+    _require_secret(secret)
     with transaction(db):
-        wait = resend_wait(db, classroom_id, email_norm, now)
-        if wait > 0:
-            raise ResendTooSoon(wait)
-        db.execute(
-            "UPDATE login_challenges SET status = 'superseded' "
-            "WHERE classroom_id = ? AND email_norm = ? AND status = 'active'",
-            (classroom_id, email_norm),
-        )
-        cursor = db.execute(
-            "INSERT INTO login_challenges(classroom_id, email_norm, device_id, nonce, created_at, expires_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                classroom_id,
-                email_norm,
-                device_id,
-                secrets.token_hex(16),
-                now.isoformat(),
-                (now + CODE_LIFETIME).isoformat(),
-            ),
-        )
-        return cursor.lastrowid
+        return issue_challenge_unlocked(db, secret, classroom_id, email_norm, device_id, now)
 
 
 def verify_code(
