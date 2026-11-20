@@ -21,7 +21,9 @@ from app.join import router as join_router
 from app.join_requests import router as join_requests_router
 from app.mail import Mailer, MailWorker, OutboxMailer
 from app.pending_auth import router as pending_auth_router
+from app.realtime import InMemoryRoomBus, RoomBus
 from app.routes_auth import router as auth_router
+from app.ws_admin import router as ws_admin_router
 
 log = logging.getLogger(__name__)
 NOT_BUILT = "클라이언트가 아직 빌드되지 않았습니다. client 폴더에서 npm run build를 실행하세요."
@@ -49,6 +51,7 @@ def create_app(
     auth_provider: AuthProvider | None = None,
     mailer: Mailer | None = None,
     start_mail_worker: bool = True,
+    bus: RoomBus | None = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     clock = clock or SystemClock()
@@ -83,9 +86,11 @@ def create_app(
     app.state.settings = settings
     app.state.clock = clock
     app.state.mailer = mailer
+    app.state.bus = bus or InMemoryRoomBus()
     app.state.mail_worker = mail_worker
     app.state.auth_provider = auth_provider  # 설정이 없으면 None. 로그인 시작이 안내와 함께 503을 준다
     allowed_origin = _origin_of(settings.base_url)
+    app.state.allowed_origin = allowed_origin
 
     @app.middleware("http")
     async def check_origin(request: Request, call_next):
@@ -101,6 +106,7 @@ def create_app(
     app.include_router(join_router)
     app.include_router(join_requests_router)
     app.include_router(pending_auth_router)
+    app.include_router(ws_admin_router)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

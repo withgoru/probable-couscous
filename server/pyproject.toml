@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.163.1",
     "uvicorn==0.54.0",
+    "websockets==17.4",  # uvicorn이 WebSocket(교수 화면 실시간)을 서비스하려면 필요하다. 없으면 연결이 거부된다
 ]
 
 [project.optional-dependencies]

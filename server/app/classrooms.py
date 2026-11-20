@@ -16,6 +16,7 @@ from app.authz import Action, ClassroomRef, Granted, guard, guard_account
 from app.clock import Clock
 from app.db import get_db, transaction
 from app.identity import entered_roster_ids
+from app.realtime import publish_admin
 from app.roster import (
     IMPORT_MAX_BYTES,
     ROSTER_LIMIT,
@@ -183,13 +184,14 @@ def _roster_problem(err: RosterError, status: int = 422) -> HTTPException:
 
 
 @router.post("/api/classrooms/{classroom_id}/roster", status_code=201)
-def add_student(body: NewStudent, granted: RosterGuard, db: Db, clock: ClockDep):
+def add_student(body: NewStudent, granted: RosterGuard, db: Db, clock: ClockDep, request: Request):
     """학생 한 명 추가(AC15)."""
     try:
         entry = clean_entry(body.student_no, body.name, body.email)
         entry_id = add_entry(db, granted.resource.id, entry, clock.now().isoformat())
     except RosterError as err:
         raise _roster_problem(err) from err
+    publish_admin(request, granted.resource.id, "roster.updated")  # 저장이 끝난 뒤에 알린다
     return {"id": entry_id, "student_no": entry.student_no, "name": entry.name, "email": entry.email_norm}
 
 
@@ -230,13 +232,18 @@ async def csv_body(request: Request) -> bytes:
 
 
 @router.post("/api/classrooms/{classroom_id}/roster/import")
-def import_roster(granted: RosterGuard, data: Annotated[bytes, Depends(csv_body)], db: Db, clock: ClockDep):
+def import_roster(
+    granted: RosterGuard, data: Annotated[bytes, Depends(csv_body)], db: Db, clock: ClockDep, request: Request
+):
     """CSV 올리기(AC13, AC14, AC18). 본문은 CSV 파일 그대로다. 권한을 먼저 보고, 통과한 뒤에만 본문을 읽는다."""
     try:
         rows = parse_csv(data)
-        return import_rows(db, granted.resource.id, rows, clock.now().isoformat())
+        result = import_rows(db, granted.resource.id, rows, clock.now().isoformat())
     except RosterError as err:
         raise _roster_problem(err) from err
+    if result["added"]:
+        publish_admin(request, granted.resource.id, "roster.updated")
+    return result
 
 
 @router.get("/api/classrooms/{classroom_id}/roster")

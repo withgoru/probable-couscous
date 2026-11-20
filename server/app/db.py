@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import Request
+from starlette.requests import HTTPConnection
 
 from app.clock import Clock
 
@@ -129,8 +129,8 @@ def migrate(conn: sqlite3.Connection, directory: str | Path, clock: Clock) -> li
     return done
 
 
-def get_db(request: Request) -> Iterator[sqlite3.Connection]:
-    """요청마다 연결을 하나 열고 끝나면 닫는다. 같은 요청 안에서는 같은 연결을 쓴다."""
+def get_db(request: HTTPConnection) -> Iterator[sqlite3.Connection]:
+    """요청(WebSocket 연결 포함)마다 연결을 하나 열고 끝나면 닫는다. 같은 요청 안에서는 같은 연결을 쓴다."""
     conn = connect(request.app.state.settings.database_path)
     try:
         yield conn

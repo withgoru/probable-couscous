@@ -15,6 +15,7 @@ from app import events
 from app.authz import Action, Granted, guard
 from app.classrooms import load_classroom
 from app.db import get_db, transaction
+from app.realtime import publish_admin
 from app.roster import CleanEntry, RosterError, add_entry_unlocked
 
 router = APIRouter()
@@ -51,17 +52,17 @@ def status_answer(db: sqlite3.Connection, classroom_id: int, email_norm: str) ->
 
 def create_request(
     db: sqlite3.Connection, classroom_id: int, email_norm: str, name: str, student_no: str, now: str
-) -> bool:
-    """요청을 저장한다. 같은 이메일의 처리 전 요청이 이미 있으면 False(하나로 합친다)."""
+) -> int | None:
+    """요청을 저장하고 요청 번호를 돌려준다. 같은 이메일의 처리 전 요청이 이미 있으면 None(하나로 합친다)."""
     try:
         with transaction(db):
-            db.execute(
+            cursor = db.execute(
                 "INSERT INTO join_requests(classroom_id, email_norm, name, student_no, created_at) VALUES (?, ?, ?, ?, ?)",
                 (classroom_id, email_norm, name, student_no, now),
             )
     except sqlite3.IntegrityError:  # 같은 이메일의 처리 전 요청이 동시에 들어왔다
-        return False
-    return True
+        return None
+    return cursor.lastrowid
 
 
 # --- 교수 ---------------------------------------------------------------------------------------------
@@ -111,6 +112,8 @@ def approve(request_id: int, granted: DecideGuard, db: Db, request: Request):
             db, classroom_id, "join_request_approved", "professor", granted.actor.github_id, entry_id,
             {"request_id": request_id}, now,
         )
+    publish_admin(request, classroom_id, "join_request.updated", id=request_id, status="approved")
+    publish_admin(request, classroom_id, "roster.updated")
     return {"id": request_id, "status": "approved"}
 
 
@@ -126,4 +129,5 @@ def reject(request_id: int, granted: DecideGuard, db: Db, request: Request):
             db, classroom_id, "join_request_rejected", "professor", granted.actor.github_id, None,
             {"request_id": request_id}, now,
         )
+    publish_admin(request, classroom_id, "join_request.updated", id=request_id, status="rejected")
     return {"id": request_id, "status": "rejected"}

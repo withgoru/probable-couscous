@@ -10,9 +10,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIWebSocketRoute
+from starlette.requests import HTTPConnection
 
 from app.auth import SESSION_COOKIE, hash_token
 from app.db import get_db
@@ -136,7 +137,7 @@ class Granted:
     resource: ClassroomRef | None = None
 
 
-def get_actor(request: Request, db: Annotated[sqlite3.Connection, Depends(get_db)]) -> Actor:
+def get_actor(request: HTTPConnection, db: Annotated[sqlite3.Connection, Depends(get_db)]) -> Actor:
     """요청한 사람이 누구인가. 유효한 교수 로그인 상태가 있으면 교수, 아니면 익명이다.
 
     학생의 기기 로그인은 강좌를 가리키는 초대 링크 경로(`join.py`)가 `student_login.current_login`으로 직접 확인한다.
@@ -240,11 +241,20 @@ def _methods_of(route: Any) -> set[str]:
     return set(getattr(route, "methods", None) or {"GET"}) - {"HEAD", "OPTIONS"}
 
 
+def _path_and_dependant(route: Any) -> tuple[str | None, Dependant | None]:
+    """라우트의 경로와 의존성 정보. include_router로 붙인 WebSocket 라우트는 풀어 낸 항목에 경로와 의존성이 비어 있어
+    원본 라우트에서 읽는다(포함할 때 붙인 접두사는 반영되지 않으니 WebSocket 라우터는 접두사 없이 포함한다)."""
+    original = getattr(route, "original_route", None)
+    if isinstance(original, APIWebSocketRoute):
+        return original.path, original.dependant
+    return getattr(route, "path", None), getattr(route, "dependant", None)
+
+
 def registered_routes(app: FastAPI) -> list[tuple[str, str]]:
     """앱에 등록된 모든 (메서드, 경로). 모르는 종류의 라우트는 ("UNKNOWN", 종류)로 보인다."""
     found: list[tuple[str, str]] = []
     for route in _flatten(app.routes):
-        path = getattr(route, "path", None)
+        path, _ = _path_and_dependant(route)
         if path is None:
             found.append(("UNKNOWN", type(route).__name__))
             continue
@@ -259,11 +269,10 @@ def routes_without_authz(app: FastAPI) -> list[tuple[str, str]]:
     """
     missing: list[tuple[str, str]] = []
     for route in _flatten(app.routes):
-        path = getattr(route, "path", None)
+        path, dependant = _path_and_dependant(route)
         if path is None:
             missing.append(("UNKNOWN", type(route).__name__))
             continue
-        dependant = getattr(route, "dependant", None)
         guarded = dependant is not None and _has_guard(dependant)
         for method in sorted(_methods_of(route)):
             if not guarded and (method, path) not in PUBLIC_ROUTES:
