@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fetchMe, logout } from './api';
+import { ApiError, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, logout } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -34,5 +34,68 @@ describe('logout', () => {
 	it('실패하면 오류로 올린다', async () => {
 		await expect(logout(() => json(403, {}))).rejects.toThrow();
 		await expect(logout(() => Promise.reject(new TypeError('network')))).rejects.toThrow();
+	});
+});
+
+const ITEM = { id: 7, name: '알고리즘', section_name: '월수반', status: 'active', student_count: 0, created_at: 'x' };
+
+describe('fetchClassrooms', () => {
+	it('목록과 개수를 돌려준다', async () => {
+		const body = { classrooms: [ITEM], counts: { active: 1, archived: 0 } };
+		const fetch = vi.fn(() => json(200, body));
+		expect(await fetchClassrooms(fetch)).toEqual(body);
+		expect(fetch).toHaveBeenCalledWith('/api/classrooms', expect.objectContaining({ credentials: 'same-origin' }));
+	});
+
+	it('실패하면 서버가 준 한국어 안내를 담은 ApiError를 올린다', async () => {
+		const err = await fetchClassrooms(() => json(401, { detail: '로그인이 필요합니다.' })).catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.status).toBe(401);
+		expect(err.message).toBe('로그인이 필요합니다.');
+	});
+
+	it('안내가 없는 오류도 상태 번호가 있는 ApiError다', async () => {
+		const err = await fetchClassrooms(() => Promise.resolve(new Response('oops', { status: 502 }))).catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.status).toBe(502);
+		expect(err.message).toContain('502');
+	});
+});
+
+describe('createClassroom', () => {
+	it('이름과 분반을 JSON으로 보내고 만든 강좌를 돌려준다', async () => {
+		const fetch = vi.fn(() => json(201, ITEM));
+		expect(await createClassroom({ name: '알고리즘', section_name: '월수반' }, fetch)).toEqual(ITEM);
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms');
+		expect(init.method).toBe('POST');
+		expect(JSON.parse(init.body as string)).toEqual({ name: '알고리즘', section_name: '월수반' });
+		expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+	});
+
+	it('422이면 서버의 한국어 문장이 그대로 메시지가 된다', async () => {
+		const err = await createClassroom({ name: ' ' }, () => json(422, { detail: '강좌 이름을 입력해 주세요.' })).catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.status).toBe(422);
+		expect(err.message).toBe('강좌 이름을 입력해 주세요.');
+	});
+
+	it('연결 실패는 ApiError가 아닌 오류로 올라간다', async () => {
+		const err = await createClassroom({ name: 'x' }, () => Promise.reject(new TypeError('network'))).catch((e) => e);
+		expect(err).not.toBeInstanceOf(ApiError);
+	});
+});
+
+describe('fetchClassroom', () => {
+	it('한 강좌를 돌려준다', async () => {
+		const fetch = vi.fn(() => json(200, ITEM));
+		expect(await fetchClassroom(7, fetch)).toEqual(ITEM);
+		expect(fetch).toHaveBeenCalledWith('/api/classrooms/7', expect.anything());
+	});
+
+	it('권한이 없으면 403과 안내를 담은 ApiError다 (AC8)', async () => {
+		const err = await fetchClassroom(7, () => json(403, { detail: '이 강좌를 볼 권한이 없습니다.' })).catch((e) => e);
+		expect(err.status).toBe(403);
+		expect(err.message).toBe('이 강좌를 볼 권한이 없습니다.');
 	});
 });
