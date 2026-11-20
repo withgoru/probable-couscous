@@ -1,4 +1,4 @@
-"""강좌 만들기, 목록, 조회(AC5~AC8).
+"""강좌 만들기, 복제, 목록, 조회(AC5~AC8, AC11~AC12).
 
 모든 라우트는 `authz`의 `guard`로 권한 판단을 거친다(C8). 목록은 로그인한 교수의 강좌만 읽고(C5),
 다른 교수의 강좌는 번호로 조회해도 `guard`가 막는다. 초대 토큰은 응답에 싣지 않는다(초대 링크는 T014).
@@ -49,6 +49,7 @@ def load_classroom(classroom_id: int, db: Db) -> ClassroomRef | None:
 
 
 ReadGuard = Annotated[Granted, Depends(guard(Action.CLASSROOM_READ, load_classroom))]
+CloneGuard = Annotated[Granted, Depends(guard(Action.CLASSROOM_CLONE, load_classroom))]
 CreateGuard = Annotated[Granted, Depends(guard_account(Action.CLASSROOM_CREATE))]
 ListGuard = Annotated[Granted, Depends(guard_account(Action.CLASSROOM_LIST))]
 
@@ -85,29 +86,56 @@ def _clean_section(value: object) -> str | None:
     return section
 
 
+class CloneClassroom(BaseModel):
+    # 보내지 않은 칸은 원본의 값을 쓴다. 보냈는데 비어 있으면 새로 만들 때와 같은 검사를 받는다
+    name: object = None
+    section_name: object = None
+
+
 def _item(db: sqlite3.Connection, classroom_id: int) -> dict:
     row = db.execute(_ITEM_SQL + " WHERE c.id = ?", (classroom_id,)).fetchone()
     return dict(row)
 
 
-@router.post("/api/classrooms", status_code=201)
-def create_classroom(body: NewClassroom, granted: CreateGuard, db: Db, clock: ClockDep):
-    name = _clean_name(body.name)
-    section = _clean_section(body.section_name)
-    now = clock.now().isoformat()
+def _insert_classroom(
+    db: sqlite3.Connection, owner: int, name: str, section: str | None, source_id: int | None, now: str
+) -> dict:
+    """강좌 한 개를 새로 만든다. 새 초대 토큰을 받고 명단과 기록은 비어 있다. 토큰이 겹치면 다시 시도한다."""
     for _ in range(TOKEN_ATTEMPTS):
         try:
             with transaction(db):
                 cursor = db.execute(
-                    "INSERT INTO classrooms(owner_github_id, name, section_name, invite_token, created_at) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (granted.actor.github_id, name, section, secrets.token_urlsafe(16), now),
+                    "INSERT INTO classrooms(owner_github_id, name, section_name, invite_token, "
+                    "source_classroom_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (owner, name, section, secrets.token_urlsafe(16), source_id, now),
                 )
             return _item(db, cursor.lastrowid)
         except sqlite3.IntegrityError as err:
             if "invite_token" not in str(err):
                 raise  # 초대 토큰이 겹친 경우만 다시 시도한다
     raise HTTPException(status_code=503, detail="강좌를 만들지 못했습니다. 잠시 뒤 다시 시도해 주세요.")
+
+
+@router.post("/api/classrooms", status_code=201)
+def create_classroom(body: NewClassroom, granted: CreateGuard, db: Db, clock: ClockDep):
+    name = _clean_name(body.name)
+    section = _clean_section(body.section_name)
+    return _insert_classroom(db, granted.actor.github_id, name, section, None, clock.now().isoformat())
+
+
+@router.post("/api/classrooms/{classroom_id}/clone", status_code=201)
+def clone_classroom(body: CloneClassroom, granted: CloneGuard, db: Db, clock: ClockDep):
+    """분반 만들기, 새 학기로 복제. 이름과 분반만 가져오고 명단, 입장 기록, 초대 링크는 새로 시작한다(AC12)."""
+    source = db.execute(
+        "SELECT name, section_name FROM classrooms WHERE id = ?", (granted.resource.id,)
+    ).fetchone()
+    name = _clean_name(body.name) if "name" in body.model_fields_set else source["name"]
+    section = (
+        _clean_section(body.section_name) if "section_name" in body.model_fields_set else source["section_name"]
+    )
+    return _insert_classroom(
+        db, granted.actor.github_id, name, section, granted.resource.id, clock.now().isoformat()
+    )
 
 
 @router.get("/api/classrooms")

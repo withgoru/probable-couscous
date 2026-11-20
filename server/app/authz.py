@@ -21,6 +21,7 @@ from app.db import get_db
 class Action(StrEnum):
     CLASSROOM_READ = "classroom.read"
     CLASSROOM_MANAGE = "classroom.manage"
+    CLASSROOM_CLONE = "classroom.clone"  # 분반 만들기, 새 학기로 복제. 보관된 강좌도 복제할 수 있다
     ROSTER_MANAGE = "roster.manage"
     JOINREQUEST_DECIDE = "joinrequest.decide"
     PENDINGAUTH_VIEW = "pendingauth.view"
@@ -69,6 +70,7 @@ class Decision:
 
 _OWNER_ONLY = {
     Action.CLASSROOM_MANAGE,
+    Action.CLASSROOM_CLONE,
     Action.ROSTER_MANAGE,
     Action.JOINREQUEST_DECIDE,
     Action.PENDINGAUTH_VIEW,
