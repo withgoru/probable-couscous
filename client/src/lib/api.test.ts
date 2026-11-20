@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, logout } from './api';
+import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -193,5 +193,30 @@ describe('명단 API', () => {
 	it('칸 정보가 없는 객체 detail은 field가 null이다', async () => {
 		const err = await fetchRoster(7, () => json(422, { detail: { message: '안내' } })).catch((e) => e);
 		expect(err.field).toBeNull();
+	});
+});
+
+describe('초대 링크 API', () => {
+	const INVITE = { token: 'abc', url: 'http://localhost:8000/join/abc' };
+
+	it('fetchInvite는 링크를 돌려준다', async () => {
+		const fetch = vi.fn(() => json(200, INVITE));
+		expect(await fetchInvite(7, fetch)).toEqual(INVITE);
+		expect(fetch).toHaveBeenCalledWith('/api/classrooms/7/invite', expect.objectContaining({ credentials: 'same-origin' }));
+	});
+
+	it('regenerateInvite는 POST로 새 링크를 받는다', async () => {
+		const fetch = vi.fn(() => json(200, { token: 'new', url: 'http://localhost:8000/join/new' }));
+		expect((await regenerateInvite(7, fetch)).token).toBe('new');
+		expect(fetch).toHaveBeenCalledWith(
+			'/api/classrooms/7/invite/regenerate',
+			expect.objectContaining({ method: 'POST', credentials: 'same-origin' })
+		);
+	});
+
+	it('실패하면 서버의 안내를 담은 ApiError를 올린다', async () => {
+		const err = await regenerateInvite(7, () => json(403, { detail: '이 강좌를 볼 권한이 없습니다.' })).catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.message).toBe('이 강좌를 볼 권한이 없습니다.');
 	});
 });

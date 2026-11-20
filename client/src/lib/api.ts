@@ -149,3 +149,20 @@ export async function importRoster(classroomId: number, file: File, fetchFn: Fet
 	if (!res.ok) throw await failure(res);
 	return (await res.json()) as ImportResult;
 }
+
+export type Invite = { token: string; url: string };
+
+export function fetchInvite(classroomId: number, fetchFn: FetchFn): Promise<Invite> {
+	return getJson<Invite>(fetchFn, `/api/classrooms/${classroomId}/invite`);
+}
+
+/** 링크를 새로 만든다. 이전 링크는 바로 쓸 수 없게 된다. */
+export async function regenerateInvite(classroomId: number, fetchFn: FetchFn = fetch): Promise<Invite> {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/invite/regenerate`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { Accept: 'application/json' }
+	});
+	if (!res.ok) throw await failure(res);
+	return (await res.json()) as Invite;
+}
