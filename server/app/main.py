@@ -15,6 +15,7 @@ from app.classrooms import router as classrooms_router
 from app.clock import Clock, SystemClock
 from app.config import Settings, load_settings
 from app.db import MIGRATIONS_DIR, connect, migrate
+from app.invites import router as invites_router
 from app.routes_auth import router as auth_router
 
 NOT_BUILT = "클라이언트가 아직 빌드되지 않았습니다. client 폴더에서 npm run build를 실행하세요."
@@ -74,6 +75,7 @@ def create_app(
     # 아래의 모든 경로를 받는 클라이언트 라우트보다 먼저 등록한다
     app.include_router(auth_router)
     app.include_router(classrooms_router)
+    app.include_router(invites_router)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
