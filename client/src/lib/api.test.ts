@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, logout } from './api';
+import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, logout } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -95,6 +95,24 @@ describe('fetchClassroom', () => {
 
 	it('권한이 없으면 403과 안내를 담은 ApiError다 (AC8)', async () => {
 		const err = await fetchClassroom(7, () => json(403, { detail: '이 강좌를 볼 권한이 없습니다.' })).catch((e) => e);
+		expect(err.status).toBe(403);
+		expect(err.message).toBe('이 강좌를 볼 권한이 없습니다.');
+	});
+});
+
+describe('cloneClassroom', () => {
+	it('원본 번호의 복제 경로로 이름과 분반을 보내고 만든 강좌를 돌려준다', async () => {
+		const fetch = vi.fn(() => json(201, { ...ITEM, id: 8 }));
+		expect(await cloneClassroom(7, { name: '알고리즘', section_name: null }, fetch)).toEqual({ ...ITEM, id: 8 });
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/clone');
+		expect(init.method).toBe('POST');
+		expect(JSON.parse(init.body as string)).toEqual({ name: '알고리즘', section_name: null });
+	});
+
+	it('권한이 없으면 서버의 한국어 안내를 담은 ApiError다', async () => {
+		const err = await cloneClassroom(7, { name: 'x' }, () => json(403, { detail: '이 강좌를 볼 권한이 없습니다.' })).catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
 		expect(err.status).toBe(403);
 		expect(err.message).toBe('이 강좌를 볼 권한이 없습니다.');
 	});

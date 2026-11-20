@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { invalidate } from '$app/navigation';
 	import { tick } from 'svelte';
-	import type { Classroom } from '#lib/api.js';
+	import { cloneClassroom, createClassroom, type Classroom } from '#lib/api.js';
 	import ClassroomCard from '#lib/components/ClassroomCard.svelte';
 	import ClassroomForm from '#lib/components/ClassroomForm.svelte';
 	import Icon from '#lib/components/Icon.svelte';
@@ -10,8 +10,12 @@
 
 	let { data }: PageProps = $props();
 
+	// 열려 있는 폼 하나. key가 바뀌면 폼이 새로 만들어져 이전 입력이 남지 않는다
+	type OpenForm = { key: number; source: Classroom | null; opener: HTMLElement | null };
+
 	let tab = $state('active');
-	let creating = $state(false);
+	let form = $state<OpenForm | null>(null);
+	let formCount = 0;
 	let created = $state<string | null>(null);
 	let createButton: HTMLButtonElement;
 
@@ -25,23 +29,40 @@
 	};
 
 	function startCreate() {
-		creating = true;
+		form = { key: ++formCount, source: null, opener: createButton };
 		created = null;
 		tab = 'active'; // 새 강좌는 진행 중 목록 맨 앞에 생긴다
 	}
 
-	async function closeForm() {
-		creating = false;
+	function startClone(source: Classroom, opener: HTMLElement) {
+		// 탭은 그대로 둔다. 눌렀던 카드가 보여야 닫을 때 그 버튼으로 포커스를 돌려줄 수 있다
+		form = { key: ++formCount, source, opener };
+		created = null;
+	}
+
+	async function closeForm(backToOpener = true) {
+		const opener = form?.opener;
+		form = null;
 		await tick();
-		createButton?.focus(); // 열었던 버튼으로 포커스를 돌려준다
+		// 열었던 버튼으로 포커스를 돌려준다. 만든 뒤에는 그 버튼이 가려질 수 있어 새 강좌 만들기 버튼으로 간다
+		(backToOpener && opener && opener.isConnected ? opener : createButton)?.focus();
 	}
 
 	async function onCreated(classroom: Classroom) {
 		await invalidate('app:classrooms');
 		created = classroom.name;
 		tab = 'active';
-		await closeForm();
+		await closeForm(false);
 	}
+
+	const formText = $derived(
+		form?.source
+			? {
+					title: form.source.status === 'archived' ? '새 학기로 복제' : '분반 만들기',
+					description: '이름과 분반을 확인하고 고칠 수 있습니다. 수강생 명단과 기록은 새로 시작합니다.'
+				}
+			: { title: '새 강좌 만들기', description: '분반 이름은 비워 둘 수 있습니다.' }
+	);
 </script>
 
 <svelte:head><title>내 강좌 · 강의 상호작용 도구</title></svelte:head>
@@ -53,7 +74,7 @@
 			bind:this={createButton}
 			type="button"
 			class="btn btn-default"
-			aria-expanded={creating}
+			aria-expanded={form !== null && form.source === null}
 			aria-controls="create-form"
 			onclick={startCreate}
 		>
@@ -68,8 +89,18 @@
 		</div>
 	{/if}
 
-	{#if creating}
-		<ClassroomForm {onCreated} onCancel={closeForm} />
+	{#if form}
+		{#key form.key}
+			<ClassroomForm
+				title={formText.title}
+				description={formText.description}
+				initialName={form.source?.name ?? ''}
+				initialSection={form.source?.section_name ?? ''}
+				save={form.source ? (input) => cloneClassroom(form!.source!.id, input) : createClassroom}
+				{onCreated}
+				onCancel={() => closeForm()}
+			/>
+		{/key}
 	{/if}
 
 	<Tabs.Root bind:value={tab}>
@@ -88,7 +119,7 @@
 				{:else}
 					<ul class="grid grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))] gap-4">
 						{#each byStatus[status] as classroom (classroom.id)}
-							<ClassroomCard {classroom} />
+							<ClassroomCard {classroom} onClone={startClone} />
 						{/each}
 					</ul>
 				{/if}

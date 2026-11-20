@@ -3,9 +3,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const nav = vi.hoisted(() => ({ invalidate: vi.fn(() => Promise.resolve()), goto: vi.fn(() => Promise.resolve()) }));
-const api = vi.hoisted(() => ({ createClassroom: vi.fn() }));
+const api = vi.hoisted(() => ({ createClassroom: vi.fn(), cloneClassroom: vi.fn() }));
 vi.mock('$app/navigation', () => nav);
-vi.mock('#lib/api.js', async (original) => ({ ...(await original<object>()), createClassroom: api.createClassroom }));
+vi.mock('#lib/api.js', async (original) => ({
+	...(await original<object>()),
+	createClassroom: api.createClassroom,
+	cloneClassroom: api.cloneClassroom
+}));
 
 import { ApiError } from '#lib/api.js';
 import CoursesPage from './+page.svelte';
@@ -25,6 +29,7 @@ const DATA = {
 beforeEach(() => {
 	nav.invalidate.mockClear();
 	api.createClassroom.mockReset();
+	api.cloneClassroom.mockReset();
 });
 afterEach(cleanup);
 
@@ -251,5 +256,144 @@ describe('새 강좌 만들기 (AC5, AC6)', () => {
 		await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '새 강좌 만들기' })));
 		await fireEvent.click(screen.getByRole('button', { name: '새 강좌 만들기' }));
 		expect((await screen.findByLabelText('강좌 이름') as HTMLInputElement).value).toBe(''); // 다시 열면 비어 있다
+	});
+});
+
+describe('분반 만들기·새 학기로 복제 (AC11)', () => {
+	const card = (title: string, section?: string) =>
+		screen
+			.getAllByRole('heading', { level: 2, name: title })
+			.map((h) => h.closest('li') as HTMLElement)
+			.find((li) => !section || within(li).queryByText(section)) as HTMLElement;
+
+	it('진행 중 카드에는 "분반 만들기", 보관됨 카드에는 "새 학기로 복제" 버튼이 있다', async () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		for (const li of [card('데이터베이스'), card('웹 프로그래밍', '분반 없음')]) {
+			expect(within(li).getByRole('button', { name: /^분반 만들기/ })).toBeTruthy();
+			expect(within(li).queryByRole('button', { name: /새 학기로 복제/ })).toBeNull();
+		}
+		await openTab(/보관됨/);
+		const archived = card('웹 프로그래밍');
+		expect(within(archived).getByRole('button', { name: /^새 학기로 복제/ })).toBeTruthy();
+		expect(within(archived).queryByRole('button', { name: /분반 만들기/ })).toBeNull();
+	});
+
+	it('같은 이름의 버튼이 여러 개여도 어느 강좌의 것인지 이름으로 구분된다', () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		const names = screen.getAllByRole('button', { name: /^분반 만들기/ }).map((b) => b.getAttribute('aria-label'));
+		expect(names).toEqual(['분반 만들기: 데이터베이스 (수요반)', '분반 만들기: 웹 프로그래밍']);
+	});
+
+	it('누르면 그 강좌의 이름과 분반이 채워진 폼이 열리고 이름 칸에 포커스가 간다', async () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		await fireEvent.click(within(card('데이터베이스')).getByRole('button', { name: /^분반 만들기/ }));
+		const name = (await screen.findByLabelText('강좌 이름')) as HTMLInputElement;
+		expect(name.value).toBe('데이터베이스');
+		expect((screen.getByLabelText(/분반 이름/) as HTMLInputElement).value).toBe('수요반');
+		expect(screen.getByRole('heading', { level: 2, name: '분반 만들기' })).toBeTruthy();
+		expect(document.activeElement).toBe(name);
+		expect((screen.getByRole('button', { name: '만들기' }) as HTMLButtonElement).disabled).toBe(false);
+		expect(screen.getByText(/수강생 명단과 기록은 새로 시작합니다/)).toBeTruthy();
+	});
+
+	it('채워진 이름은 선택되어 있어서 바로 타자를 쳐서 고칠 수 있다', async () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		await fireEvent.click(within(card('데이터베이스')).getByRole('button', { name: /^분반 만들기/ }));
+		const name = (await screen.findByLabelText('강좌 이름')) as HTMLInputElement;
+		expect([name.selectionStart, name.selectionEnd]).toEqual([0, name.value.length]);
+	});
+
+	it('분반이 없는 강좌는 분반 칸이 비어 있다', async () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		await fireEvent.click(within(card('웹 프로그래밍', '분반 없음')).getByRole('button', { name: /^분반 만들기/ }));
+		await screen.findByLabelText('강좌 이름');
+		expect((screen.getByLabelText(/분반 이름/) as HTMLInputElement).value).toBe('');
+	});
+
+	it('이름과 분반을 고쳐서 만들면 그 값으로 복제하고 목록을 다시 불러오고 폼을 닫는다', async () => {
+		api.cloneClassroom.mockResolvedValue(item(9, '데이터베이스 2반', '목요반', 'active', 0));
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		await fireEvent.click(within(card('데이터베이스')).getByRole('button', { name: /^분반 만들기/ }));
+		const name = (await screen.findByLabelText('강좌 이름')) as HTMLInputElement;
+		await fireEvent.input(name, { target: { value: '  데이터베이스 2반  ' } });
+		await fireEvent.input(screen.getByLabelText(/분반 이름/), { target: { value: '목요반' } });
+		await fireEvent.click(screen.getByRole('button', { name: '만들기' }));
+		await waitFor(() => expect(nav.invalidate).toHaveBeenCalledWith('app:classrooms'));
+		expect(api.cloneClassroom).toHaveBeenCalledWith(3, { name: '데이터베이스 2반', section_name: '목요반' });
+		expect(api.createClassroom).not.toHaveBeenCalled(); // 새로 만들기가 아니라 복제다
+		await waitFor(() => expect(screen.queryByLabelText('강좌 이름')).toBeNull());
+		expect(tab(/진행 중/).getAttribute('aria-selected')).toBe('true');
+		expect(screen.getByRole('status').textContent).toContain('데이터베이스 2반');
+	});
+
+	it('보관된 강좌의 "새 학기로 복제"는 폼 제목이 다르고 보관된 강좌를 원본으로 보낸다', async () => {
+		api.cloneClassroom.mockResolvedValue(item(9, '웹 프로그래밍', '월수반', 'active', 0));
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		await openTab(/보관됨/);
+		await fireEvent.click(within(card('웹 프로그래밍')).getByRole('button', { name: /^새 학기로 복제/ }));
+		await screen.findByLabelText('강좌 이름');
+		expect(screen.getByRole('heading', { level: 2, name: '새 학기로 복제' })).toBeTruthy();
+		await fireEvent.click(screen.getByRole('button', { name: '만들기' }));
+		await waitFor(() => expect(api.cloneClassroom).toHaveBeenCalledWith(1, { name: '웹 프로그래밍', section_name: '월수반' }));
+		await waitFor(() => expect(tab(/진행 중/).getAttribute('aria-selected')).toBe('true')); // 새 강좌는 진행 중에 생긴다
+	});
+
+	it('보관된 강좌에서 복제 폼을 열어도 보관됨 탭에 머문다(눌렀던 카드가 보여야 포커스를 돌려줄 수 있다)', async () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		await openTab(/보관됨/);
+		await fireEvent.click(within(card('웹 프로그래밍')).getByRole('button', { name: /^새 학기로 복제/ }));
+		await screen.findByLabelText('강좌 이름');
+		expect(tab(/보관됨/).getAttribute('aria-selected')).toBe('true');
+		expect(within(card('웹 프로그래밍')).getByRole('button', { name: /^새 학기로 복제/ })).toBeTruthy();
+	});
+
+	it('이름을 지우면 만들기를 누를 수 없고 이유가 보인다 (AC6와 같은 규칙)', async () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		await fireEvent.click(within(card('데이터베이스')).getByRole('button', { name: /^분반 만들기/ }));
+		await fireEvent.input(await screen.findByLabelText('강좌 이름'), { target: { value: '' } });
+		expect((screen.getByRole('button', { name: '만들기' }) as HTMLButtonElement).disabled).toBe(true);
+		expect(screen.getByText('강좌 이름을 입력해 주세요.')).toBeTruthy();
+	});
+
+	it('서버가 거부하면 이유를 보여 주고 폼을 그대로 둔다', async () => {
+		api.cloneClassroom.mockRejectedValue(new ApiError(403, '이 강좌를 볼 권한이 없습니다.'));
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		await fireEvent.click(within(card('데이터베이스')).getByRole('button', { name: /^분반 만들기/ }));
+		await fireEvent.click(await screen.findByRole('button', { name: '만들기' }));
+		expect((await screen.findByRole('alert')).textContent).toContain('이 강좌를 볼 권한이 없습니다.');
+		expect(screen.getByLabelText('강좌 이름')).toBeTruthy();
+		expect(nav.invalidate).not.toHaveBeenCalled();
+	});
+
+	it('취소하면 서버를 부르지 않고 폼을 닫고 포커스가 눌렀던 카드의 버튼으로 돌아간다', async () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		const opener = within(card('데이터베이스')).getByRole('button', { name: /^분반 만들기/ });
+		opener.focus();
+		await fireEvent.click(opener);
+		await screen.findByLabelText('강좌 이름');
+		await fireEvent.click(screen.getByRole('button', { name: '취소' }));
+		await waitFor(() => expect(screen.queryByLabelText('강좌 이름')).toBeNull());
+		expect(api.cloneClassroom).not.toHaveBeenCalled();
+		await waitFor(() => expect(document.activeElement).toBe(opener));
+	});
+
+	it('복제 폼이 열려 있을 때 새 강좌 만들기를 누르면 빈 폼으로 바뀐다(폼은 하나만)', async () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		await fireEvent.click(within(card('데이터베이스')).getByRole('button', { name: /^분반 만들기/ }));
+		await screen.findByLabelText('강좌 이름');
+		await fireEvent.click(screen.getByRole('button', { name: '새 강좌 만들기' }));
+		await waitFor(() => expect((screen.getByLabelText('강좌 이름') as HTMLInputElement).value).toBe(''));
+		expect(screen.getAllByLabelText('강좌 이름')).toHaveLength(1);
+		expect(screen.getByRole('heading', { level: 2, name: '새 강좌 만들기' })).toBeTruthy();
+	});
+
+	it('복제 폼 뒤에 새 강좌 만들기를 다시 열어도 이전 값이 남지 않는다', async () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		await fireEvent.click(within(card('데이터베이스')).getByRole('button', { name: /^분반 만들기/ }));
+		await screen.findByLabelText('강좌 이름');
+		await fireEvent.click(screen.getByRole('button', { name: '취소' }));
+		await waitFor(() => expect(screen.queryByLabelText('강좌 이름')).toBeNull());
+		await fireEvent.click(screen.getByRole('button', { name: '새 강좌 만들기' }));
+		expect(((await screen.findByLabelText('강좌 이름')) as HTMLInputElement).value).toBe('');
 	});
 });

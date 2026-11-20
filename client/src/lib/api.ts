@@ -69,11 +69,10 @@ export function fetchClassroom(id: number, fetchFn: FetchFn): Promise<Classroom>
 	return getJson<Classroom>(fetchFn, `/api/classrooms/${id}`);
 }
 
-export async function createClassroom(
-	input: { name: string; section_name?: string | null },
-	fetchFn: FetchFn = fetch
-): Promise<Classroom> {
-	const res = await fetchFn('/api/classrooms', {
+type ClassroomInput = { name: string; section_name?: string | null };
+
+async function postClassroom(fetchFn: FetchFn, url: string, input: ClassroomInput): Promise<Classroom> {
+	const res = await fetchFn(url, {
 		method: 'POST',
 		credentials: 'same-origin',
 		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -81,4 +80,17 @@ export async function createClassroom(
 	});
 	if (!res.ok) throw await failure(res);
 	return (await res.json()) as Classroom;
+}
+
+export function createClassroom(input: ClassroomInput, fetchFn: FetchFn = fetch): Promise<Classroom> {
+	return postClassroom(fetchFn, '/api/classrooms', input);
+}
+
+/** 분반 만들기, 새 학기로 복제. 이름과 분반만 가져오고 명단과 기록은 새로 시작한다. */
+export function cloneClassroom(
+	sourceId: number,
+	input: ClassroomInput,
+	fetchFn: FetchFn = fetch
+): Promise<Classroom> {
+	return postClassroom(fetchFn, `/api/classrooms/${sourceId}/clone`, input);
 }

@@ -1,16 +1,36 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { ApiError, createClassroom, type Classroom } from '#lib/api.js';
+	import { ApiError, type Classroom } from '#lib/api.js';
 	import Icon from '#lib/components/Icon.svelte';
 
-	let { onCreated, onCancel }: { onCreated: (c: Classroom) => void | Promise<void>; onCancel: () => void } = $props();
+	// 새로 만들기와 복제가 같은 폼을 쓴다. 무엇을 보낼지(save)와 처음 채울 값은 부르는 쪽이 정한다
+	let {
+		title,
+		description,
+		initialName = '',
+		initialSection = '',
+		save,
+		onCreated,
+		onCancel
+	}: {
+		title: string;
+		description: string;
+		initialName?: string;
+		initialSection?: string;
+		save: (input: { name: string; section_name: string | null }) => Promise<Classroom>;
+		onCreated: (c: Classroom) => void | Promise<void>;
+		onCancel: () => void;
+	} = $props();
 
 	// 서버의 길이 상한과 같다(강좌 이름 100자, 분반 이름 50자)
 	const NAME_MAX = 100;
 	const SECTION_MAX = 50;
 
-	let name = $state('');
-	let section = $state('');
+	// 폼을 열 때마다 새로 만들어지므로(부르는 쪽이 key를 바꾼다) 처음 값만 필요하다
+	// svelte-ignore state_referenced_locally
+	let name = $state(initialName);
+	// svelte-ignore state_referenced_locally
+	let section = $state(initialSection);
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let nameInput: HTMLInputElement;
@@ -18,7 +38,10 @@
 	const blank = $derived(name.trim() === '');
 	const describedBy = $derived([blank ? 'name-hint' : null, error ? 'create-error' : null].filter(Boolean).join(' '));
 
-	onMount(() => nameInput.focus());
+	onMount(() => {
+		nameInput.focus();
+		if (name !== '') nameInput.select(); // 채워진 이름은 바로 고쳐 쓸 수 있게 선택해 둔다
+	});
 
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
@@ -26,7 +49,7 @@
 		saving = true;
 		error = null;
 		try {
-			const created = await createClassroom({
+			const created = await save({
 				name: name.trim(),
 				section_name: section.trim() === '' ? null : section.trim()
 			});
@@ -45,8 +68,8 @@
 
 <form id="create-form" class="card" onsubmit={submit}>
 	<div class="card-header">
-		<h2 class="card-title">새 강좌 만들기</h2>
-		<p class="card-description">분반 이름은 비워 둘 수 있습니다.</p>
+		<h2 class="card-title">{title}</h2>
+		<p class="card-description">{description}</p>
 	</div>
 	<div class="card-content grid grid-cols-[repeat(auto-fit,minmax(min(15rem,100%),1fr))] gap-4">
 		<div class="flex flex-col gap-2">

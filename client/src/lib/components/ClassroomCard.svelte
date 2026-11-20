@@ -2,8 +2,14 @@
 	import type { Classroom } from '#lib/api.js';
 	import Icon from '#lib/components/Icon.svelte';
 
-	let { classroom }: { classroom: Classroom } = $props();
+	let { classroom, onClone }: { classroom: Classroom; onClone: (c: Classroom, opener: HTMLElement) => void } =
+		$props();
 	const archived = $derived(classroom.status === 'archived');
+	const cloneLabel = $derived(archived ? '새 학기로 복제' : '분반 만들기');
+	// 같은 이름의 버튼이 카드마다 있으니 어느 강좌의 것인지 이름에 넣는다. 보이는 글자로 시작해서 음성 입력도 맞는다
+	const cloneName = $derived(
+		`${cloneLabel}: ${classroom.name}${classroom.section_name ? ` (${classroom.section_name})` : ''}`
+	);
 </script>
 
 <li class="card gap-4">
@@ -22,5 +28,13 @@
 	</div>
 	<div class="card-footer">
 		<a href="/courses/{classroom.id}/admin" class="btn btn-default flex-1">{archived ? '기록 보기' : '열기'}</a>
+		<button
+			type="button"
+			class="btn btn-outline flex-1"
+			aria-label={cloneName}
+			onclick={(e) => onClone(classroom, e.currentTarget)}
+		>
+			{cloneLabel}
+		</button>
 	</div>
 </li>

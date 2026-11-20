@@ -43,6 +43,7 @@ ANON = Actor.anonymous()
 
 OWNER_ONLY = [
     Action.CLASSROOM_MANAGE,
+    Action.CLASSROOM_CLONE,
     Action.ROSTER_MANAGE,
     Action.JOINREQUEST_DECIDE,
     Action.PENDINGAUTH_VIEW,
