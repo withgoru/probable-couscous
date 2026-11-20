@@ -3,6 +3,8 @@
 이름·이메일·학번은 명단 표에만 둔다(C7, C11). 이 모듈은 닉네임을 다루지 않는다(C9).
 """
 
+import csv
+import io
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -10,6 +12,7 @@ from dataclasses import dataclass
 from app.db import transaction
 
 ROSTER_LIMIT = 200
+IMPORT_MAX_BYTES = 1024 * 1024  # CSV 한 번에 1MB
 STUDENT_NO_MAX = 50
 NAME_MAX = 100
 EMAIL_MAX = 254
@@ -95,9 +98,102 @@ def add_entry(db: sqlite3.Connection, classroom_id: int, entry: CleanEntry, now:
                 "roster_full",
                 f"명단은 {ROSTER_LIMIT}명까지 등록할 수 있습니다. 다른 학생을 빼고 다시 추가해 주세요.",
             )
-        cursor = db.execute(
-            "INSERT INTO roster_entries(classroom_id, student_no, name, email_norm, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (classroom_id, entry.student_no, entry.name, entry.email_norm, now),
-        )
-        return cursor.lastrowid
+        return _insert(db, classroom_id, entry, now)
+
+
+def _insert(db: sqlite3.Connection, classroom_id: int, entry: CleanEntry, now: str) -> int:
+    cursor = db.execute(
+        "INSERT INTO roster_entries(classroom_id, student_no, name, email_norm, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (classroom_id, entry.student_no, entry.name, entry.email_norm, now),
+    )
+    return cursor.lastrowid
+
+
+# --- CSV 올리기 (AC13, AC14, AC18) ---------------------------------------------------------
+
+UNREADABLE = "파일을 읽을 수 없습니다. UTF-8 CSV로 저장해 다시 올려 주세요."
+EMPTY_FILE = "파일이 비어 있습니다. 첫 줄에 제목(학번, 이름, 이메일)을 쓰고 학생을 한 줄에 한 명씩 적어 올려 주세요."
+NO_TITLE = (
+    "첫 줄은 제목(학번, 이름, 이메일)이어야 합니다. 제목 줄을 맨 위에 넣고 다시 올려 주세요."
+)
+TOO_LARGE = "파일이 너무 큽니다. 1MB 이하로 나눠 올려 주세요."
+# 건너뛴 줄에 보여 주는 이유(AC14)
+SKIP_LABELS = {
+    "blank": "빈 칸",
+    "too_long": "입력이 너무 깁니다",
+    "email_format": "이메일 형식 오류",
+    "duplicate_email": "이메일 중복",
+    "duplicate_student_no": "학번 중복",
+    "columns": "열 개수 오류",
+}
+
+
+def parse_csv(data: bytes) -> list[tuple[int, list[str]]]:
+    """UTF-8(BOM 허용) CSV를 (줄 번호, 칸 목록)으로 나눈다. 첫 줄은 제목이라 빼고, 줄 번호는 파일의 줄 기준이다."""
+    if not data.strip():
+        raise RosterError("empty", EMPTY_FILE)
+    try:
+        text = data.decode("utf-8-sig")  # 엄격하게: CP949 같은 다른 인코딩은 실패해야 한다
+    except UnicodeDecodeError as err:
+        raise RosterError("unreadable", UNREADABLE) from err
+    if "\x00" in text:
+        raise RosterError("unreadable", UNREADABLE)
+    reader = csv.reader(io.StringIO(text, newline=""))
+    rows: list[tuple[int, list[str]]] = []
+    try:
+        while True:
+            first_line = reader.line_num + 1
+            try:
+                cells = next(reader)
+            except StopIteration:
+                break
+            rows.append((first_line, cells))
+    except csv.Error as err:
+        raise RosterError("unreadable", UNREADABLE) from err
+    # 제목 줄이 없으면 첫 학생이 조용히 사라진다. 첫 줄의 이메일 칸이 이메일처럼 보이면 알려 준다
+    header = rows[0][1] if rows else []
+    if len(header) >= 3 and _EMAIL.match(header[2].strip()):
+        raise RosterError("no_title", NO_TITLE)
+    return rows[1:]
+
+
+def import_rows(db: sqlite3.Connection, classroom_id: int, rows: list[tuple[int, list[str]]], now: str) -> dict:
+    """올바른 줄만 한 트랜잭션으로 등록한다. 등록할 인원이 200명을 넘으면 아무도 넣지 않는다(AC18)."""
+    with transaction(db):
+        accepted: list[CleanEntry] = []
+        skipped: list[dict] = []
+        seen_email: set[str] = set()
+        seen_no: set[str] = set()
+
+        def skip(line: int, reason: str) -> None:
+            skipped.append({"line": line, "reason": SKIP_LABELS[reason]})
+
+        for line, cells in rows:
+            if all(not c.strip() for c in cells):
+                continue  # 엑셀이 붙이는 빈 줄은 세지 않는다
+            if len(cells) < 3 or any(c.strip() for c in cells[3:]):
+                skip(line, "columns")
+                continue
+            try:
+                entry = clean_entry(*cells[:3])
+            except RosterError as err:
+                skip(line, err.reason)
+                continue
+            problem = find_duplicate(db, classroom_id, entry)
+            if problem:
+                skip(line, problem.reason)
+            elif entry.email_norm in seen_email:
+                skip(line, "duplicate_email")
+            elif entry.student_no in seen_no:
+                skip(line, "duplicate_student_no")
+            else:
+                seen_email.add(entry.email_norm)
+                seen_no.add(entry.student_no)
+                accepted.append(entry)
+        over = live_count(db, classroom_id) + len(accepted) - ROSTER_LIMIT
+        if over > 0:
+            raise RosterError("roster_full", full_message(over))
+        for entry in accepted:
+            _insert(db, classroom_id, entry, now)
+    return {"added": len(accepted), "skipped": len(skipped), "skipped_lines": skipped}
