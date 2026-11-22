@@ -257,3 +257,48 @@ export type Entered = { next: 'entered'; nickname: string; classroom: string };
 export function enterClassroom(token: string, fetchFn: FetchFn = fetch): Promise<Entered> {
 	return postJoin<Entered>(fetchFn, joinUrl(token, '/enter'), {});
 }
+
+// --- 교수 관리 화면: 입장 요청과 대기 중인 인증 ------------------------------------------------------------------------
+
+export type JoinRequest = { id: number; name: string; student_no: string; email: string; created_at: string };
+
+/** 처리 전 입장 요청(오래된 것부터). 이름, 학번, 이메일, 요청 시각만 온다(AC40). */
+export async function fetchJoinRequests(classroomId: number, fetchFn: FetchFn = fetch): Promise<JoinRequest[]> {
+	return (await getJson<{ requests: JoinRequest[] }>(fetchFn, `/api/classrooms/${classroomId}/join-requests`)).requests;
+}
+
+async function decide(fetchFn: FetchFn, classroomId: number, requestId: number, action: 'approve' | 'reject') {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/join-requests/${requestId}/${action}`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { Accept: 'application/json' }
+	});
+	if (!res.ok) throw await failure(res);
+	return (await res.json()) as { id: number; status: 'approved' | 'rejected' };
+}
+
+/** 승인: 명단에 추가한다. 입장은 되지 않고 학생은 이메일 인증부터 한다(AC41). 명단 규칙에 걸리면 ApiError(409). */
+export function approveJoinRequest(classroomId: number, requestId: number, fetchFn: FetchFn = fetch) {
+	return decide(fetchFn, classroomId, requestId, 'approve');
+}
+
+/** 거절: 학생이 다시 열면 거절 안내가 보인다(AC42). */
+export function rejectJoinRequest(classroomId: number, requestId: number, fetchFn: FetchFn = fetch) {
+	return decide(fetchFn, classroomId, requestId, 'reject');
+}
+
+export type PendingAuth = {
+	id: number;
+	student_no: string;
+	name: string;
+	notified_at: string;
+} & (
+	| { status: 'waiting'; code: string; expires_at: string }
+	| { status: 'used'; used_at: string }
+	| { status: 'expired' }
+);
+
+/** '교수님께 알리기'를 누른 학생의 코드(AC45). **부를 때마다 서버가 코드 열람을 기록한다**(AC48). 꼭 필요할 때만 부른다. */
+export async function fetchPendingAuth(classroomId: number, fetchFn: FetchFn = fetch): Promise<PendingAuth[]> {
+	return (await getJson<{ items: PendingAuth[] }>(fetchFn, `/api/classrooms/${classroomId}/pending-auth`)).items;
+}

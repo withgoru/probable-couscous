@@ -3,11 +3,37 @@ import { cleanup, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const nav = vi.hoisted(() => ({ invalidate: vi.fn(() => Promise.resolve()) }));
-const api = vi.hoisted(() => ({ addStudent: vi.fn(), regenerateInvite: vi.fn() }));
+const api = vi.hoisted(() => ({
+	addStudent: vi.fn(),
+	regenerateInvite: vi.fn(),
+	fetchJoinRequests: vi.fn(),
+	fetchPendingAuth: vi.fn(),
+	approveJoinRequest: vi.fn()
+}));
+// 실시간 연결은 흉내 낸다: 화면이 넘긴 처리기를 잡아 두고 테스트가 서버 이벤트를 일으킨다
+type Handlers = { onReady: () => void; onEvent: (e: { type: string; id?: number }) => void; onStatus: (s: string) => void };
+const live = vi.hoisted(() => ({ handlers: null as unknown, classroomId: 0, stop: vi.fn(), connectAdmin: vi.fn() }));
 vi.mock('$app/navigation', () => nav);
-vi.mock('#lib/api.js', async (original) => ({ ...(await original<object>()), addStudent: api.addStudent, regenerateInvite: api.regenerateInvite }));
+vi.mock('#lib/api.js', async (original) => ({
+	...(await original<object>()),
+	addStudent: api.addStudent,
+	regenerateInvite: api.regenerateInvite,
+	fetchJoinRequests: api.fetchJoinRequests,
+	fetchPendingAuth: api.fetchPendingAuth,
+	approveJoinRequest: api.approveJoinRequest
+}));
+vi.mock('#lib/adminLive.js', () => ({
+	connectAdmin: (id: number, handlers: unknown) => {
+		live.classroomId = id;
+		live.handlers = handlers;
+		live.connectAdmin(id);
+		return live.stop;
+	}
+}));
+const server = () => live.handlers as Handlers;
 
-import { fireEvent, waitFor } from '@testing-library/svelte';
+import { act, fireEvent, waitFor } from '@testing-library/svelte';
+import { beforeEach } from 'vitest';
 import { load } from './+page';
 import AdminPage from './+page.svelte';
 
@@ -146,5 +172,124 @@ describe('관리 페이지 화면', () => {
 		}
 		await fireEvent.click(screen.getByRole('button', { name: '학생 추가' }));
 		await waitFor(() => expect(nav.invalidate).toHaveBeenCalledWith('app:roster'));
+	});
+});
+
+// --- 입장 요청과 대기 중인 인증, 실시간 (AC40, AC45, T029) -------------------------------------------------------------
+
+describe('관리 페이지의 입장 요청과 대기 중인 인증', () => {
+	const REQUESTS = [{ id: 1, name: '박민수', student_no: '20249999', email: 'park@x.kr', created_at: '2026-03-02T05:05:00+00:00' }];
+	const PENDING = [
+		{ id: 11, student_no: '1', name: '김철수', notified_at: '2026-03-02T05:05:00+00:00', status: 'waiting', code: '349498', expires_at: '2999-01-01T00:00:00+00:00' }
+	];
+	const DATA = { me: null, classroom: MINE, roster: ROSTER, invite: INVITE, notice: null };
+
+	beforeEach(() => {
+		nav.invalidate.mockClear();
+		live.stop.mockClear();
+		live.connectAdmin.mockClear();
+		api.fetchJoinRequests.mockReset().mockResolvedValue(REQUESTS);
+		api.fetchPendingAuth.mockReset().mockResolvedValue(PENDING);
+		api.approveJoinRequest.mockReset();
+	});
+
+	it('화면을 열면 이 강좌의 실시간 연결을 열고, 준비되기 전에는 불러오는 중이다', () => {
+		render(AdminPage, { params: { id: '7' }, data: DATA });
+		expect(live.connectAdmin).toHaveBeenCalledWith(7);
+		expect(screen.getByRole('heading', { level: 2, name: /입장 요청/ })).toBeTruthy();
+		expect(screen.getByRole('heading', { level: 2, name: /대기 중인 인증/ })).toBeTruthy();
+		expect(screen.getAllByText('불러오는 중…')).toHaveLength(2);
+		expect(api.fetchPendingAuth).not.toHaveBeenCalled(); // 코드를 볼 때마다 기록되므로 준비된 뒤 한 번만 부른다
+	});
+
+	it('연결이 준비되면 두 목록을 불러온다', async () => {
+		render(AdminPage, { params: { id: '7' }, data: DATA });
+		await act(() => server().onReady());
+		expect(await screen.findByText('박민수')).toBeTruthy();
+		expect(screen.getByText('349498')).toBeTruthy();
+		expect(api.fetchJoinRequests).toHaveBeenCalledWith(7);
+		expect(api.fetchPendingAuth).toHaveBeenCalledWith(7);
+	});
+
+	it('새 입장 요청 이벤트가 오면 새로고침 없이 입장 요청만 다시 불러온다 (AC40)', async () => {
+		render(AdminPage, { params: { id: '7' }, data: DATA });
+		await act(() => server().onReady());
+		await screen.findByText('박민수');
+		api.fetchJoinRequests.mockResolvedValue([...REQUESTS, { ...REQUESTS[0], id: 2, name: '최지은', student_no: '2' }]);
+		await act(() => server().onEvent({ type: 'join_request.created', id: 2 }));
+		expect(await screen.findByText('최지은')).toBeTruthy();
+		expect(api.fetchPendingAuth).toHaveBeenCalledTimes(1); // 대기 중인 인증은 다시 부르지 않는다(코드 열람 기록이 늘지 않게)
+	});
+
+	it('대기 중인 인증 이벤트가 오면 그 목록만 다시 불러온다 (AC45)', async () => {
+		render(AdminPage, { params: { id: '7' }, data: DATA });
+		await act(() => server().onReady());
+		await screen.findByText('349498');
+		api.fetchPendingAuth.mockResolvedValue([{ ...PENDING[0], status: 'used', used_at: '2026-03-02T05:07:00+00:00', code: undefined }]);
+		await act(() => server().onEvent({ type: 'pending_auth.updated', id: 11 }));
+		expect(await screen.findByText(/사용됨/)).toBeTruthy();
+		expect(api.fetchJoinRequests).toHaveBeenCalledTimes(1);
+	});
+
+	it('명단이 바뀌었다는 이벤트가 오면 명단을 다시 불러온다', async () => {
+		render(AdminPage, { params: { id: '7' }, data: DATA });
+		await act(() => server().onReady());
+		await act(() => server().onEvent({ type: 'roster.updated' }));
+		expect(nav.invalidate).toHaveBeenCalledWith('app:roster');
+	});
+
+	it('resync가 오면(이벤트가 밀렸다) 모두 다시 불러온다', async () => {
+		render(AdminPage, { params: { id: '7' }, data: DATA });
+		await act(() => server().onReady());
+		await act(() => server().onEvent({ type: 'resync' }));
+		await waitFor(() => expect(api.fetchPendingAuth).toHaveBeenCalledTimes(2));
+		expect(api.fetchJoinRequests).toHaveBeenCalledTimes(2);
+		expect(nav.invalidate).toHaveBeenCalledWith('app:roster');
+	});
+
+	it('연결이 끊기면 다시 연결 중이라고 알리고, 다시 연결되면 안내를 거둔다', async () => {
+		render(AdminPage, { params: { id: '7' }, data: DATA });
+		await act(() => server().onReady());
+		await act(() => server().onStatus('reconnecting'));
+		const banner = screen.getByText(/실시간 연결이 끊겼습니다. 다시 연결하는 중입니다./);
+		expect(banner.closest('[role="status"]')).toBeTruthy(); // 읽어 주는 도구에도 알린다
+		await act(() => server().onStatus('live'));
+		expect(screen.queryByText(/실시간 연결이 끊겼습니다/)).toBeNull();
+	});
+
+	it('한 번도 연결되지 못하면 목록은 한 번 불러와 보여 준다', async () => {
+		render(AdminPage, { params: { id: '7' }, data: DATA });
+		await act(() => server().onStatus('never-connected'));
+		expect(await screen.findByText('박민수')).toBeTruthy();
+		expect(screen.getByText('349498')).toBeTruthy();
+	});
+
+	it('목록을 불러오지 못하면 그 구역에 이유와 할 일을 보인다', async () => {
+		api.fetchJoinRequests.mockRejectedValue(new TypeError('Failed to fetch'));
+		render(AdminPage, { params: { id: '7' }, data: DATA });
+		await act(() => server().onReady());
+		const alert = await screen.findByRole('alert');
+		expect(alert.textContent).toContain('입장 요청을 불러오지 못했습니다.');
+		expect(alert.textContent).toContain('다시 연결되면 자동으로 다시 불러옵니다.');
+	});
+
+	it('승인하면 입장 요청과 명단을 다시 불러온다 (AC41)', async () => {
+		api.approveJoinRequest.mockResolvedValue({ id: 1, status: 'approved' });
+		render(AdminPage, { params: { id: '7' }, data: DATA });
+		await act(() => server().onReady());
+		await fireEvent.click(await screen.findByRole('button', { name: '승인: 박민수 (20249999)' }));
+		await waitFor(() => expect(api.fetchJoinRequests).toHaveBeenCalledTimes(2));
+		expect(nav.invalidate).toHaveBeenCalledWith('app:roster');
+	});
+
+	it('화면을 떠나면 실시간 연결을 닫는다', () => {
+		const { unmount } = render(AdminPage, { params: { id: '7' }, data: DATA });
+		unmount();
+		expect(live.stop).toHaveBeenCalled();
+	});
+
+	it('권한이 없는 화면에서는 연결하지 않는다', () => {
+		render(AdminPage, { params: { id: '7' }, data: { me: null, classroom: null, roster: null, invite: null, notice: { status: 403, message: 'x' } } });
+		expect(live.connectAdmin).not.toHaveBeenCalled();
 	});
 });

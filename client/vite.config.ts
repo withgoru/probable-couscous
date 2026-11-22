@@ -13,7 +13,8 @@ export default defineConfig({
 		})
 	],
 	server: {
-		// 개발 중에는 /api 요청을 로컬 서버로 보낸다
-		proxy: { '/api': 'http://localhost:8000' }
+		// 개발 중에는 /api 요청과 /ws 연결을 로컬 서버로 보낸다
+		// 교수 관리 화면의 실시간 연결(/ws)도 같은 서버로 보낸다
+		proxy: { '/api': 'http://localhost:8000', '/ws': { target: 'ws://localhost:8000', ws: true } }
 	}
 });

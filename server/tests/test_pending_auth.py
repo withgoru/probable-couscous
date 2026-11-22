@@ -2,6 +2,7 @@
 
 import json
 import re
+from datetime import timedelta
 
 from conftest import ORIGIN
 
@@ -157,6 +158,7 @@ def test_before_anyone_notifies_the_list_is_empty_and_no_code_is_computed(world)
 
 def test_a_notified_student_shows_with_student_no_name_time_and_the_mailed_code(world):
     prof, cid, token, _entry, student, code = student_with_code(world)
+    asked_at = world.clock.now()
     world.clock.advance(minutes=2)
     notify(student, token)
     res = pending(prof, cid)
@@ -164,7 +166,9 @@ def test_a_notified_student_shows_with_student_no_name_time_and_the_mailed_code(
     (item,) = res.json()["items"]
     assert (item["student_no"], item["name"], item["status"], item["code"]) == ("1", "김철수", "waiting", code)
     assert item["notified_at"] == world.clock.now().isoformat() and isinstance(item["id"], int)
-    assert set(item) == {"id", "student_no", "name", "notified_at", "status", "code"}
+    # 화면이 시간이 지나면 스스로 '만료됨'으로 바꿀 수 있게 만료 시각을 준다(서버가 밀어 보내지 않는다)
+    assert item["expires_at"] == (asked_at + timedelta(minutes=10)).isoformat()
+    assert set(item) == {"id", "student_no", "name", "notified_at", "status", "code", "expires_at"}
 
 
 def test_only_notified_students_codes_are_shown(world):
