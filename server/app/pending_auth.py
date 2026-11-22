@@ -2,7 +2,7 @@
 
 학생이 '교수님께 알리기'를 누른 코드만 목록에 오르고, 그 코드는 이때 서버 비밀값으로 다시 계산해 보여 준다(저장하지 않는다).
 코드를 보여 줄 때마다 `code_revealed`를 같은 트랜잭션에서 기록한다. 기록하지 못하면 코드를 보여 주지 않는다(C6).
-목록은 학번·이름·시각·상태·코드만 준다. 이메일과 닉네임, 멤버십과의 연결은 싣지 않는다(C9).
+목록은 학번·이름·시각·상태·코드(와 그 만료 시각)만 준다. 이메일과 닉네임, 멤버십과의 연결은 싣지 않는다(C9).
 """
 
 import sqlite3
@@ -60,6 +60,7 @@ def list_pending(granted: ViewGuard, db: Db, request: Request):
             }
             if status == "waiting":
                 item["code"] = code_for(db, secret, r["id"])
+                item["expires_at"] = r["expires_at"]  # 화면이 시간이 지나면 스스로 '만료됨'으로 바꾼다
                 events.record_event(
                     db, classroom_id, "code_revealed", "professor", granted.actor.github_id, r["roster_id"],
                     {"challenge_id": r["id"]}, now,
