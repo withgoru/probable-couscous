@@ -5,7 +5,8 @@
 - 테스트만 쓰는 경로 `GET /api/test/last-code?to=이메일`이 그 주소로 마지막에 보낸 코드를 알려 준다(plan: 메일은 OutboxMailer로 확인).
 - 실행할 때마다 새 임시 DB로 시작한다.
 
-실행: python e2e/server.py <포트>  (server/ 의 패키지가 설치된 파이썬으로)
+실행: python e2e/server.py <포트> [DB 파일]  (server/ 의 패키지가 설치된 파이썬으로)
+DB 파일을 주면 그 파일을 쓴다(부하 측정 스크립트가 저장된 행을 세려고 쓴다).
 """
 
 import re
@@ -32,8 +33,8 @@ class FakeGitHub:
         return GitHubProfile(github_id=101, login="kim")
 
 
-def build_app(port: int):
-    db = Path(tempfile.mkdtemp(prefix="e2e-")) / "app.db"
+def build_app(port: int, db: Path | None = None):
+    db = db or Path(tempfile.mkdtemp(prefix="e2e-")) / "app.db"
     settings = Settings(
         base_url=f"http://127.0.0.1:{port}",
         professor_github_ids=(101,),
@@ -59,4 +60,5 @@ def build_app(port: int):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8799
-    uvicorn.run(build_app(port), host="127.0.0.1", port=port, log_level="warning")
+    db = Path(sys.argv[2]) if len(sys.argv) > 2 else None
+    uvicorn.run(build_app(port, db), host="127.0.0.1", port=port, log_level="warning")
