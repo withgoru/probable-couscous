@@ -235,6 +235,50 @@ def test_a_roster_change_that_failed_announces_nothing(world):
         assert drain(world, ws, cid) == []
 
 
+def _entry_id(prof, cid):
+    return prof.get(f"/api/classrooms/{cid}/roster").json()["entries"][0]["id"]
+
+
+def test_removing_a_student_announces_a_roster_change(world):
+    prof, cid, _ = classroom(world)
+    enroll(prof, cid)
+    entry = _entry_id(prof, cid)
+    with connect(prof, cid) as ws:
+        ready(ws)
+        assert prof.delete(f"/api/classrooms/{cid}/roster/{entry}", headers=ORIGIN).status_code == 200
+        assert prof.delete(f"/api/classrooms/{cid}/roster/{entry}", headers=ORIGIN).status_code == 404  # 실패는 알리지 않는다
+        assert drain(world, ws, cid) == [{"type": "roster.updated"}]
+
+
+def test_removing_a_student_who_notified_the_professor_announces_that_the_pending_code_is_gone(world):
+    prof, cid, token = classroom(world)
+    enroll(prof, cid)
+    entry = _entry_id(prof, cid)
+    student = world.client()
+    request_code(world, student, token)
+    student.post(f"/api/join/{token}/notify-professor", json={"email": "kim@x.kr"}, headers=ORIGIN)
+    pending_id = prof.get(f"/api/classrooms/{cid}/pending-auth").json()["items"][0]["id"]
+    with connect(prof, cid) as ws:
+        ready(ws)
+        prof.delete(f"/api/classrooms/{cid}/roster/{entry}", headers=ORIGIN)
+        assert drain(world, ws, cid) == [{"type": "pending_auth.updated", "id": pending_id}, {"type": "roster.updated"}]
+    assert prof.get(f"/api/classrooms/{cid}/pending-auth").json()["items"] == []
+
+
+def test_cutting_a_login_announces_nothing_because_no_list_changes(world):
+    prof, cid, token = classroom(world)
+    enroll(prof, cid)
+    entry = _entry_id(prof, cid)
+    student = world.client()
+    code = request_code(world, student, token)
+    student.post(f"/api/join/{token}/code", json={"email": "kim@x.kr", "code": code}, headers=ORIGIN)
+    student.post(f"/api/join/{token}/enter", headers=ORIGIN)
+    with connect(prof, cid) as ws:
+        ready(ws)
+        assert prof.post(f"/api/classrooms/{cid}/roster/{entry}/revoke-login", headers=ORIGIN).status_code == 200
+        assert drain(world, ws, cid) == []
+
+
 def test_notifying_the_professor_announces_a_pending_auth_once(world):
     prof, cid, token = classroom(world)
     enroll(prof, cid)

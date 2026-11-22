@@ -8,7 +8,10 @@ import io
 import re
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime
 
+from app import events, identity
+from app.challenges import notified_active_ids, supersede_active
 from app.db import transaction
 
 ROSTER_LIMIT = 200
@@ -215,3 +218,43 @@ def import_rows(db: sqlite3.Connection, classroom_id: int, rows: list[tuple[int,
         for entry in accepted:
             _insert(db, classroom_id, entry, now)
     return {"added": len(accepted), "skipped": len(skipped), "skipped_lines": skipped}
+
+
+# --- 빼기와 로그인 끊기 (AC19, AC20, AC48) ------------------------------------------------------------------------------
+
+NOT_FOUND = "명단에서 찾을 수 없는 학생입니다. 명단을 새로 불러와 확인해 주세요."
+NOT_ENTERED = "아직 입장하지 않은 학생입니다. 끊을 로그인이 없습니다."
+
+
+def _live_entry(db: sqlite3.Connection, classroom_id: int, entry_id: int) -> sqlite3.Row:
+    row = db.execute(
+        "SELECT * FROM roster_entries WHERE id = ? AND classroom_id = ? AND removed_at IS NULL", (entry_id, classroom_id)
+    ).fetchone()
+    if row is None:
+        raise RosterError("not_found", NOT_FOUND)
+    return row
+
+
+def remove_entry(db: sqlite3.Connection, classroom_id: int, entry_id: int, professor: int, now: datetime) -> list[int]:
+    """명단에서 뺀다. 행은 지우지 않고 뺀 시각만 남긴다(기록이 가리킬 대상이 남아야 한다. 실제 삭제는 보관 6개월 뒤 정리 작업).
+
+    함께 하는 일: 이 강좌의 로그인 유지를 끝내고(다시 넣어도 코드가 필요하다), 받아 둔 코드를 쓸 수 없게 하고, 기록한다.
+    대기 중인 인증 목록에서 사라진 챌린지 번호를 돌려준다(저장 뒤 교수 화면에 알리려고).
+    """
+    with transaction(db):
+        entry = _live_entry(db, classroom_id, entry_id)
+        gone = notified_active_ids(db, classroom_id, entry["email_norm"])
+        db.execute("UPDATE roster_entries SET removed_at = ? WHERE id = ?", (now.isoformat(), entry_id))
+        identity.cut_login(db, classroom_id, entry_id, now)
+        supersede_active(db, classroom_id, entry["email_norm"])
+        events.record_event(db, classroom_id, "roster_removed", "professor", professor, entry_id, {}, now)
+    return gone
+
+
+def revoke_login(db: sqlite3.Connection, classroom_id: int, entry_id: int, professor: int, now: datetime) -> None:
+    """로그인 끊기. 이 학생의 모든 기기가 이 강좌에서 로그아웃된다. 명단과 닉네임은 그대로다. 기록한다."""
+    with transaction(db):
+        _live_entry(db, classroom_id, entry_id)
+        if identity.cut_login(db, classroom_id, entry_id, now) is None:
+            raise RosterError("not_entered", NOT_ENTERED)
+        events.record_event(db, classroom_id, "login_revoked", "professor", professor, entry_id, {}, now)
