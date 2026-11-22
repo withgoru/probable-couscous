@@ -2,6 +2,7 @@
 	import { invalidate } from '$app/navigation';
 	import { tick } from 'svelte';
 	import { cloneClassroom, createClassroom, type Classroom } from '#lib/api.js';
+	import ArchiveDialog from '#lib/components/ArchiveDialog.svelte';
 	import ClassroomCard from '#lib/components/ClassroomCard.svelte';
 	import ClassroomForm from '#lib/components/ClassroomForm.svelte';
 	import Icon from '#lib/components/Icon.svelte';
@@ -17,7 +18,10 @@
 	let form = $state<OpenForm | null>(null);
 	let formCount = 0;
 	let created = $state<string | null>(null);
+	let archived = $state<string | null>(null);
+	let archiving = $state<{ classroom: Classroom; opener: HTMLElement } | null>(null);
 	let createButton: HTMLButtonElement;
+	let archivedTab = $state<HTMLButtonElement | null>(null);
 
 	const byStatus = $derived({
 		active: data.classrooms.filter((c) => c.status === 'active'),
@@ -51,8 +55,30 @@
 	async function onCreated(classroom: Classroom) {
 		await invalidate('app:classrooms');
 		created = classroom.name;
+		archived = null;
 		tab = 'active';
 		await closeForm(false);
+	}
+
+	function startArchive(classroom: Classroom, opener: HTMLElement) {
+		archiving = { classroom, opener };
+	}
+
+	async function cancelArchive() {
+		const opener = archiving?.opener;
+		archiving = null;
+		await tick();
+		opener?.focus();
+	}
+
+	async function onArchived(classroom: Classroom) {
+		archiving = null;
+		created = null;
+		archived = classroom.name;
+		await invalidate('app:classrooms');
+		tab = 'archived'; // 확인하면 보관됨 탭으로 옮겨진다(AC9)
+		await tick();
+		archivedTab?.focus(); // 눌렀던 카드는 진행 중 목록에서 사라졌다
 	}
 
 	const formText = $derived(
@@ -89,6 +115,24 @@
 		</div>
 	{/if}
 
+	{#if archived}
+		<div role="status" class="alert alert-info">
+			<Icon name="check" />
+			<div class="alert-title">강좌를 보관했습니다: {archived}</div>
+		</div>
+	{/if}
+
+	{#if archiving}
+		{#key archiving.classroom.id}
+			<ArchiveDialog
+				classroom={archiving.classroom}
+				{onArchived}
+				onAlready={() => invalidate('app:classrooms')}
+				onCancel={cancelArchive}
+			/>
+		{/key}
+	{/if}
+
 	{#if form}
 		{#key form.key}
 			<ClassroomForm
@@ -108,7 +152,7 @@
 			<Tabs.Trigger value="active">
 				진행 중 <span class="badge badge-secondary ml-2">{data.counts.active}</span>
 			</Tabs.Trigger>
-			<Tabs.Trigger value="archived">
+			<Tabs.Trigger value="archived" bind:ref={archivedTab}>
 				보관됨 <span class="badge badge-secondary ml-2">{data.counts.archived}</span>
 			</Tabs.Trigger>
 		</Tabs.List>
@@ -119,7 +163,7 @@
 				{:else}
 					<ul class="grid grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))] gap-4">
 						{#each byStatus[status] as classroom (classroom.id)}
-							<ClassroomCard {classroom} onClone={startClone} />
+							<ClassroomCard {classroom} onClone={startClone} onArchive={startArchive} />
 						{/each}
 					</ul>
 				{/if}

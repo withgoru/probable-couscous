@@ -12,7 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app import events
 from app.authz import Action, ClassroomRef, Granted, guard, guard_account
+from app.challenges import supersede_classroom
 from app.clock import Clock
 from app.db import get_db, transaction
 from app.identity import entered_roster_ids
@@ -64,6 +66,7 @@ def load_classroom(classroom_id: int, db: Db) -> ClassroomRef | None:
 
 
 ReadGuard = Annotated[Granted, Depends(guard(Action.CLASSROOM_READ, load_classroom))]
+ManageGuard = Annotated[Granted, Depends(guard(Action.CLASSROOM_MANAGE, load_classroom))]
 CloneGuard = Annotated[Granted, Depends(guard(Action.CLASSROOM_CLONE, load_classroom))]
 RosterGuard = Annotated[Granted, Depends(guard(Action.ROSTER_MANAGE, load_classroom))]
 CreateGuard = Annotated[Granted, Depends(guard_account(Action.CLASSROOM_CREATE))]
@@ -153,6 +156,30 @@ def clone_classroom(body: CloneClassroom, granted: CloneGuard, db: Db, clock: Cl
     return _insert_classroom(
         db, granted.actor.github_id, name, section, granted.resource.id, clock.now().isoformat()
     )
+
+
+ALREADY_ARCHIVED = "이미 보관된 강좌입니다."
+
+
+@router.post("/api/classrooms/{classroom_id}/archive")
+def archive_classroom(granted: ManageGuard, db: Db, clock: ClockDep):
+    """강좌 보관(AC9, AC10). 학생 입장을 닫고(로그인 유지 중이던 학생도 `student.enter`에서 막힌다) 기록한다.
+
+    아직 쓰지 않은 코드는 모두 쓸 수 없게 해서 보내지 않은 코드 메일도 나가지 않는다. 기록은 그대로 볼 수 있다.
+    되돌리는 기능은 없다(스펙 범위 밖). 보관 시각은 6개월 정리의 기준이라 다시 보관해도 바꾸지 않는다.
+    """
+    classroom_id = granted.resource.id
+    now = clock.now()
+    with transaction(db):
+        changed = db.execute(
+            "UPDATE classrooms SET status = 'archived', archived_at = ? WHERE id = ? AND status = 'active'",
+            (now.isoformat(), classroom_id),
+        ).rowcount
+        if not changed:
+            raise HTTPException(status_code=409, detail=ALREADY_ARCHIVED)
+        supersede_classroom(db, classroom_id)
+        events.record_event(db, classroom_id, "classroom_archived", "professor", granted.actor.github_id, None, {}, now)
+    return _item(db, classroom_id)
 
 
 @router.get("/api/classrooms")

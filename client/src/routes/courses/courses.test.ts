@@ -3,12 +3,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const nav = vi.hoisted(() => ({ invalidate: vi.fn(() => Promise.resolve()), goto: vi.fn(() => Promise.resolve()) }));
-const api = vi.hoisted(() => ({ createClassroom: vi.fn(), cloneClassroom: vi.fn() }));
+const api = vi.hoisted(() => ({ createClassroom: vi.fn(), cloneClassroom: vi.fn(), archiveClassroom: vi.fn() }));
 vi.mock('$app/navigation', () => nav);
 vi.mock('#lib/api.js', async (original) => ({
 	...(await original<object>()),
 	createClassroom: api.createClassroom,
-	cloneClassroom: api.cloneClassroom
+	cloneClassroom: api.cloneClassroom,
+	archiveClassroom: api.archiveClassroom
 }));
 
 import { ApiError } from '#lib/api.js';
@@ -30,6 +31,7 @@ beforeEach(() => {
 	nav.invalidate.mockClear();
 	api.createClassroom.mockReset();
 	api.cloneClassroom.mockReset();
+	api.archiveClassroom.mockReset();
 });
 afterEach(cleanup);
 
@@ -395,5 +397,107 @@ describe('분반 만들기·새 학기로 복제 (AC11)', () => {
 		await waitFor(() => expect(screen.queryByLabelText('강좌 이름')).toBeNull());
 		await fireEvent.click(screen.getByRole('button', { name: '새 강좌 만들기' }));
 		expect(((await screen.findByLabelText('강좌 이름')) as HTMLInputElement).value).toBe('');
+	});
+});
+
+describe('강좌 보관 (AC9)', () => {
+	const CONFIRM = '보관하면 학생이 더 이상 입장할 수 없고 모든 학생의 로그인 유지가 끝납니다. 기록은 볼 수 있습니다.';
+	const archiveButton = (name = '보관: 데이터베이스 (수요반)') => screen.getByRole('button', { name });
+	async function openDialog() {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		const opener = archiveButton();
+		await fireEvent.click(opener);
+		const dialog = await screen.findByRole('alertdialog');
+		return { opener, dialog };
+	}
+
+	it('진행 중 카드에만 "보관" 버튼이 있고, 이름으로 어느 강좌인지 구분된다', async () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		expect(archiveButton().textContent?.trim()).toBe('보관');
+		expect(archiveButton('보관: 웹 프로그래밍')).toBeTruthy();
+		await openTab(/보관됨/);
+		expect(screen.queryByRole('button', { name: /^보관:/ })).toBeNull();
+	});
+
+	it('누르면 서버를 부르기 전에 확인 문구가 나온다', async () => {
+		const { dialog } = await openDialog();
+		expect(within(dialog).getByRole('heading', { name: '데이터베이스 (수요반) 강좌를 보관할까요?' })).toBeTruthy();
+		expect(within(dialog).getByText(CONFIRM)).toBeTruthy();
+		expect(dialog.getAttribute('aria-describedby')).toBeTruthy();
+		expect(api.archiveClassroom).not.toHaveBeenCalled();
+	});
+
+	it('확인 창이 열리면 포커스는 되돌릴 수 없는 보관이 아니라 취소에 간다', async () => {
+		const { dialog } = await openDialog();
+		await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: '취소' })));
+	});
+
+	it('취소하면 서버를 부르지 않고 창을 닫고 포커스가 보관 버튼으로 돌아간다', async () => {
+		const { opener, dialog } = await openDialog();
+		await fireEvent.click(within(dialog).getByRole('button', { name: '취소' }));
+		await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+		expect(api.archiveClassroom).not.toHaveBeenCalled();
+		await waitFor(() => expect(document.activeElement).toBe(opener));
+	});
+
+	it('확인하면 보관하고, 목록을 다시 불러오고, 보관됨 탭으로 옮겨 결과를 알린다', async () => {
+		api.archiveClassroom.mockResolvedValue(item(3, '데이터베이스', '수요반', 'archived', 55));
+		const { dialog } = await openDialog();
+		await fireEvent.click(within(dialog).getByRole('button', { name: '보관' }));
+		await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+		expect(api.archiveClassroom).toHaveBeenCalledWith(3);
+		expect(nav.invalidate).toHaveBeenCalledWith('app:classrooms');
+		expect(tab(/보관됨/).getAttribute('aria-selected')).toBe('true');
+		expect(screen.getByRole('status').textContent).toContain('강좌를 보관했습니다: 데이터베이스');
+		await waitFor(() => expect(document.activeElement).toBe(tab(/보관됨/))); // 눌렀던 카드는 사라졌다
+	});
+
+	it('보관 버튼은 되돌릴 수 없는 동작임을 색과 글자로 알린다', async () => {
+		const { dialog } = await openDialog();
+		expect(within(dialog).getByRole('button', { name: '보관' }).className).toContain('btn-destructive');
+	});
+
+	it('보관하는 동안에는 다시 누를 수 없다', async () => {
+		let finish: (v: unknown) => void = () => {};
+		api.archiveClassroom.mockReturnValue(new Promise((r) => (finish = r)));
+		const { dialog } = await openDialog();
+		const confirm = within(dialog).getByRole('button', { name: '보관' });
+		await fireEvent.click(confirm);
+		await waitFor(() => expect((within(dialog).getByRole('button', { name: '보관하는 중…' }) as HTMLButtonElement).disabled).toBe(true));
+		expect((within(dialog).getByRole('button', { name: '취소' }) as HTMLButtonElement).disabled).toBe(true);
+		await fireEvent.click(within(dialog).getByRole('button', { name: '보관하는 중…' }));
+		expect(api.archiveClassroom).toHaveBeenCalledTimes(1);
+		finish(item(3, '데이터베이스', '수요반', 'archived', 55));
+		await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+	});
+
+	it('서버가 거부하면 이유와 할 일을 창 안에 보여 주고 창을 그대로 둔다', async () => {
+		api.archiveClassroom.mockRejectedValue(new ApiError(500, '요청을 처리하지 못했습니다 (500)'));
+		const { dialog } = await openDialog();
+		await fireEvent.click(within(dialog).getByRole('button', { name: '보관' }));
+		const alert = await within(dialog).findByRole('alert');
+		expect(alert.textContent).toContain('요청을 처리하지 못했습니다 (500)');
+		expect(alert.textContent).toContain('잠시 뒤 다시 시도해 주세요.');
+		expect(screen.getByRole('alertdialog')).toBeTruthy();
+		expect(tab(/진행 중/).getAttribute('aria-selected')).toBe('true');
+	});
+
+	it('이미 보관된 강좌면(다른 창에서 보관) 목록을 다시 불러오고 보관됨 탭에서 확인하라고 알린다', async () => {
+		api.archiveClassroom.mockRejectedValue(new ApiError(409, '이미 보관된 강좌입니다.'));
+		const { dialog } = await openDialog();
+		await fireEvent.click(within(dialog).getByRole('button', { name: '보관' }));
+		const alert = await within(dialog).findByRole('alert');
+		expect(alert.textContent).toContain('이미 보관된 강좌입니다.');
+		expect(alert.textContent).toContain('보관됨 탭에서 확인하세요.');
+		expect(nav.invalidate).toHaveBeenCalledWith('app:classrooms');
+	});
+
+	it('연결이 안 되면 무엇을 하면 되는지 알려 준다', async () => {
+		api.archiveClassroom.mockRejectedValue(new TypeError('Failed to fetch'));
+		const { dialog } = await openDialog();
+		await fireEvent.click(within(dialog).getByRole('button', { name: '보관' }));
+		const alert = await within(dialog).findByRole('alert');
+		expect(alert.textContent).toContain('강좌를 보관하지 못했습니다.');
+		expect(alert.textContent).toContain('네트워크 연결을 확인하고 다시 시도해 주세요.');
 	});
 });
