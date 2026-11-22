@@ -133,7 +133,7 @@
 				role="region"
 				aria-label="수강생 명단 표"
 				tabindex="0"
-				class="overflow-x-auto rounded-md"
+				class="overflow-x-auto rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 			>
 				<table class="w-full min-w-[44rem] text-left text-sm">
 					<thead class="border-b text-muted-foreground">

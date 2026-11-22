@@ -220,7 +220,13 @@
 	</div>
 
 	<label for="join-keep" class="flex min-h-11 cursor-pointer items-center gap-3 text-sm font-medium">
-		<input id="join-keep" type="checkbox" class="size-5 accent-primary" bind:checked={keepLogin} />
+		<!-- 기본 체크 상자는 box-shadow 링을 그리지 않아 2px 실선 outline으로 포커스를 보인다(C14) -->
+		<input
+			id="join-keep"
+			type="checkbox"
+			class="size-5 accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
+			bind:checked={keepLogin}
+		/>
 		이 기기에서 로그인 유지
 	</label>
 
