@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom } from './api';
+import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -318,5 +318,26 @@ describe('입장 상태와 입장 확정 API', () => {
 	it('입장 확정이 거부되면 서버의 안내를 담은 ApiError다', async () => {
 		const err = await enterClassroom('t', () => json(401, { detail: '입장 인증이 끝나지 않았습니다. 이메일과 코드로 먼저 인증해 주세요.' })).catch((e) => e);
 		expect([err.status, err.message]).toEqual([401, '입장 인증이 끝나지 않았습니다. 이메일과 코드로 먼저 인증해 주세요.']);
+	});
+});
+
+describe('빼기와 로그인 끊기 API', () => {
+	it('removeStudent는 그 학생의 명단 항목을 DELETE로 뺀다', async () => {
+		const fetch = vi.fn((..._a: unknown[]) => json(200, { id: 3, removed: true }));
+		expect(await removeStudent(7, 3, fetch)).toEqual({ id: 3, removed: true });
+		const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+		expect([url, init.method, init.credentials]).toEqual(['/api/classrooms/7/roster/3', 'DELETE', 'same-origin']);
+	});
+
+	it('revokeStudentLogin은 로그인 끊기를 POST로 보낸다', async () => {
+		const fetch = vi.fn((..._a: unknown[]) => json(200, { id: 3, revoked: true }));
+		expect(await revokeStudentLogin(7, 3, fetch)).toEqual({ id: 3, revoked: true });
+		const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+		expect([url, init.method]).toEqual(['/api/classrooms/7/roster/3/revoke-login', 'POST']);
+	});
+
+	it('거부되면 서버의 안내를 담은 ApiError다', async () => {
+		const err = await removeStudent(7, 3, () => json(404, { detail: { field: null, message: '명단에서 찾을 수 없는 학생입니다.' } })).catch((e) => e);
+		expect([err.status, err.message]).toEqual([404, '명단에서 찾을 수 없는 학생입니다.']);
 	});
 });
