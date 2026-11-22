@@ -4,25 +4,30 @@
 	import AccessRequestForm from '#lib/components/AccessRequestForm.svelte';
 	import CodeStep from '#lib/components/CodeStep.svelte';
 	import Icon from '#lib/components/Icon.svelte';
+	import NicknameCard from '#lib/components/NicknameCard.svelte';
+	import NoticeStep from '#lib/components/NoticeStep.svelte';
 	import type { PageProps } from './$types';
 
 	// 학생 입장 1: 이메일 단계, 링크 상태, 입장 요청(AC10, AC22, AC24, AC38, AC39, AC42, AC43).
-	// 학생 입장 2: 코드 단계는 CodeStep(T027). 채팅 이용 안내(T028)는 이어지는 작업에서 채운다.
+	// 학생 입장 2: 코드 단계는 CodeStep(T027). 학생 입장 3: 채팅 이용 안내는 NoticeStep, 입장 완료(AC27, AC28).
+	// 로그인 유지 중인 기기는 load가 알려 준 상태(AC35, AC37)에서 바로 시작한다.
 	let { data }: PageProps = $props();
 
-	type Step = 'email' | 'code' | 'request' | 'result' | 'notice';
+	type Step = 'email' | 'code' | 'request' | 'result' | 'notice' | 'entered';
 	type Notice = { message: string; tone: 'info' | 'warning' | 'destructive' };
 
 	// 같은 규칙을 서버도 검사한다(roster.is_valid_email). 여기서는 서버에 묻기 전에 바로 알려 주려고 쓴다
 	const EMAIL = /^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$/;
 
-	let step = $state<Step>('email');
+	// 처음 단계는 이 기기의 상태로 정한다. 함수로 읽는 것은 처음 값만 쓰겠다는 뜻이다(이후 단계는 화면이 바꾼다)
+	const startingMe = () => (data.invite.open ? data.invite.me : { state: 'login' as const });
+	let step = $state<Step>(startingMe().state === 'login' ? 'email' : (startingMe().state as Step));
 	let closedLater = $state<string | null>(null); // 화면을 연 뒤에 링크가 폐기됐거나 강좌가 보관됐다
 	let email = $state('');
 	let sentTo = $state(''); // 서버에 보낸(정리한) 이메일
 	let waitSeconds = $state(60); // 코드 다시 받기까지 남은 초
 	let codeKey = $state(0); // 이메일을 다시 보내면 코드 단계를 새로 시작한다
-	let nickname = $state('');
+	let nickname = $state(startingMe().state === 'login' ? '' : (startingMe() as { nickname: string }).nickname);
 	let emailError = $state<string | null>(null);
 	let formError = $state<string | null>(null);
 	let sending = $state(false);
@@ -111,6 +116,17 @@
 	function onNotOnRoster(message: string) {
 		// 코드를 받은 뒤 명단에서 빠졌다. 이메일 단계에서 명단 밖 안내와 입장 요청을 보인다
 		answer = { message, tone: 'warning', canRequest: true };
+		go('email', 'email');
+	}
+
+	async function onEntered(res: { nickname: string; classroom: string }) {
+		nickname = res.nickname; // 강좌는 안내 화면과 같은 이름(분반 포함)으로 보인다
+		await go('entered');
+	}
+
+	function onNeedLogin(message: string) {
+		// 그사이 로그인이 끊겼거나 끝났다(AC20). 이메일 인증부터 다시 한다
+		formError = message;
 		go('email', 'email');
 	}
 
@@ -221,9 +237,23 @@
 		/>
 		<button type="button" class="btn btn-outline btn-lg w-full" onclick={backToEmail}>이메일 다시 입력</button>
 	{:else if step === 'notice'}
-		<!-- 채팅 이용 안내와 '확인하고 입장'은 T028에서 채운다 -->
-		<h1 tabindex="-1" class="text-2xl leading-tight font-bold outline-none">인증되었습니다</h1>
-		<p class="text-base">이 수업에서 쓰는 닉네임: <span class="font-semibold">{nickname}</span></p>
+		<NoticeStep
+			token={data.token}
+			classroom={title ?? ''}
+			{nickname}
+			{onEntered}
+			onClosed={(message) => (closedLater = message)}
+			{onNeedLogin}
+		/>
+	{:else if step === 'entered'}
+		<!-- 입장 완료(AC28). 수업 화면(출석, 슬라이드, 채팅)은 002~004에서 이 자리에 이어진다 -->
+		<div class="flex flex-col gap-1">
+			<span class="flex items-center gap-1.5 text-sm font-medium text-success-text">
+				<Icon name="check" class="size-4" />입장했습니다
+			</span>
+			<h1 tabindex="-1" class="text-2xl leading-tight font-bold break-all outline-none">{title}</h1>
+		</div>
+		<NicknameCard {nickname} />
 	{:else if step === 'result' && result}
 		<h1 tabindex="-1" class="text-2xl leading-tight font-bold outline-none">입장 요청</h1>
 		{@render noticeBox(result)}

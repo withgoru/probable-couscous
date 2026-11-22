@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor } from './api';
+import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -298,5 +298,25 @@ describe('코드 단계 API', () => {
 		const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
 		expect(url).toBe('/api/join/tok/notify-professor');
 		expect(JSON.parse(init.body as string)).toEqual({ email: 'kim@x.kr' });
+	});
+});
+
+describe('입장 상태와 입장 확정 API', () => {
+	it('fetchJoinState는 이 기기의 이 강좌 상태를 받아 온다', async () => {
+		const fetch = vi.fn(() => json(200, { state: 'entered', nickname: 'n', classroom: '웹' }));
+		expect(await fetchJoinState('tok', fetch)).toEqual({ state: 'entered', nickname: 'n', classroom: '웹' });
+		expect(fetch).toHaveBeenCalledWith('/api/join/tok/me', expect.objectContaining({ credentials: 'same-origin' }));
+	});
+
+	it('enterClassroom은 확인하고 입장을 보내고 강좌 이름과 닉네임을 돌려준다', async () => {
+		const fetch = vi.fn((..._a: unknown[]) => json(200, { next: 'entered', nickname: 'n', classroom: '웹' }));
+		expect(await enterClassroom('tok', fetch)).toEqual({ next: 'entered', nickname: 'n', classroom: '웹' });
+		const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+		expect([url, init.method, init.credentials]).toEqual(['/api/join/tok/enter', 'POST', 'same-origin']);
+	});
+
+	it('입장 확정이 거부되면 서버의 안내를 담은 ApiError다', async () => {
+		const err = await enterClassroom('t', () => json(401, { detail: '입장 인증이 끝나지 않았습니다. 이메일과 코드로 먼저 인증해 주세요.' })).catch((e) => e);
+		expect([err.status, err.message]).toEqual([401, '입장 인증이 끝나지 않았습니다. 이메일과 코드로 먼저 인증해 주세요.']);
 	});
 });
