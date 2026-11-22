@@ -75,6 +75,38 @@ jobs:
           npm test --if-present
           npm run build
 
+  # 학생 입장 E2E(Playwright, T033). 빌드한 클라이언트를 E2E 전용 서버(client/e2e/server.py)가 내려준다.
+  # 실제 60초 간격을 기다리는 테스트가 있어 1분 남짓 걸린다. 필수 체크로 둘지는 브랜치 보호 규칙에서 정한다.
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - id: detect
+        run: |
+          if [ -f client/playwright.config.ts ] && [ -f server/pyproject.toml ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; echo "E2E 설정 없음: 건너뜀"; fi
+      - if: steps.detect.outputs.exists == 'true'
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - if: steps.detect.outputs.exists == 'true'
+        working-directory: server
+        run: pip install -c constraints.txt -e ".[dev]"
+      - if: steps.detect.outputs.exists == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - if: steps.detect.outputs.exists == 'true'
+        working-directory: client
+        env:
+          E2E_PYTHON: python
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
   # constitution의 필수 회귀 테스트만 따로 돌린다. 이 작업은 항상 필수 체크로 둔다.
   constitution-tests:
     name: constitution-tests
