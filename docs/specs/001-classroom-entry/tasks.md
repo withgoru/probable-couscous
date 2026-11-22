@@ -224,7 +224,7 @@ updated: 2026-11-17
   - 완료 기준: 명단 표에서 두 동작이 동작하고 테스트가 통과한다
   - 관련 원칙: C14
 
-- [ ] **T031. 보관 후 6개월 정리 작업**
+- [x] **T031. 보관 후 6개월 정리 작업**
   - 대응 AC: 없음 (기반·검증)
   - 의존: T003, T025
   - 먼저 쓸 테스트: (C11) 시계를 6개월 넘기면 `roster_entries`, `member_identities`, `join_requests`, `login_challenges`, `mail_outbox`, `device_logins`와 다른 곳에서 쓰이지 않는 `accounts`가 비고 `memberships`와 `events`는 남는다, 두 번 실행해도 같다, 다른 살아 있는 강좌에 쓰이는 계정은 남는다(`constitution` 표시)
