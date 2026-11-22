@@ -86,6 +86,57 @@ describe('코드 입력 (AC25, AC26)', () => {
 		expect(codeBox().value).toBe('123456');
 	});
 
+	describe('붙여 넣기 (Ctrl+V, 길게 눌러 붙여넣기)', () => {
+		const paste = (text: string) => fireEvent.paste(codeBox(), { clipboardData: { getData: () => text } });
+
+		it.each([
+			['349498', '349498'],
+			[' 349 498\n', '349498'], // 메일에서 공백·줄바꿈과 함께 복사
+			['349-498', '349498'],
+			['웹 입장 인증 코드: 349498', '349498'], // 메일 첫 줄을 통째로
+			['자료구조 2 입장 인증 코드: 349498', '349498'], // 강좌 이름의 숫자가 섞이지 않는다
+			['인증 코드 349498 (알고리즘 3분반)', '349498'], // 메일 제목
+			['웹 입장 인증 코드: 349498\n\n이 코드는 10분 동안 쓸 수 있고', '349498'] // 메일 본문을 통째로
+		])('"%s"를 붙여 넣으면 코드 %s만 남는다', async (text, expected) => {
+			render(CodeStep, props());
+			await paste(text);
+			expect(codeBox().value).toBe(expected);
+		});
+
+		it('몇 자리 쳐 둔 뒤 코드 전체를 붙여 넣으면 이어 붙지 않고 붙여 넣은 코드로 바뀐다', async () => {
+			render(CodeStep, props());
+			await typeCode('12');
+			await paste('349498');
+			expect(codeBox().value).toBe('349498');
+		});
+
+		it('코드 전체를 붙여 넣으면 이전 오류 표시가 사라진다', async () => {
+			api.verifyCode.mockRejectedValue(codeError('코드가 맞지 않습니다.', 'wrong', null));
+			render(CodeStep, props());
+			await typeCode('111111');
+			await fireEvent.click(confirm());
+			await screen.findByText('코드가 맞지 않습니다.');
+			await paste('349498');
+			expect(screen.queryByText('코드가 맞지 않습니다.')).toBeNull();
+		});
+
+		it('코드 전체가 아닌 숫자 몇 개는 평소처럼 입력에 맡긴다(가로채지 않는다)', async () => {
+			render(CodeStep, props());
+			const event = new Event('paste', { bubbles: true, cancelable: true });
+			Object.assign(event, { clipboardData: { getData: () => '34' } });
+			codeBox().dispatchEvent(event);
+			expect(event.defaultPrevented).toBe(false);
+		});
+
+		it('코드 전체를 붙여 넣을 때는 브라우저의 기본 붙여 넣기를 막는다(이어 붙지 않게)', async () => {
+			render(CodeStep, props());
+			const event = new Event('paste', { bubbles: true, cancelable: true });
+			Object.assign(event, { clipboardData: { getData: () => '349498' } });
+			codeBox().dispatchEvent(event);
+			expect(event.defaultPrevented).toBe(true);
+		});
+	});
+
 	it('6자리가 아니면 서버를 부르지 않고 칸 옆에 알려 준다', async () => {
 		render(CodeStep, props());
 		await typeCode('123');

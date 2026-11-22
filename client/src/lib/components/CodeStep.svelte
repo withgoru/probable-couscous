@@ -80,6 +80,19 @@
 		codeError = null;
 	}
 
+	// 붙여 넣은 글에서 6자리 코드를 찾는다. 메일 첫 줄이나 제목을 통째로 복사해도 강좌 이름의 숫자가 섞이지 않게,
+	// 앞뒤가 숫자가 아닌 6자리(가운데 공백·하이픈 하나는 허용)만 코드로 본다
+	const PASTED_CODE = /(?<!\d)(\d{3})[\s-]?(\d{3})(?!\d)/;
+
+	function onCodePaste(event: ClipboardEvent) {
+		const found = event.clipboardData?.getData('text')?.match(PASTED_CODE);
+		if (!found) return; // 코드 전체가 아니면 평소처럼 넣고 onCodeInput이 숫자만 남긴다
+		event.preventDefault(); // 쳐 둔 숫자 뒤에 이어 붙지 않고 붙여 넣은 코드로 바꾼다
+		code = found[1] + found[2];
+		(event.currentTarget as HTMLInputElement).value = code;
+		codeError = null;
+	}
+
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
 		if (busy) return;
@@ -195,6 +208,7 @@
 			bind:this={codeInput}
 			value={code}
 			oninput={onCodeInput}
+			onpaste={onCodePaste}
 			aria-invalid={codeError ? 'true' : undefined}
 			aria-describedby={codeError ? 'join-code-error' : undefined}
 		/>
