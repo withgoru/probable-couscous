@@ -177,3 +177,42 @@ export async function regenerateInvite(classroomId: number, fetchFn: FetchFn = f
 	if (!res.ok) throw await failure(res);
 	return (await res.json()) as Invite;
 }
+
+// --- 학생 입장 (초대 링크) -------------------------------------------------------------------------------------------
+
+export type InviteClassroom = { name: string; section_name: string | null };
+
+/** 서버가 알려 주는 다음 단계. code면 코드 입력, 나머지는 안내 문구(message)를 보여 준다. */
+export type JoinAnswer =
+	| { next: 'code'; wait_seconds: number }
+	| { next: 'request_access' | 'already_requested' | 'rejected' | 'requested' | 'already_on_roster'; message: string };
+
+const joinUrl = (token: string, rest = '') => `/api/join/${encodeURIComponent(token)}${rest}`;
+
+/** 초대 링크를 연다. 강좌 이름만 받고, 이 기기의 기기 쿠키를 받는다. 폐기(404)·보관(403)은 서버의 안내를 담은 ApiError. */
+export function openInvite(token: string, fetchFn: FetchFn = fetch): Promise<InviteClassroom> {
+	return getJson<InviteClassroom>(fetchFn, joinUrl(token));
+}
+
+async function postJoin(fetchFn: FetchFn, url: string, body: unknown): Promise<JoinAnswer> {
+	const res = await fetchFn(url, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+		body: JSON.stringify(body)
+	});
+	if (!res.ok) throw await failure(res);
+	return (await res.json()) as JoinAnswer;
+}
+
+/** 이메일을 확인한다. 명단에 있으면 코드 메일을 요청하고(next: code), 없으면 입장 요청 안내를 받는다. */
+export function submitJoinEmail(token: string, email: string, fetchFn: FetchFn = fetch): Promise<JoinAnswer> {
+	return postJoin(fetchFn, joinUrl(token, '/email'), { email });
+}
+
+export type AccessRequest = { email: string; name: string; student_no: string };
+
+/** 명단에 없는 이메일로 입장 요청을 보낸다. 새 요청이면 requested, 그 밖에는 지금 상태의 안내를 받는다. */
+export function requestAccess(token: string, input: AccessRequest, fetchFn: FetchFn = fetch): Promise<JoinAnswer> {
+	return postJoin(fetchFn, joinUrl(token, '/request-access'), input);
+}
