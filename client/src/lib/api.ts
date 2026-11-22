@@ -302,3 +302,27 @@ export type PendingAuth = {
 export async function fetchPendingAuth(classroomId: number, fetchFn: FetchFn = fetch): Promise<PendingAuth[]> {
 	return (await getJson<{ items: PendingAuth[] }>(fetchFn, `/api/classrooms/${classroomId}/pending-auth`)).items;
 }
+
+// --- 명단에서 빼기와 로그인 끊기 (AC19, AC20) ---------------------------------------------------------------------------
+
+/** 명단에서 뺀다. 그 학생은 이 강좌에 입장할 수 없고 이 강좌의 로그인 유지도 끝난다(AC19). */
+export async function removeStudent(classroomId: number, entryId: number, fetchFn: FetchFn = fetch) {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/roster/${entryId}`, {
+		method: 'DELETE',
+		credentials: 'same-origin',
+		headers: { Accept: 'application/json' }
+	});
+	if (!res.ok) throw await failure(res);
+	return (await res.json()) as { id: number; removed: true };
+}
+
+/** 로그인 끊기. 그 학생의 모든 기기가 이 강좌에서 로그아웃된다(AC20). 입장한 적 없으면 ApiError(409). */
+export async function revokeStudentLogin(classroomId: number, entryId: number, fetchFn: FetchFn = fetch) {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/roster/${entryId}/revoke-login`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { Accept: 'application/json' }
+	});
+	if (!res.ok) throw await failure(res);
+	return (await res.json()) as { id: number; revoked: true };
+}
