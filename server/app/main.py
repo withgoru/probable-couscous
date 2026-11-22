@@ -21,6 +21,7 @@ from app.join import router as join_router
 from app.join_requests import router as join_requests_router
 from app.mail import Mailer, MailWorker, OutboxMailer
 from app.pending_auth import router as pending_auth_router
+from app.purge import PurgeJob
 from app.realtime import InMemoryRoomBus, RoomBus
 from app.routes_auth import router as auth_router
 from app.ws_admin import router as ws_admin_router
@@ -52,6 +53,7 @@ def create_app(
     mailer: Mailer | None = None,
     start_mail_worker: bool = True,
     bus: RoomBus | None = None,
+    start_purge_job: bool | None = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     clock = clock or SystemClock()
@@ -62,6 +64,9 @@ def create_app(
     mail_worker = MailWorker(
         lambda: connect(settings.database_path), mailer, settings.server_secret, clock, settings.mail_rate_per_sec
     )
+    # 보관 6개월 뒤 개인정보 정리(C11). 따로 정하지 않으면 메일 작업과 같이 켜고 끈다(테스트는 둘 다 끈다)
+    purge_job = PurgeJob(lambda: connect(settings.database_path), clock)
+    run_purge = start_mail_worker if start_purge_job is None else start_purge_job
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -75,10 +80,13 @@ def create_app(
             log.warning("메일 발송이 설정되지 않아 메일을 실제로 보내지 않고 메모리에만 모읍니다. 학생은 교수 대체 경로로 입장합니다.")
         if start_mail_worker:
             mail_worker.start()
+        if run_purge:
+            purge_job.start()
         try:
             yield
         finally:
             mail_worker.stop()
+            purge_job.stop()
 
     app = FastAPI(title="강의 상호작용 도구", docs_url="/api/docs", redoc_url=None,
                   openapi_url="/api/openapi.json", swagger_ui_oauth2_redirect_url=None,
@@ -88,6 +96,7 @@ def create_app(
     app.state.mailer = mailer
     app.state.bus = bus or InMemoryRoomBus()
     app.state.mail_worker = mail_worker
+    app.state.purge_job = purge_job
     app.state.auth_provider = auth_provider  # 설정이 없으면 None. 로그인 시작이 안내와 함께 503을 준다
     allowed_origin = _origin_of(settings.base_url)
     app.state.allowed_origin = allowed_origin

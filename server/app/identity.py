@@ -105,3 +105,35 @@ def cut_login(db: sqlite3.Connection, classroom_id: int, roster_entry_id: int, n
         return None
     db.execute("UPDATE memberships SET reverify_after = ? WHERE id = ?", (now.isoformat(), row["membership_id"]))
     return row["membership_id"]
+
+
+def forget_classroom_people(db: sqlite3.Connection, classroom_id: int) -> dict[str, int]:
+    """보관 6개월 뒤 정리(C11, T031)의 사람 쪽. 이 강좌의 멤버십과 사람의 연결, 기기 인증 기록을 지우고,
+    그 결과 어느 강좌에도 이어지지 않게 된 계정과 그 계정의 기기 로그인을 지운다. 멤버십(가명)은 남긴다.
+
+    다른 강좌(살아 있거나 아직 6개월이 안 된 강좌)에 이어진 계정은 남는다. 지운 행 수를 표 이름별로 돌려준다.
+    호출하는 쪽이 연 쓰기 트랜잭션 안에서 부른다.
+    """
+    linked = [
+        r["account_id"]
+        for r in db.execute("SELECT account_id FROM member_identities WHERE classroom_id = ?", (classroom_id,))
+    ]
+    counts = {
+        "classroom_verifications": db.execute(
+            "DELETE FROM classroom_verifications WHERE classroom_id = ?", (classroom_id,)
+        ).rowcount,
+        "member_identities": db.execute("DELETE FROM member_identities WHERE classroom_id = ?", (classroom_id,)).rowcount,
+        "device_logins": 0,
+        "accounts": 0,
+    }
+    for account_id in linked:
+        if db.execute("SELECT 1 FROM member_identities WHERE account_id = ? LIMIT 1", (account_id,)).fetchone():
+            continue  # 다른 강좌가 아직 쓴다
+        counts["classroom_verifications"] += db.execute(
+            "DELETE FROM classroom_verifications WHERE device_login_id IN "
+            "(SELECT id FROM device_logins WHERE account_id = ?)",
+            (account_id,),
+        ).rowcount
+        counts["device_logins"] += db.execute("DELETE FROM device_logins WHERE account_id = ?", (account_id,)).rowcount
+        counts["accounts"] += db.execute("DELETE FROM accounts WHERE id = ?", (account_id,)).rowcount
+    return counts
