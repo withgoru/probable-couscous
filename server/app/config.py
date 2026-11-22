@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -18,10 +18,11 @@ class ConfigError(ValueError):
 class Settings:
     professor_github_ids: tuple[int, ...] = ()
     github_client_id: str = ""
-    github_client_secret: str = ""
-    server_secret: str = ""
+    # 비밀 값은 설정을 출력하거나 로그에 남겨도 보이지 않게 한다(C17)
+    github_client_secret: str = field(default="", repr=False)
+    server_secret: str = field(default="", repr=False)
     base_url: str = "http://localhost:8000"
-    resend_api_key: str = ""
+    resend_api_key: str = field(default="", repr=False)
     mail_from: str = ""
     mail_rate_per_sec: int = 8
     database_path: Path = REPO_ROOT / "server" / "data" / "app.db"
