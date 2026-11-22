@@ -26,6 +26,7 @@ MAX_ATTEMPTS = 5
 RESEND_INTERVAL = timedelta(seconds=60)
 
 GENERIC_WRONG = "코드가 맞지 않습니다."
+SUPERSEDED = "이 코드는 더 이상 쓸 수 없습니다. 코드를 다시 받아 주세요."
 
 
 class Outcome(StrEnum):
@@ -126,6 +127,15 @@ def resend_wait(db: sqlite3.Connection, classroom_id: int, email_norm: str, now:
     return max(0, math.ceil(remaining))
 
 
+def supersede_active(db: sqlite3.Connection, classroom_id: int, email_norm: str) -> None:
+    """이 강좌에서 이 이메일의 쓸 수 있는 코드를 모두 쓸 수 없게 한다(새 코드를 받았거나 명단에서 빠졌을 때)."""
+    db.execute(
+        "UPDATE login_challenges SET status = 'superseded' "
+        "WHERE classroom_id = ? AND email_norm = ? AND status = 'active'",
+        (classroom_id, email_norm),
+    )
+
+
 def issue_challenge_unlocked(
     db: sqlite3.Connection, secret: str, classroom_id: int, email_norm: str, device_id: int, now: datetime
 ) -> int:
@@ -134,11 +144,7 @@ def issue_challenge_unlocked(
     wait = resend_wait(db, classroom_id, email_norm, now)
     if wait > 0:
         raise ResendTooSoon(wait)
-    db.execute(
-        "UPDATE login_challenges SET status = 'superseded' "
-        "WHERE classroom_id = ? AND email_norm = ? AND status = 'active'",
-        (classroom_id, email_norm),
-    )
+    supersede_active(db, classroom_id, email_norm)
     cursor = db.execute(
         "INSERT INTO login_challenges(classroom_id, email_norm, device_id, nonce, created_at, expires_at) "
         "VALUES (?, ?, ?, ?, ?, ?)",
@@ -203,6 +209,8 @@ def verify_code_unlocked(
         return VerifyResult(Outcome.USED, "이미 사용된 코드입니다. 코드를 다시 받아 주세요.", challenge_id=challenge_id)
     if row["status"] == "expired":
         return _unusable(row)
+    if row["status"] == "superseded":  # 새 코드 없이 대체된 경우: 명단에서 빠졌을 때(다시 넣어도 이 코드는 쓸 수 없다)
+        return VerifyResult(Outcome.EXPIRED, SUPERSEDED, challenge_id=challenge_id)
     if now >= _at(row["expires_at"]):
         db.execute("UPDATE login_challenges SET status = 'expired' WHERE id = ?", (challenge_id,))
         return VerifyResult(Outcome.EXPIRED, "코드가 만료되었습니다. 코드를 다시 받아 주세요.", challenge_id=challenge_id)

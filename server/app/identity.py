@@ -89,3 +89,19 @@ def acknowledge_notice(db: sqlite3.Connection, membership_id: int, now: datetime
         "UPDATE memberships SET notice_ack_at = ? WHERE id = ? AND notice_ack_at IS NULL",
         (now.isoformat(), membership_id),
     )
+
+
+def cut_login(db: sqlite3.Connection, classroom_id: int, roster_entry_id: int, now: datetime) -> int | None:
+    """이 명단 항목의 학생을 이 강좌에서 로그아웃시킨다(AC19, AC20). 멤버십 번호를 돌려주고, 입장한 적이 없으면 None.
+
+    기기 로그인은 계정 단위라 건드리지 않는다(다른 강좌 입장은 그대로). 이 시각 전에 인증한 기기는 이 강좌에
+    다시 들어오려면 이메일 인증부터 해야 한다. 닉네임(멤버십)은 그대로 둔다. 호출하는 쪽이 연 쓰기 트랜잭션 안에서 부른다.
+    """
+    row = db.execute(
+        "SELECT membership_id FROM member_identities WHERE classroom_id = ? AND roster_entry_id = ?",
+        (classroom_id, roster_entry_id),
+    ).fetchone()
+    if row is None:
+        return None
+    db.execute("UPDATE memberships SET reverify_after = ? WHERE id = ?", (now.isoformat(), row["membership_id"]))
+    return row["membership_id"]

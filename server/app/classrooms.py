@@ -26,6 +26,8 @@ from app.roster import (
     clean_entry,
     import_rows,
     parse_csv,
+    remove_entry,
+    revoke_login,
 )
 
 router = APIRouter()
@@ -193,6 +195,33 @@ def add_student(body: NewStudent, granted: RosterGuard, db: Db, clock: ClockDep,
         raise _roster_problem(err) from err
     publish_admin(request, granted.resource.id, "roster.updated")  # 저장이 끝난 뒤에 알린다
     return {"id": entry_id, "student_no": entry.student_no, "name": entry.name, "email": entry.email_norm}
+
+
+_ROSTER_STATUS = {"not_found": 404, "not_entered": 409}
+
+
+@router.delete("/api/classrooms/{classroom_id}/roster/{entry_id}")
+def remove_student(entry_id: int, granted: RosterGuard, db: Db, clock: ClockDep, request: Request):
+    """명단에서 빼기(AC19). 입장이 거부되고 이 강좌의 로그인 유지가 끝난다. 기록한다(AC48)."""
+    classroom_id = granted.resource.id
+    try:
+        gone = remove_entry(db, classroom_id, entry_id, granted.actor.github_id, clock.now())
+    except RosterError as err:
+        raise _roster_problem(err, _ROSTER_STATUS[err.reason]) from err
+    for challenge_id in gone:  # 저장이 끝난 뒤에 알린다
+        publish_admin(request, classroom_id, "pending_auth.updated", id=challenge_id)
+    publish_admin(request, classroom_id, "roster.updated")
+    return {"id": entry_id, "removed": True}
+
+
+@router.post("/api/classrooms/{classroom_id}/roster/{entry_id}/revoke-login")
+def revoke_student_login(entry_id: int, granted: RosterGuard, db: Db, clock: ClockDep):
+    """로그인 끊기(AC20). 이 학생의 모든 기기가 이 강좌에서 로그아웃된다. 바뀌는 목록이 없어 교수 화면에 알리지 않는다."""
+    try:
+        revoke_login(db, granted.resource.id, entry_id, granted.actor.github_id, clock.now())
+    except RosterError as err:
+        raise _roster_problem(err, _ROSTER_STATUS[err.reason]) from err
+    return {"id": entry_id, "revoked": True}
 
 
 @router.get("/api/me/summary")
