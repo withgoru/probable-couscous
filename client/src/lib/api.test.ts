@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess } from './api';
+import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -264,5 +264,39 @@ describe('학생 입장 API', () => {
 		expect(url).toBe('/api/join/tok/request-access');
 		expect(JSON.parse(init.body as string)).toEqual({ email: 'a@x.kr', name: '박민수', student_no: '2024' });
 		expect(await requestAccess('t', { email: 'a', name: 'b', student_no: 'c' }, () => json(200, { next: 'rejected', message: 'm' }))).toEqual({ next: 'rejected', message: 'm' });
+	});
+});
+
+describe('코드 단계 API', () => {
+	it('verifyCode는 이메일, 코드, 로그인 유지 선택을 보내고 닉네임을 돌려준다', async () => {
+		const fetch = vi.fn((..._a: unknown[]) => json(200, { next: 'notice', nickname: '느긋한 고래' }));
+		expect(await verifyCode('tok', { email: 'kim@x.kr', code: '123456', keep_login: true }, fetch)).toEqual({ next: 'notice', nickname: '느긋한 고래' });
+		const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe('/api/join/tok/code');
+		expect(init.credentials).toBe('same-origin'); // 기기 쿠키를 보내고 로그인 쿠키를 받는다
+		expect(JSON.parse(init.body as string)).toEqual({ email: 'kim@x.kr', code: '123456', keep_login: true });
+	});
+
+	it('틀린 코드는 남은 횟수와 결과 종류를 ApiError.data에 담는다', async () => {
+		const detail = { field: 'code', message: '코드가 맞지 않습니다. 4번 더 입력할 수 있습니다.', outcome: 'wrong', remaining: 4 };
+		const err = await verifyCode('t', { email: 'a', code: '1', keep_login: true }, () => json(422, { detail })).catch((e) => e);
+		expect([err.status, err.field, err.message]).toEqual([422, 'code', detail.message]);
+		expect(err.data).toEqual({ outcome: 'wrong', remaining: 4 });
+	});
+
+	it('resendCode는 다시 받기를 보내고, 너무 빠르면 남은 초를 data에 담는다', async () => {
+		const fetch = vi.fn((..._a: unknown[]) => json(200, { next: 'code', wait_seconds: 60 }));
+		expect(await resendCode('tok', 'kim@x.kr', fetch)).toEqual({ next: 'code', wait_seconds: 60 });
+		expect(fetch.mock.calls[0][0]).toBe('/api/join/tok/resend');
+		const err = await resendCode('t', 'a', () => json(429, { detail: { field: null, message: '코드는 7초 뒤에 다시 받을 수 있습니다.', wait_seconds: 7 } })).catch((e) => e);
+		expect([err.status, err.message, err.data]).toEqual([429, '코드는 7초 뒤에 다시 받을 수 있습니다.', { wait_seconds: 7 }]);
+	});
+
+	it('notifyProfessor는 교수님께 알리고 안내 문구를 돌려준다', async () => {
+		const fetch = vi.fn((..._a: unknown[]) => json(200, { next: 'notified', message: '교수님께 알렸습니다.' }));
+		expect(await notifyProfessor('tok', 'kim@x.kr', fetch)).toEqual({ next: 'notified', message: '교수님께 알렸습니다.' });
+		const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe('/api/join/tok/notify-professor');
+		expect(JSON.parse(init.body as string)).toEqual({ email: 'kim@x.kr' });
 	});
 });

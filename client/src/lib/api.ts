@@ -37,11 +37,14 @@ export class ApiError extends Error {
 	status: number;
 	/** 입력 칸에 대한 오류면 그 칸 이름, 칸과 무관한 오류(예: 200명 초과)면 null, 칸 개념이 없는 오류면 undefined. */
 	field?: string | null;
-	constructor(status: number, message: string, field?: string | null) {
+	/** 안내 말고 서버가 함께 준 값(예: 코드 확인의 outcome·remaining, 다시 받기의 wait_seconds). */
+	data?: Record<string, unknown>;
+	constructor(status: number, message: string, field?: string | null, data?: Record<string, unknown>) {
 		super(message);
 		this.name = 'ApiError';
 		this.status = status;
 		this.field = field;
+		this.data = data;
 	}
 }
 
@@ -55,8 +58,8 @@ async function failure(res: Response): Promise<ApiError> {
 	if (typeof detail === 'string') return new ApiError(res.status, detail);
 	// 명단 API는 {field, message}로 어느 입력 칸의 오류인지 알려 준다
 	if (detail && typeof detail === 'object' && typeof (detail as { message?: unknown }).message === 'string') {
-		const { field, message } = detail as { field?: string | null; message: string };
-		return new ApiError(res.status, message, field ?? null);
+		const { field, message, ...rest } = detail as { field?: string | null; message: string };
+		return new ApiError(res.status, message, field ?? null, Object.keys(rest).length ? rest : undefined);
 	}
 	return new ApiError(res.status, `요청을 처리하지 못했습니다 (${res.status})`);
 }
@@ -194,7 +197,7 @@ export function openInvite(token: string, fetchFn: FetchFn = fetch): Promise<Inv
 	return getJson<InviteClassroom>(fetchFn, joinUrl(token));
 }
 
-async function postJoin(fetchFn: FetchFn, url: string, body: unknown): Promise<JoinAnswer> {
+async function postJoin<T = JoinAnswer>(fetchFn: FetchFn, url: string, body: unknown): Promise<T> {
 	const res = await fetchFn(url, {
 		method: 'POST',
 		credentials: 'same-origin',
@@ -202,7 +205,7 @@ async function postJoin(fetchFn: FetchFn, url: string, body: unknown): Promise<J
 		body: JSON.stringify(body)
 	});
 	if (!res.ok) throw await failure(res);
-	return (await res.json()) as JoinAnswer;
+	return (await res.json()) as T;
 }
 
 /** 이메일을 확인한다. 명단에 있으면 코드 메일을 요청하고(next: code), 없으면 입장 요청 안내를 받는다. */
@@ -215,4 +218,27 @@ export type AccessRequest = { email: string; name: string; student_no: string };
 /** 명단에 없는 이메일로 입장 요청을 보낸다. 새 요청이면 requested, 그 밖에는 지금 상태의 안내를 받는다. */
 export function requestAccess(token: string, input: AccessRequest, fetchFn: FetchFn = fetch): Promise<JoinAnswer> {
 	return postJoin(fetchFn, joinUrl(token, '/request-access'), input);
+}
+
+export type CodeInput = { email: string; code: string; keep_login: boolean };
+/** 코드가 맞으면 닉네임(notice), 코드를 받은 뒤 명단에서 빠졌으면 명단 밖 안내. */
+export type CodeAnswer = { next: 'notice'; nickname: string } | { next: 'request_access'; message: string };
+
+/** 코드를 확인한다. 맞으면 서버가 이 기기에 로그인 쿠키를 심는다. 틀리면 ApiError(422, data: outcome·remaining). */
+export function verifyCode(token: string, input: CodeInput, fetchFn: FetchFn = fetch): Promise<CodeAnswer> {
+	return postJoin<CodeAnswer>(fetchFn, joinUrl(token, '/code'), input);
+}
+
+/** 코드 다시 받기(직전 요청 60초 뒤부터). 너무 빠르면 ApiError(429, data: wait_seconds). */
+export function resendCode(token: string, email: string, fetchFn: FetchFn = fetch): Promise<JoinAnswer> {
+	return postJoin(fetchFn, joinUrl(token, '/resend'), { email });
+}
+
+/** '교수님께 알리기'. 교수의 대기 중인 인증 목록에 이 학생의 코드가 오른다. */
+export function notifyProfessor(
+	token: string,
+	email: string,
+	fetchFn: FetchFn = fetch
+): Promise<{ next: 'notified'; message: string }> {
+	return postJoin(fetchFn, joinUrl(token, '/notify-professor'), { email });
 }
