@@ -47,6 +47,22 @@ describe('로그인 가드 (AC3)', () => {
 	});
 });
 
+describe('학생 입장 화면은 교수 로그인과 무관하다', () => {
+	it('초대 링크 주소는 로그인하지 않아도 열리고 교수 로그인을 묻지도 않는다', async () => {
+		const fetch = vi.fn(loggedOut);
+		expect(await loadSession(fetch, at('/join/abcDEF_123-x'))).toEqual({ me: null });
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('교수로 로그인한 브라우저에서 열어도 학생 화면이라 교수 메뉴를 붙이지 않는다', async () => {
+		expect(await loadSession(loggedIn, at('/join/abc'))).toEqual({ me: null });
+	});
+
+	it.each(['/join', '/join/', '/joinx/abc', '/join/abc/extra'])('%s는 학생 입장 주소가 아니라 보호된다', async (path) => {
+		expect(await redirectOf(loadSession(loggedOut, at(path)))).toEqual({ status: 302, location: '/login' });
+	});
+});
+
 describe('루트 레이아웃이 가드를 쓴다', () => {
 	it('load가 loadSession을 거친다', async () => {
 		const { load, ssr } = await import('../routes/+layout');

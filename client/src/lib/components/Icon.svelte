@@ -4,10 +4,14 @@
 	import copy from 'iconoir/icons/regular/copy.svg?raw';
 	import github from 'iconoir/icons/regular/github.svg?raw';
 	import group from 'iconoir/icons/regular/group.svg?raw';
+	import infoCircle from 'iconoir/icons/regular/info-circle.svg?raw';
+	import link from 'iconoir/icons/regular/link.svg?raw';
 	import logOut from 'iconoir/icons/regular/log-out.svg?raw';
+	import mail from 'iconoir/icons/regular/mail.svg?raw';
 	import navArrowDown from 'iconoir/icons/regular/nav-arrow-down.svg?raw';
 	import plus from 'iconoir/icons/regular/plus.svg?raw';
 	import presentation from 'iconoir/icons/regular/presentation.svg?raw';
+	import send from 'iconoir/icons/regular/send.svg?raw';
 	import user from 'iconoir/icons/regular/user.svg?raw';
 	import warningCircle from 'iconoir/icons/regular/warning-circle.svg?raw';
 
@@ -16,10 +20,14 @@
 		copy,
 		github,
 		group,
+		'info-circle': infoCircle,
+		link,
 		'log-out': logOut,
+		mail,
 		'nav-arrow-down': navArrowDown,
 		plus,
 		presentation,
+		send,
 		user,
 		'warning-circle': warningCircle
 	} as const;

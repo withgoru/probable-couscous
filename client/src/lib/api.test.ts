@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout } from './api';
+import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -218,5 +218,51 @@ describe('초대 링크 API', () => {
 		const err = await regenerateInvite(7, () => json(403, { detail: '이 강좌를 볼 권한이 없습니다.' })).catch((e) => e);
 		expect(err).toBeInstanceOf(ApiError);
 		expect(err.message).toBe('이 강좌를 볼 권한이 없습니다.');
+	});
+});
+
+describe('학생 입장 API', () => {
+	it('openInvite는 강좌 이름을 받아 온다(기기 쿠키를 받으려고 같은 출처 쿠키를 쓴다)', async () => {
+		const fetch = vi.fn(() => json(200, { name: '웹', section_name: null }));
+		expect(await openInvite('tok', fetch)).toEqual({ name: '웹', section_name: null });
+		expect(fetch).toHaveBeenCalledWith('/api/join/tok', expect.objectContaining({ credentials: 'same-origin' }));
+	});
+
+	it('토큰은 주소에 안전하게 넣는다', async () => {
+		const fetch = vi.fn(() => json(200, { name: '웹', section_name: null }));
+		await openInvite('a/b?c', fetch);
+		expect(fetch).toHaveBeenCalledWith('/api/join/a%2Fb%3Fc', expect.anything());
+	});
+
+	it('폐기된 링크와 보관된 강좌는 서버의 안내를 담은 ApiError다', async () => {
+		const revoked = await openInvite('t', () => json(404, { detail: '이 링크는 더 이상 사용할 수 없습니다. 교수님께 새 링크를 받으세요.' })).catch((e) => e);
+		expect(revoked).toBeInstanceOf(ApiError);
+		expect([revoked.status, revoked.message]).toEqual([404, '이 링크는 더 이상 사용할 수 없습니다. 교수님께 새 링크를 받으세요.']);
+		const archived = await openInvite('t', () => json(403, { detail: '이 강좌는 보관되었습니다. 교수님께 문의해 주세요.' })).catch((e) => e);
+		expect([archived.status, archived.message]).toEqual([403, '이 강좌는 보관되었습니다. 교수님께 문의해 주세요.']);
+	});
+
+	it('submitJoinEmail은 이메일을 보내고 다음 단계를 돌려준다', async () => {
+		const fetch = vi.fn((..._a: unknown[]) => json(200, { next: 'code', wait_seconds: 60 }));
+		expect(await submitJoinEmail('tok', 'kim@x.kr', fetch)).toEqual({ next: 'code', wait_seconds: 60 });
+		const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe('/api/join/tok/email');
+		expect(init.method).toBe('POST');
+		expect(JSON.parse(init.body as string)).toEqual({ email: 'kim@x.kr' });
+	});
+
+	it('submitJoinEmail의 칸 오류는 어느 칸인지와 함께 올린다', async () => {
+		const err = await submitJoinEmail('t', 'x', () => json(422, { detail: { field: 'email', message: '이메일 형식을 확인해 주세요.' } })).catch((e) => e);
+		expect([err.status, err.field, err.message]).toEqual([422, 'email', '이메일 형식을 확인해 주세요.']);
+	});
+
+	it('requestAccess는 이메일, 이름, 학번을 보내고 결과를 돌려준다(새 요청 201, 그 밖 200)', async () => {
+		const fetch = vi.fn((..._a: unknown[]) => json(201, { next: 'requested', message: '요청을 보냈습니다.' }));
+		const answer = await requestAccess('tok', { email: 'a@x.kr', name: '박민수', student_no: '2024' }, fetch);
+		expect(answer).toEqual({ next: 'requested', message: '요청을 보냈습니다.' });
+		const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe('/api/join/tok/request-access');
+		expect(JSON.parse(init.body as string)).toEqual({ email: 'a@x.kr', name: '박민수', student_no: '2024' });
+		expect(await requestAccess('t', { email: 'a', name: 'b', student_no: 'c' }, () => json(200, { next: 'rejected', message: 'm' }))).toEqual({ next: 'rejected', message: 'm' });
 	});
 });
