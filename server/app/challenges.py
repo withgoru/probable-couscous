@@ -136,6 +136,14 @@ def supersede_active(db: sqlite3.Connection, classroom_id: int, email_norm: str)
     )
 
 
+def supersede_classroom(db: sqlite3.Connection, classroom_id: int) -> None:
+    """이 강좌의 쓸 수 있는 코드를 모두 쓸 수 없게 한다(강좌 보관). 보내지 않은 코드 메일도 발송 작업이 버린다."""
+    db.execute(
+        "UPDATE login_challenges SET status = 'superseded' WHERE classroom_id = ? AND status = 'active'",
+        (classroom_id,),
+    )
+
+
 def issue_challenge_unlocked(
     db: sqlite3.Connection, secret: str, classroom_id: int, email_norm: str, device_id: int, now: datetime
 ) -> int:

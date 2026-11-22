@@ -101,6 +101,17 @@ export function cloneClassroom(
 	return postClassroom(fetchFn, `/api/classrooms/${sourceId}/clone`, input);
 }
 
+/** 강좌 보관(AC9). 학생 입장을 닫는다. 되돌리는 기능은 없다. */
+export async function archiveClassroom(id: number, fetchFn: FetchFn = fetch): Promise<Classroom> {
+	const res = await fetchFn(`/api/classrooms/${id}/archive`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { Accept: 'application/json' }
+	});
+	if (!res.ok) throw await failure(res);
+	return (await res.json()) as Classroom;
+}
+
 export type MySummary = {
 	github_id: number;
 	login: string;
