@@ -9,7 +9,7 @@
 - 실패는 지수 대기(5초, 10초, 20초, …, 상한 5분) 뒤 다시 시도한다. 응답이 알려 준 대기 시간이 더 길면 따른다.
 - 메일은 **최소 한 번** 보낸다. 보낸 직후 표에 기록하기 전에 멈추면 같은 코드 메일이 한 번 더 갈 수 있는데,
   같은 챌린지의 같은 코드라 해롭지 않다.
-- 실제 발송 구현(`ResendMailer`)은 T035. 그 전에는 `OutboxMailer`가 메모리에만 모은다.
+- 실제 발송은 `app.resend.ResendMailer`(T035). 설정이 없으면 `OutboxMailer`가 메모리에만 모은다(개발·테스트).
 """
 
 import logging
@@ -17,7 +17,7 @@ import sqlite3
 import threading
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Protocol
 
@@ -39,6 +39,8 @@ class MailMessage:
     to: str
     subject: str
     text: str
+    # 같은 발송 요청이면 같은 값. 다시 보내도 서비스가 알아보고 한 번만 보낸다(최소 한 번 발송의 중복 방지)
+    idempotency_key: str | None = None
 
 
 class MailError(Exception):
@@ -172,7 +174,8 @@ class MailWorker:
         if challenge is None or challenge["status"] != "active" or now >= _at(challenge["expires_at"]):
             return None  # 새 코드를 받았거나, 이미 입장했거나, 만료되었다
         classroom = db.execute("SELECT name FROM classrooms WHERE id = ?", (row["classroom_id"],)).fetchone()
-        return render_code_mail(self._secret, classroom["name"], row["to_email"], challenge)
+        message = render_code_mail(self._secret, classroom["name"], row["to_email"], challenge)
+        return replace(message, idempotency_key=f"mail-outbox/{row['id']}")
 
     def _finish(
         self, db: sqlite3.Connection, row: sqlite3.Row, status: str, now: datetime, attempts: int | None = None

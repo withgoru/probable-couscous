@@ -23,6 +23,7 @@ from app.mail import Mailer, MailWorker, OutboxMailer
 from app.pending_auth import router as pending_auth_router
 from app.purge import PurgeJob
 from app.realtime import InMemoryRoomBus, RoomBus
+from app.resend import mailer_from_settings
 from app.routes_auth import router as auth_router
 from app.ws_admin import router as ws_admin_router
 
@@ -60,7 +61,7 @@ def create_app(
     if auth_provider is None and settings.github_client_id and settings.github_client_secret:
         auth_provider = GitHubProvider(settings.github_client_id, settings.github_client_secret)
 
-    mailer = mailer or OutboxMailer()
+    mailer = mailer or mailer_from_settings(settings)  # 키가 없으면 메모리에만 모은다
     mail_worker = MailWorker(
         lambda: connect(settings.database_path), mailer, settings.server_secret, clock, settings.mail_rate_per_sec
     )
