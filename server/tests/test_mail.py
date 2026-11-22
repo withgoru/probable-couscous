@@ -64,17 +64,49 @@ def outbox(e, outbox_id):
 
 
 class Scripted:
-    """차례로 정해 둔 결과를 내는 가짜 Mailer. 값이 예외면 던지고 None이면 보낸 것으로 친다."""
+    """차례로 정해 둔 결과를 내는 가짜 Mailer. 값이 예외면 던지고 None이면 보낸 것으로 친다.
+
+    한 번에 여러 통을 동시에 보내므로 같은 차례의 결과가 어느 통에 갈지는 정해지지 않는다. 통마다 결과가 달라야 하면
+    ByRecipient를 쓴다."""
 
     def __init__(self, *results):
         self.results = list(results)
         self.calls: list[MailMessage] = []
+        self._lock = threading.Lock()
 
     def send(self, message):
-        self.calls.append(message)
-        result = self.results.pop(0) if self.results else None
+        with self._lock:
+            self.calls.append(message)
+            result = self.results.pop(0) if self.results else None
         if isinstance(result, BaseException):
             raise result
+
+
+class ByRecipient:
+    """받는 주소마다 정해 둔 결과를 내는 가짜 Mailer(동시 발송에서도 결과가 정해진다)."""
+
+    def __init__(self, results: dict[str, BaseException | None], delay: float = 0.0):
+        self.results = results
+        self.delay = delay
+        self.calls: list[MailMessage] = []
+        self.active = 0
+        self.most_active = 0
+        self._lock = threading.Lock()
+
+    def send(self, message):
+        with self._lock:
+            self.calls.append(message)
+            self.active += 1
+            self.most_active = max(self.most_active, self.active)
+        try:
+            if self.delay:
+                time.sleep(self.delay)
+            result = self.results.get(message.to)
+            if isinstance(result, BaseException):
+                raise result
+        finally:
+            with self._lock:
+                self.active -= 1
 
 
 # --- 먼저 DB에 쓴다 (C13) -----------------------------------------------------------------------
@@ -149,7 +181,7 @@ def test_c11_no_address_stays_in_the_mail_table_after_sending_or_giving_up(env):
     stale, _, _ = queue(env, "stale@x.kr")
     dead, _, _ = queue(env, "dead@x.kr")
     env.db.execute("UPDATE login_challenges SET status = 'superseded' WHERE id = (SELECT body_ref FROM mail_outbox WHERE id = ?)", (stale,))
-    mailer = Scripted(None, *[MailError("거부", retryable=False)])
+    mailer = ByRecipient({"dead@x.kr": MailError("거부", retryable=False)})
     worker(env, mailer).process_due()
     rows = env.db.execute("SELECT to_email, status FROM mail_outbox").fetchall()
     assert {r["status"] for r in rows} == {"sent", "failed"}
@@ -157,16 +189,24 @@ def test_c11_no_address_stays_in_the_mail_table_after_sending_or_giving_up(env):
     assert outbox(env, sent)["status"] == "sent" and outbox(env, dead)["status"] == "failed"
 
 
-def test_rows_not_due_yet_are_left_alone_and_rows_go_in_order(env):
+def test_rows_not_due_yet_are_left_alone(env):
     later, _, _ = queue(env, "later@x.kr", when=START + timedelta(seconds=30))
     queue(env, "first@x.kr")
     queue(env, "second@x.kr")
     worker(env).process_due()
-    assert [m.to for m in env.mailer.sent] == ["first@x.kr", "second@x.kr"]
+    assert sorted(m.to for m in env.mailer.sent) == ["first@x.kr", "second@x.kr"]
     assert outbox(env, later)["status"] == "pending"
     env.clock.advance(seconds=30)
     worker(env).process_due()
     assert env.mailer.sent[-1].to == "later@x.kr"
+
+
+def test_when_the_budget_is_short_the_oldest_requests_go_first(env):
+    # 동시에 보내도 고르는 순서는 오래된 요청부터다(먼저 누른 학생이 먼저)
+    for name in ("a", "b", "c", "d"):
+        queue(env, f"{name}@x.kr")
+    worker(env, rate=2).process_due()
+    assert sorted(m.to for m in env.mailer.sent) == ["a@x.kr", "b@x.kr"]
 
 
 def test_a_sent_row_is_never_sent_twice(env):
@@ -214,6 +254,65 @@ def test_failed_attempts_also_use_the_rate_budget(env):
     mailer = Scripted(*[MailError("실패")] * 12)
     assert worker(env, mailer).process_due() == 8
     assert len(mailer.calls) == 8
+
+
+# --- 동시에 보낸다 (서비스 응답이 느려도 초당 상한까지 보낸다) ------------------------------------------------------
+
+
+def test_slow_service_calls_go_out_together_not_one_after_another(env):
+    # 한 통에 0.2초 걸리는 서비스: 차례로 보내면 8통에 1.6초, 함께 보내면 0.2초 남짓
+    for _ in range(8):
+        queue(env)
+    mailer = ByRecipient({}, delay=0.2)
+    t0 = time.perf_counter()
+    assert worker(env, mailer).process_due() == 8
+    assert time.perf_counter() - t0 < 0.8
+    assert mailer.most_active > 1
+
+
+def test_no_more_than_max_parallel_calls_run_at_once(env):
+    for _ in range(8):
+        queue(env)
+    mailer = ByRecipient({}, delay=0.05)
+    w = MailWorker(env.world.db, mailer, SECRET, env.clock, rate_per_sec=8, max_parallel=3)
+    assert w.process_due() == 8
+    assert 1 < mailer.most_active <= 3
+
+
+def test_each_result_of_a_batch_is_recorded_on_its_own_row(env):
+    ok, _, _ = queue(env, "ok@x.kr")
+    retry, _, _ = queue(env, "retry@x.kr")
+    dead, _, _ = queue(env, "dead@x.kr")
+    boom, _, _ = queue(env, "boom@x.kr")
+    mailer = ByRecipient(
+        {"retry@x.kr": MailError("일시 오류"), "dead@x.kr": MailError("거부", retryable=False), "boom@x.kr": RuntimeError("뜻밖")},
+        delay=0.02,
+    )
+    assert worker(env, mailer).process_due() == 4
+    assert outbox(env, ok)["status"] == "sent" and outbox(env, ok)["to_email"] is None
+    assert outbox(env, retry)["status"] == "pending" and outbox(env, retry)["attempts"] == 1
+    assert outbox(env, dead)["status"] == "failed" and outbox(env, dead)["to_email"] is None
+    assert outbox(env, boom)["status"] == "pending" and outbox(env, boom)["attempts"] == 1
+
+
+def test_parallel_sending_still_keeps_eight_per_second(env):
+    for _ in range(20):
+        queue(env)
+    mailer = ByRecipient({}, delay=0.01)
+    w = worker(env, mailer)
+    assert [w.process_due(), w.process_due()] == [8, 0]
+    env.clock.advance(seconds=1)
+    assert w.process_due() == 8
+
+
+def test_a_stale_code_in_the_batch_is_dropped_without_using_the_budget(env):
+    stale, cid, _ = queue(env, "stale@x.kr")
+    env.db.execute("UPDATE login_challenges SET status = 'superseded' WHERE id = ?", (cid,))
+    for _ in range(8):
+        queue(env)
+    mailer = ByRecipient({})
+    assert worker(env, mailer).process_due() == 8  # 낡은 코드는 세지 않고 8통을 채운다
+    assert outbox(env, stale)["status"] == "failed" and "stale@x.kr" not in [m.to for m in mailer.calls]
 
 
 # --- 실패와 재시도 ---------------------------------------------------------------------------------------
@@ -284,7 +383,7 @@ def test_after_the_last_attempt_it_gives_up_and_clears_the_address(env):
 def test_an_unexpected_error_in_the_mailer_does_not_stop_the_worker_or_other_mail(env):
     bad, _, _ = queue(env, "bad@x.kr")
     good, _, _ = queue(env, "good@x.kr")
-    worker(env, Scripted(RuntimeError("뜻밖의 오류"))).process_due()
+    worker(env, ByRecipient({"bad@x.kr": RuntimeError("뜻밖의 오류")})).process_due()
     assert outbox(env, bad)["status"] == "pending"  # 다시 시도한다
     assert outbox(env, good)["status"] == "sent"
 

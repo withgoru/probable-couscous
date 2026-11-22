@@ -6,6 +6,9 @@
 - 메일 본문과 코드는 표에 쓰지 않는다. 보낼 때 챌린지에서 코드를 다시 계산한다.
 - 발송이 끝나거나(성공) 포기하면(실패, 낡은 코드) 수신 주소를 비운다(C11).
 - 서비스의 초당 호출 상한을 넘지 않게 초당 `rate_per_sec`건 이하로 보낸다(실패한 시도도 센다).
+- 한 번의 처리에서 보낼 몫은 **동시에** 보낸다(최대 `max_parallel`통). 한 통씩 차례로 보내면 서비스 응답이 0.3초일 때
+  초당 3통쯤밖에 못 보내 200명 강좌에서 1분이 넘게 걸린다(T036 측정). DB를 읽고 쓰는 일은 작업 스레드 하나가 차례로 하고,
+  동시에 하는 것은 서비스 호출뿐이다.
 - 실패는 지수 대기(5초, 10초, 20초, …, 상한 5분) 뒤 다시 시도한다. 응답이 알려 준 대기 시간이 더 길면 따른다.
 - 메일은 **최소 한 번** 보낸다. 보낸 직후 표에 기록하기 전에 멈추면 같은 코드 메일이 한 번 더 갈 수 있는데,
   같은 챌린지의 같은 코드라 해롭지 않다.
@@ -17,6 +20,7 @@ import sqlite3
 import threading
 from collections import deque
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Protocol
@@ -115,12 +119,14 @@ class MailWorker:
         secret: str,
         clock: Clock,
         rate_per_sec: int = 8,
+        max_parallel: int = 8,
     ) -> None:
         self._open_db = open_db
         self._mailer = mailer
         self._secret = secret
         self._clock = clock
         self._rate = max(1, rate_per_sec)
+        self._parallel = max(1, max_parallel)  # 동시에 보내는 최대 통수
         self._window: deque[datetime] = deque()  # 최근 1초 안에 서비스를 부른 시각
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -138,36 +144,51 @@ class MailWorker:
         db = self._open_db()
         try:
             rows = db.execute("SELECT * FROM mail_outbox WHERE status = 'pending' ORDER BY id").fetchall()
-            calls = 0
-            for row in rows:
-                if calls >= budget:
+            batch: list[tuple[sqlite3.Row, MailMessage]] = []
+            for row in rows:  # 오래된 요청부터 이번 몫을 고른다
+                if len(batch) >= budget:
                     break
                 if _at(row["next_try_at"]) > now:
                     continue
-                if self._deliver(db, row, now):
-                    calls += 1
-                    self._window.append(now)
-            return calls
+                message = self._compose(db, row, now)
+                if message is None:  # 낡은 코드: 보내지 않고 포기한다(몫을 쓰지 않는다)
+                    self._finish(db, row, "failed", now)
+                    continue
+                batch.append((row, message))
+            if not batch:
+                return 0
+            self._window.extend([now] * len(batch))
+            outcomes = self._send_all([message for _, message in batch])
+            for (row, _), error in zip(batch, outcomes, strict=True):  # 결과 기록은 다시 차례로
+                self._record(db, row, now, error)
+            return len(batch)
         finally:
             db.close()
 
-    def _deliver(self, db: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> bool:
-        """한 요청을 처리한다. 서비스를 불렀으면 True(상한에 센다)."""
-        message = self._compose(db, row, now)
-        if message is None:  # 낡은 코드: 보내지 않고 포기한다
-            self._finish(db, row, "failed", now)
-            return False
-        attempts = row["attempts"] + 1
+    def _send_one(self, message: MailMessage) -> BaseException | None:
         try:
             self._mailer.send(message)
-        except MailError as err:
-            self._retry_or_give_up(db, row, now, attempts, err.retryable, err.retry_after)
-        except Exception:
-            log.exception("메일을 보내다 뜻밖의 오류가 났습니다. 다시 시도합니다(요청 %s)", row["id"])
-            self._retry_or_give_up(db, row, now, attempts, True, None)
-        else:
+        except Exception as err:  # noqa: BLE001 한 통의 뜻밖의 오류가 다른 통을 막지 않게 결과로 돌려준다(_record가 로그와 재시도)
+            return err
+        return None
+
+    def _send_all(self, messages: list[MailMessage]) -> list[BaseException | None]:
+        """서비스 호출만 동시에 한다. 결과는 보낸 목록과 같은 순서로 돌려준다."""
+        if len(messages) == 1 or self._parallel == 1:
+            return [self._send_one(m) for m in messages]
+        workers = min(self._parallel, len(messages))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="mail-send") as pool:
+            return list(pool.map(self._send_one, messages))
+
+    def _record(self, db: sqlite3.Connection, row: sqlite3.Row, now: datetime, error: BaseException | None) -> None:
+        attempts = row["attempts"] + 1
+        if error is None:
             self._finish(db, row, "sent", now, attempts)
-        return True
+        elif isinstance(error, MailError):
+            self._retry_or_give_up(db, row, now, attempts, error.retryable, error.retry_after)
+        else:
+            log.error("메일을 보내다 뜻밖의 오류가 났습니다. 다시 시도합니다(요청 %s)", row["id"], exc_info=error)
+            self._retry_or_give_up(db, row, now, attempts, True, None)
 
     def _compose(self, db: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> MailMessage | None:
         challenge = db.execute("SELECT * FROM login_challenges WHERE id = ?", (row["body_ref"],)).fetchone()
