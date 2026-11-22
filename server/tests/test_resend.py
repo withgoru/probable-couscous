@@ -56,7 +56,10 @@ class FakeResend:
             def log_message(self, *_args):  # 테스트 출력을 어지럽히지 않는다
                 pass
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        class Server(ThreadingHTTPServer):
+            request_queue_size = 128  # 기본(5)이면 동시 발송 때 연결 몇 개가 거절된다. 진짜 Resend처럼 다 받는다
+
+        self.server = Server(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         self.thread.start()
