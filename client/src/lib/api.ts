@@ -242,3 +242,18 @@ export function notifyProfessor(
 ): Promise<{ next: 'notified'; message: string }> {
 	return postJoin(fetchFn, joinUrl(token, '/notify-professor'), { email });
 }
+
+/** 이 기기의 이 강좌 상태. login: 이메일 인증 필요, notice: 인증됨·안내 확인 전, entered: 입장함. */
+export type JoinState = { state: 'login' } | { state: 'notice' | 'entered'; nickname: string; classroom: string };
+
+/** 로그인 유지 중인 기기면 이메일 없이 안내나 입장 완료로 간다(AC35, AC37). 링크를 연 뒤(기기 쿠키를 받은 뒤)에 부른다. */
+export function fetchJoinState(token: string, fetchFn: FetchFn = fetch): Promise<JoinState> {
+	return getJson<JoinState>(fetchFn, joinUrl(token, '/me'));
+}
+
+export type Entered = { next: 'entered'; nickname: string; classroom: string };
+
+/** '확인하고 입장'(AC28). 채팅 이용 안내를 확인했다고 기록하고 이 기기를 이 강좌에 입장한 기기로 남긴다. */
+export function enterClassroom(token: string, fetchFn: FetchFn = fetch): Promise<Entered> {
+	return postJoin<Entered>(fetchFn, joinUrl(token, '/enter'), {});
+}

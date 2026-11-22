@@ -2,12 +2,13 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const api = vi.hoisted(() => ({ submitJoinEmail: vi.fn(), requestAccess: vi.fn(), verifyCode: vi.fn() }));
+const api = vi.hoisted(() => ({ submitJoinEmail: vi.fn(), requestAccess: vi.fn(), verifyCode: vi.fn(), enterClassroom: vi.fn() }));
 vi.mock('#lib/api.js', async (original) => ({
 	...(await original<object>()),
 	submitJoinEmail: api.submitJoinEmail,
 	requestAccess: api.requestAccess,
-	verifyCode: api.verifyCode
+	verifyCode: api.verifyCode,
+	enterClassroom: api.enterClassroom
 }));
 
 import { ApiError } from '#lib/api.js';
@@ -23,10 +24,13 @@ const ON_ROSTER = '이미 수강생 명단에 있는 이메일입니다. 이메�
 const REVOKED = '이 링크는 더 이상 사용할 수 없습니다. 교수님께 새 링크를 받으세요.';
 const ARCHIVED = '이 강좌는 보관되었습니다. 교수님께 문의해 주세요.';
 
-const open = (section: string | null = '월수반') => ({
+type JoinState =
+	| { state: 'login' }
+	| { state: 'notice' | 'entered'; nickname: string; classroom: string };
+const open = (section: string | null = '월수반', me: JoinState = { state: 'login' }) => ({
 	me: null,
 	token: 'tok',
-	invite: { open: true as const, classroom: { name: '웹 프로그래밍', section_name: section } }
+	invite: { open: true as const, classroom: { name: '웹 프로그래밍', section_name: section }, me }
 });
 const closed = (message: string) => ({ me: null, token: 'tok', invite: { open: false as const, message } });
 
@@ -34,6 +38,7 @@ beforeEach(() => {
 	api.submitJoinEmail.mockReset();
 	api.requestAccess.mockReset();
 	api.verifyCode.mockReset();
+	api.enterClassroom.mockReset();
 });
 afterEach(cleanup);
 
@@ -178,7 +183,7 @@ describe('명단에 있는 이메일 (AC25)', () => {
 		expect(box('이메일').value).toBe('kim@x.kr');
 	});
 
-	it('코드가 맞으면 다음 단계로 넘어가고 받은 닉네임이 보인다(안내 화면은 T028)', async () => {
+	it('코드가 맞으면 채팅 이용 안내로 넘어가 받은 닉네임이 보인다 (AC27)', async () => {
 		api.submitJoinEmail.mockResolvedValue({ next: 'code', wait_seconds: 60 });
 		api.verifyCode.mockResolvedValue({ next: 'notice', nickname: '느긋한 고래' });
 		render(JoinPage, { params: { token: 'tok' }, data: open() });
@@ -215,7 +220,9 @@ describe('명단에 있는 이메일 (AC25)', () => {
 // --- 명단에 없는 이메일과 입장 요청 (AC38, AC39, AC42, AC43) ---------------------------------------------------------
 
 describe('명단에 없는 이메일 (AC38)', () => {
-	beforeEach(() => api.submitJoinEmail.mockResolvedValue({ next: 'request_access', message: NOT_IN_ROSTER }));
+	beforeEach(() => {
+		api.submitJoinEmail.mockResolvedValue({ next: 'request_access', message: NOT_IN_ROSTER });
+	});
 
 	it('안내 문구와 "입장 요청 보내기" 버튼이 보이고, 이메일을 고칠 수 있게 칸은 그대로다', async () => {
 		render(JoinPage, { params: { token: 'tok' }, data: open() });
@@ -236,7 +243,9 @@ describe('명단에 없는 이메일 (AC38)', () => {
 });
 
 describe('입장 요청 보내기 (AC39)', () => {
-	beforeEach(() => api.submitJoinEmail.mockResolvedValue({ next: 'request_access', message: NOT_IN_ROSTER }));
+	beforeEach(() => {
+		api.submitJoinEmail.mockResolvedValue({ next: 'request_access', message: NOT_IN_ROSTER });
+	});
 
 	async function openForm(email = 'new@x.kr') {
 		render(JoinPage, { params: { token: 'tok' }, data: open() });
@@ -411,5 +420,79 @@ describe('모바일 화면 (C14)', () => {
 	it('브라우저 기본 말풍선 대신 칸 옆의 한국어 안내를 쓴다', () => {
 		render(JoinPage, { params: { token: 'tok' }, data: open() });
 		expect((getCode().closest('form') as HTMLFormElement).noValidate).toBe(true);
+	});
+});
+
+// --- 채팅 이용 안내와 입장 완료 (AC27, AC28) ---------------------------------------------------------------------------
+
+describe('채팅 이용 안내에서 입장까지 (AC27, AC28)', () => {
+	async function toNotice() {
+		api.submitJoinEmail.mockResolvedValue({ next: 'code', wait_seconds: 60 });
+		api.verifyCode.mockResolvedValue({ next: 'notice', nickname: '느긋한 고래' });
+		render(JoinPage, { params: { token: 'tok' }, data: open() });
+		await submitEmail();
+		await fireEvent.input(await screen.findByLabelText('인증 코드 6자리'), { target: { value: '123456' } });
+		await fireEvent.click(screen.getByRole('button', { name: '확인하고 계속' }));
+		return screen.findByRole('region', { name: '채팅 이용 안내' });
+	}
+
+	it('코드 뒤에 채팅 이용 안내가 나오고 포커스가 그 화면 제목으로 간다', async () => {
+		await toNotice();
+		expect(screen.getByText('느긋한 고래')).toBeTruthy();
+		await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 })));
+	});
+
+	it("'확인하고 입장'을 누르면 강좌 이름과 닉네임이 보이는 입장 완료 화면이 열린다", async () => {
+		api.enterClassroom.mockResolvedValue({ next: 'entered', nickname: '느긋한 고래', classroom: '웹 프로그래밍' });
+		await toNotice();
+		await fireEvent.click(screen.getByRole('button', { name: '확인하고 입장' }));
+		const h1 = await screen.findByRole('heading', { level: 1, name: '웹 프로그래밍 · 월수반' });
+		expect(screen.getByText('입장했습니다')).toBeTruthy();
+		expect(screen.getByText('느긋한 고래')).toBeTruthy();
+		await waitFor(() => expect(document.activeElement).toBe(h1));
+		expect(screen.queryByRole('button')).toBeNull(); // 수업 화면(002)이 오기 전에는 할 일이 없다
+	});
+
+	it('입장 확정 때 인증이 끝나 있으면 이메일 단계에서 이유를 보인다', async () => {
+		api.enterClassroom.mockRejectedValue(new ApiError(401, '입장 인증이 끝나지 않았습니다. 이메일과 코드로 먼저 인증해 주세요.'));
+		await toNotice();
+		await fireEvent.click(screen.getByRole('button', { name: '확인하고 입장' }));
+		expect((await screen.findByRole('alert')).textContent).toContain('입장 인증이 끝나지 않았습니다.');
+		expect(box('이메일').value).toBe('kim@x.kr');
+	});
+
+	it('입장 확정 때 명단에서 빠졌거나 보관됐으면 닫힌 화면을 보인다', async () => {
+		api.enterClassroom.mockRejectedValue(new ApiError(403, '이 강좌의 수강생 명단에 없습니다. 교수님께 문의해 주세요.'));
+		await toNotice();
+		await fireEvent.click(screen.getByRole('button', { name: '확인하고 입장' }));
+		expect(await screen.findByRole('heading', { level: 1, name: '입장할 수 없습니다' })).toBeTruthy();
+		expect(screen.getByText('이 강좌의 수강생 명단에 없습니다. 교수님께 문의해 주세요.')).toBeTruthy();
+	});
+});
+
+describe('로그인 유지와 다른 강좌 (AC35, AC37)', () => {
+	it('입장했던 기기로 다시 열면 이메일·코드 없이 입장 완료 화면이 바로 보인다 (AC35)', () => {
+		render(JoinPage, {
+			params: { token: 'tok' },
+			data: open('월수반', { state: 'entered', nickname: '느긋한 고래', classroom: '웹 프로그래밍' })
+		});
+		expect(screen.getByRole('heading', { level: 1, name: '웹 프로그래밍 · 월수반' })).toBeTruthy(); // 안내 화면과 같은 이름(분반 포함)
+		expect(screen.getByText('느긋한 고래')).toBeTruthy();
+		expect(screen.queryByLabelText('이메일')).toBeNull();
+	});
+
+	it('다른 강좌에서 인증한 기기면 이메일·코드 없이 이 강좌의 채팅 이용 안내가 바로 보인다 (AC37)', () => {
+		render(JoinPage, {
+			params: { token: 'tok' },
+			data: open('월수반', { state: 'notice', nickname: '용감한 수달', classroom: '웹 프로그래밍' })
+		});
+		expect(screen.getByRole('region', { name: '채팅 이용 안내' })).toBeTruthy();
+		expect(screen.getByText('용감한 수달')).toBeTruthy();
+		expect(screen.queryByLabelText('이메일')).toBeNull();
+	});
+
+	it('인증하지 않은 기기는 이메일 단계부터 시작한다', () => {
+		render(JoinPage, { params: { token: 'tok' }, data: open('월수반', { state: 'login' }) });
+		expect(box('이메일')).toBeTruthy();
 	});
 });
