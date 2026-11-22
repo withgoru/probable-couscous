@@ -48,7 +48,7 @@
 			id="roster-csv"
 			type="file"
 			accept=".csv,text/csv"
-			class="input h-auto py-2"
+			class="input h-auto min-h-11 py-2"
 			bind:this={picker}
 			onchange={choose}
 			aria-describedby="roster-csv-help"

@@ -1,9 +1,10 @@
+import { resolve } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 // E2E: 빌드한 클라이언트를 E2E 전용 서버(e2e/server.py)가 내려주고, 실제 브라우저로 학생 입장 전체를 따라간다.
 // 서버를 띄울 파이썬은 E2E_PYTHON으로 바꿀 수 있다(CI는 python, 로컬은 server/.venv).
 const PORT = 8799;
-const PYTHON = process.env.E2E_PYTHON ?? '../server/.venv/bin/python';
+const PYTHON = process.env.E2E_PYTHON ?? resolve('../server/.venv/bin/python');
 
 export default defineConfig({
 	testDir: 'e2e',
