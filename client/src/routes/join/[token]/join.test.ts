@@ -2,11 +2,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const api = vi.hoisted(() => ({ submitJoinEmail: vi.fn(), requestAccess: vi.fn() }));
+const api = vi.hoisted(() => ({ submitJoinEmail: vi.fn(), requestAccess: vi.fn(), verifyCode: vi.fn() }));
 vi.mock('#lib/api.js', async (original) => ({
 	...(await original<object>()),
 	submitJoinEmail: api.submitJoinEmail,
-	requestAccess: api.requestAccess
+	requestAccess: api.requestAccess,
+	verifyCode: api.verifyCode
 }));
 
 import { ApiError } from '#lib/api.js';
@@ -32,6 +33,7 @@ const closed = (message: string) => ({ me: null, token: 'tok', invite: { open: f
 beforeEach(() => {
 	api.submitJoinEmail.mockReset();
 	api.requestAccess.mockReset();
+	api.verifyCode.mockReset();
 });
 afterEach(cleanup);
 
@@ -124,11 +126,23 @@ describe('이메일 단계 (AC24)', () => {
 		await waitFor(() => expect(box('이메일').getAttribute('aria-invalid')).toBe('true'));
 	});
 
-	it('너무 빨리 다시 요청하면 서버의 안내(남은 시간)가 보인다', async () => {
-		api.submitJoinEmail.mockRejectedValue(new ApiError(429, '40초 뒤에 다시 받을 수 있습니다.', null));
+	it('방금 코드를 받은 이메일을 다시 보내면(60초 안) 막히지 않고 코드 단계로 가서 남은 시간을 센다', async () => {
+		// 이메일 단계로 돌아갔다 같은 이메일로 다시 오면, 이미 보낸 코드가 살아 있으니 그 코드를 입력하게 한다(C12)
+		api.submitJoinEmail.mockRejectedValue(
+			new ApiError(429, '코드는 40초 뒤에 다시 받을 수 있습니다.', null, { wait_seconds: 40 })
+		);
 		render(JoinPage, { params: { token: 'tok' }, data: open() });
 		await submitEmail();
-		expect((await screen.findByRole('alert')).textContent).toContain('40초 뒤에 다시 받을 수 있습니다.');
+		expect(await screen.findByLabelText('인증 코드 6자리')).toBeTruthy();
+		expect(screen.getByText('40초 뒤에 다시 받을 수 있습니다.')).toBeTruthy();
+		expect(screen.getByRole('main').textContent).toContain('6자리 코드를 보냈습니다: kim@x.kr');
+	});
+
+	it('남은 시간이 없는 429는 서버의 안내를 그대로 보인다', async () => {
+		api.submitJoinEmail.mockRejectedValue(new ApiError(429, '잠시 뒤 다시 시도해 주세요.', null));
+		render(JoinPage, { params: { token: 'tok' }, data: open() });
+		await submitEmail();
+		expect((await screen.findByRole('alert')).textContent).toContain('잠시 뒤 다시 시도해 주세요.');
 		expect(box('이메일').value).toBe('kim@x.kr');
 	});
 
@@ -143,7 +157,7 @@ describe('이메일 단계 (AC24)', () => {
 	});
 });
 
-// --- 코드 단계로 (AC25의 화면 전환. 입력 칸은 T027) ---------------------------------------------------------------
+// --- 코드 단계로 (AC25의 화면 전환. 코드 단계 자체는 CodeStep.test.ts) ------------------------------------------------
 
 describe('명단에 있는 이메일 (AC25)', () => {
 	it('코드 단계로 바뀌고 보낸 주소와 이 기기에서 입력해야 한다는 안내가 보인다', async () => {
@@ -162,6 +176,39 @@ describe('명단에 있는 이메일 (AC25)', () => {
 		await submitEmail();
 		await fireEvent.click(await screen.findByRole('button', { name: '이메일 다시 입력' }));
 		expect(box('이메일').value).toBe('kim@x.kr');
+	});
+
+	it('코드가 맞으면 다음 단계로 넘어가고 받은 닉네임이 보인다(안내 화면은 T028)', async () => {
+		api.submitJoinEmail.mockResolvedValue({ next: 'code', wait_seconds: 60 });
+		api.verifyCode.mockResolvedValue({ next: 'notice', nickname: '느긋한 고래' });
+		render(JoinPage, { params: { token: 'tok' }, data: open() });
+		await submitEmail();
+		await fireEvent.input(await screen.findByLabelText('인증 코드 6자리'), { target: { value: '123456' } });
+		await fireEvent.click(screen.getByRole('button', { name: '확인하고 계속' }));
+		expect(await screen.findByText(/느긋한 고래/)).toBeTruthy();
+		expect(screen.queryByLabelText('인증 코드 6자리')).toBeNull();
+	});
+
+	it('코드를 받은 뒤 명단에서 빠졌으면 이메일 단계에서 명단 밖 안내를 보인다', async () => {
+		api.submitJoinEmail.mockResolvedValue({ next: 'code', wait_seconds: 60 });
+		api.verifyCode.mockResolvedValue({ next: 'request_access', message: NOT_IN_ROSTER });
+		render(JoinPage, { params: { token: 'tok' }, data: open() });
+		await submitEmail();
+		await fireEvent.input(await screen.findByLabelText('인증 코드 6자리'), { target: { value: '123456' } });
+		await fireEvent.click(screen.getByRole('button', { name: '확인하고 계속' }));
+		expect((await screen.findByRole('status')).textContent).toContain(NOT_IN_ROSTER);
+		expect(screen.getByRole('button', { name: '입장 요청 보내기' })).toBeTruthy();
+		expect(box('이메일').value).toBe('kim@x.kr');
+	});
+
+	it('코드 단계에서 링크가 닫혔으면 닫힌 화면으로 바뀐다', async () => {
+		api.submitJoinEmail.mockResolvedValue({ next: 'code', wait_seconds: 60 });
+		api.verifyCode.mockRejectedValue(new ApiError(403, ARCHIVED));
+		render(JoinPage, { params: { token: 'tok' }, data: open() });
+		await submitEmail();
+		await fireEvent.input(await screen.findByLabelText('인증 코드 6자리'), { target: { value: '123456' } });
+		await fireEvent.click(screen.getByRole('button', { name: '확인하고 계속' }));
+		expect(await screen.findByRole('heading', { level: 1, name: '입장할 수 없습니다' })).toBeTruthy();
 	});
 });
 
