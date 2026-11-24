@@ -52,3 +52,13 @@ def test_client_dependencies_are_pinned_and_locked():
     versions = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
     assert unpinned_npm(versions) == []
     assert (REPO_ROOT / "client" / "package-lock.json").is_file()
+
+
+@pytest.mark.constitution
+def test_slides_template_dependencies_are_pinned_and_locked():
+    # 교수 컴퓨터에서만 쓰는 슬라이드 템플릿(002 T001)도 같은 규칙을 따른다
+    pkg = json.loads((REPO_ROOT / "slides-template" / "package.json").read_text())
+    versions = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+    assert versions
+    assert unpinned_npm(versions) == []
+    assert (REPO_ROOT / "slides-template" / "package-lock.json").is_file()

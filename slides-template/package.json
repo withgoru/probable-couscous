@@ -1,0 +1,17 @@
+{
+  "name": "classroom-slides-template",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "slidev",
+    "build:classroom": "node scripts/build-classroom.mjs",
+    "build:fixture": "node scripts/build-classroom.mjs --entry fixture/slides.md --out ../server/tests/fixtures/deck-small.zip"
+  },
+  "dependencies": {
+    "@slidev/cli": "53.1.0",
+    "@slidev/parser": "53.1.0",
+    "@slidev/theme-default": "0.25.0",
+    "fflate": "0.8.3",
+    "vue": "3.5.46"
+  }
+}

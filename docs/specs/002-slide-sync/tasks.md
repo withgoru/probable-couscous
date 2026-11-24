@@ -17,7 +17,7 @@ updated: 2026-11-24
 
 ### 기반
 
-- [ ] **T001. 슬라이드 템플릿과 테스트용 묶음**
+- [x] **T001. 슬라이드 템플릿과 테스트용 묶음**
   - 대응 AC: 없음 (기반·검증)
   - 의존: 없음
   - 먼저 쓸 테스트: 저장소에 고정한 테스트용 묶음 zip(`server/tests/fixtures/`)에 `index.html` 안의 `/__deck__/`, `classroom-deck.json`(슬라이드 수, 슬라이드별 제목·노트)이 있고, 빌드 파일 어디에도 노트 글과 외부 주소(`fonts.googleapis.com`, `cdn.jsdelivr.net`)가 없다는 서버 테스트(처음에는 묶음이 없어 실패)
