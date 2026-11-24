@@ -2,7 +2,7 @@
 id: 002-slide-sync
 title: 슬라이드 동기화와 교수 메시지·자료 푸시
 milestone: M1
-status: draft        # draft | approved | stale
+status: approved        # draft | approved | stale
 depends_on: [001-classroom-entry]
 screens: [교수 관리 페이지(Admin), 교수 수업 화면(Main), 프로젝터 화면(Projector), 학생 모바일 화면(Student), 강좌 목록(Courses)]
 updated: 2026-11-24
