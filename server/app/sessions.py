@@ -36,6 +36,14 @@ def _clock(request: Request) -> Clock:
 ClockDep = Annotated[Clock, Depends(_clock)]
 
 _COLUMNS = "id, title, status, sort_order, first_started_at, created_at"
+# 회차와 그 회차의 살아 있는 슬라이드 묶음(AC5: 업로드됨/비어 있음, 파일 이름, 시각, 슬라이드 수)
+_LIST_SQL = """
+SELECT s.id, s.title, s.status, s.sort_order, s.first_started_at, s.created_at,
+       d.id AS deck_id, d.original_name, d.slide_count, d.size_bytes, d.uploaded_at
+  FROM class_sessions s
+  LEFT JOIN decks d ON d.session_id = s.id AND d.classroom_id = s.classroom_id AND d.removed_at IS NULL
+ WHERE s.classroom_id = ?
+"""
 
 
 class SessionTitle(BaseModel):
@@ -52,7 +60,26 @@ def clean_title(value: object) -> str:
     return title
 
 
+def deck_item(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "original_name": row["original_name"],
+        "slide_count": row["slide_count"],
+        "size_bytes": row["size_bytes"],
+        "uploaded_at": row["uploaded_at"],
+    }
+
+
 def _item(row: sqlite3.Row) -> dict:
+    deck = None
+    if row["deck_id"] is not None:
+        deck = {
+            "id": row["deck_id"],
+            "original_name": row["original_name"],
+            "slide_count": row["slide_count"],
+            "size_bytes": row["size_bytes"],
+            "uploaded_at": row["uploaded_at"],
+        }
     return {
         "id": row["id"],
         "title": row["title"],
@@ -60,7 +87,12 @@ def _item(row: sqlite3.Row) -> dict:
         "sort_order": row["sort_order"],
         "created_at": row["created_at"],
         "can_delete": row["first_started_at"] is None,  # AC4: 한 번도 시작하지 않은 회차만
+        "deck": deck,
     }
+
+
+def _listed(db: sqlite3.Connection, classroom_id: int, session_id: int) -> dict:
+    return _item(db.execute(_LIST_SQL + " AND s.id = ?", (classroom_id, session_id)).fetchone())
 
 
 def load_session(db: sqlite3.Connection, classroom_id: int, session_id: int) -> sqlite3.Row:
@@ -82,9 +114,7 @@ def _record(db: sqlite3.Connection, granted: Granted, type: str, session_id: int
 
 @router.get("/api/classrooms/{classroom_id}/sessions")
 def list_sessions(granted: ManageGuard, db: Db):
-    rows = db.execute(
-        f"SELECT {_COLUMNS} FROM class_sessions WHERE classroom_id = ? ORDER BY sort_order, id", (granted.resource.id,)
-    ).fetchall()
+    rows = db.execute(_LIST_SQL + " ORDER BY s.sort_order, s.id", (granted.resource.id,)).fetchall()
     return {"items": [_item(r) for r in rows]}
 
 
@@ -101,7 +131,7 @@ def create_session(body: SessionTitle, granted: ManageGuard, db: Db, clock: Cloc
             (classroom_id, title, last + 1, clock.now().isoformat()),
         )
         _record(db, granted, "session_created", cursor.lastrowid, clock)
-    return _item(load_session(db, classroom_id, cursor.lastrowid))
+    return _listed(db, classroom_id, cursor.lastrowid)
 
 
 @router.patch("/api/classrooms/{classroom_id}/sessions/{session_id}")
@@ -114,19 +144,24 @@ def rename_session(session_id: int, body: SessionTitle, granted: ManageGuard, db
             "UPDATE class_sessions SET title = ? WHERE id = ? AND classroom_id = ?", (title, session_id, classroom_id)
         )
         _record(db, granted, "session_renamed", session_id, clock)
-    return _item(load_session(db, classroom_id, session_id))
+    return _listed(db, classroom_id, session_id)
 
 
 @router.delete("/api/classrooms/{classroom_id}/sessions/{session_id}", status_code=204)
-def delete_session(session_id: int, granted: ManageGuard, db: Db, clock: ClockDep):
-    """한 번도 시작하지 않은 회차만 지운다. 그 회차의 슬라이드 묶음 기록도 함께 지운다(AC4).
-    묶음 파일 지우기는 묶음 저장소가 생기는 T005에서 이 자리에 더한다."""
+def delete_session(session_id: int, granted: ManageGuard, db: Db, clock: ClockDep, request: Request):
+    """한 번도 시작하지 않은 회차만 지운다. 그 회차의 슬라이드 묶음 기록과 파일도 함께 지운다(AC4)."""
     classroom_id = granted.resource.id
     with transaction(db):
         row = load_session(db, classroom_id, session_id)
         if row["first_started_at"] is not None:
             raise HTTPException(status_code=409, detail=STARTED_CANNOT_DELETE)
+        deck_ids = [
+            r["id"]
+            for r in db.execute("SELECT id FROM decks WHERE session_id = ? AND classroom_id = ?", (session_id, classroom_id))
+        ]
         db.execute("DELETE FROM decks WHERE session_id = ? AND classroom_id = ?", (session_id, classroom_id))
         db.execute("DELETE FROM class_sessions WHERE id = ? AND classroom_id = ?", (session_id, classroom_id))
         _record(db, granted, "session_deleted", session_id, clock)
+    for deck_id in deck_ids:  # 기록을 지운 뒤 파일을 지운다
+        request.app.state.deck_store.remove(classroom_id, deck_id)
     return Response(status_code=204)
