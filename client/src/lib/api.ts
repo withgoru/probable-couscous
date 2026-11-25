@@ -437,3 +437,10 @@ export function startSession(classroomId: number, sessionId: number, fetchFn: Fe
 export function resumeSession(classroomId: number, sessionId: number, fetchFn: FetchFn = fetch): Promise<StartedSession> {
 	return postSession(fetchFn, `/api/classrooms/${classroomId}/sessions/${sessionId}/resume`);
 }
+
+export type DeckNotes = { deck_id: number; slide_count: number; slides: { no: number; title: string; note: string }[] };
+
+/** 슬라이드 묶음의 발표자 노트(교수 전용, AC13·AC30). 파일이 사라졌으면 ApiError(410). */
+export function fetchDeckNotes(classroomId: number, sessionId: number, fetchFn: FetchFn = fetch): Promise<DeckNotes> {
+	return getJson<DeckNotes>(fetchFn, `/api/classrooms/${classroomId}/sessions/${sessionId}/deck/notes`);
+}

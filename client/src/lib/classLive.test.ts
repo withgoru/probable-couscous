@@ -112,6 +112,16 @@ describe('연결 → 구독 → 상태 통째로 받기 (C13)', () => {
 		expect(now()).toMatchObject({ status: 'live', liveSessionId: 5, state: LIVE });
 	});
 
+	it('처음 불러오기를 마쳤는지 알린다(불러오는 중과 수업 없음을 가르려고)', async () => {
+		const { now } = setup({ server: { sessions: { live_session_id: null }, fail: 1 } });
+		expect(now().loaded).toBe(false);
+		last().push({ type: 'ready', role: 'student' });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(now()).toMatchObject({ status: 'live', loaded: false, loadError: '잠시 뒤 다시' });
+		await vi.advanceTimersByTimeAsync(RETRY_DELAYS[0]);
+		expect(now()).toMatchObject({ loaded: true, state: null, loadError: null });
+	});
+
 	it('정한 회차가 있으면(다시 보기) 그 회차를 받는다', async () => {
 		const { fetchFn, now } = setup({ sessionId: 3 });
 		await ready();

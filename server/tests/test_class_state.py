@@ -132,7 +132,13 @@ def test_live_state_for_a_session_in_class(world):
     assert res.status_code == 200
     assert res.headers["cache-control"] == "no-store"
     body = res.json()
-    assert body["session"] == {"id": sid, "title": "1회차", "status": "live", "version": 2}
+    assert body["session"] == {
+        "id": sid,
+        "title": "1회차",
+        "status": "live",
+        "version": 2,
+        "started_at": world.clock.now().isoformat(),  # 교수 화면의 경과 시간(AC12)
+    }
     assert body["deck"] == {"id": deck_id, "slide_count": 4, "available": True}
     assert body["current"] == {"slide": 2, "click": 1}
     assert body["furthest"] == {"slide": 3, "click": 0}
@@ -282,3 +288,14 @@ def test_items_belong_to_their_own_session(world):
     add_item(world, cid, second, "a", body="2회차 자료")
     assert [i["id"] for i in live(student, cid, first).json()["items"]] == [mine]
     assert [i["body"] for i in live(prof, cid, second).json()["items"]] == ["2회차 자료"]
+
+
+def test_started_at_is_the_latest_start(world):
+    # 이어서 하면 경과 시간은 이어서 한 때부터 센다. 시작하지 않은 회차는 비어 있다
+    prof, cid, sid, _, _ = with_student(world)
+    assert live(prof, cid, sid).json()["session"]["started_at"] is None
+    act(prof, cid, sid, "start")
+    act(prof, cid, sid, "end")
+    world.clock.advance(minutes=30)
+    act(prof, cid, sid, "resume")
+    assert live(prof, cid, sid).json()["session"]["started_at"] == world.clock.now().isoformat()

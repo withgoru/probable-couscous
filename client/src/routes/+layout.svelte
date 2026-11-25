@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { urlOutOfSync } from '#lib/auth.js';
 	import AppHeader from '#lib/components/AppHeader.svelte';
+	import { isClassScreen } from '#lib/routes.js';
 
 	let { data, children } = $props();
 
@@ -17,7 +18,7 @@
 </script>
 
 <!-- 로그인 후 모든 화면에 공통 메뉴바. 수업 중 화면에는 따로 넣지 않는다 -->
-{#if data.me}
+{#if data.me && !isClassScreen(page.url.pathname)}
 	<AppHeader me={data.me} />
 {/if}
 

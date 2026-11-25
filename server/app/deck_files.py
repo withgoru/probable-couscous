@@ -53,7 +53,7 @@ def _safe_target(folder: Path, relative: str) -> Path | None:
         return None
     if parts and parts[0] == META_NAME:
         return None  # 노트가 든 파일은 내려주지 않는다(AC30)
-    target = (folder / relative).resolve() if relative else folder / "index.html"
+    target = (folder / (relative or "index.html")).resolve()  # 링크를 풀어 아래의 폴더 안 확인과 같은 기준으로 본다
     root = folder.resolve()
     if not target.is_relative_to(root) or not target.is_file():
         return None

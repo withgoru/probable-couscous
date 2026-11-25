@@ -58,8 +58,10 @@ export default defineRootSetup(() => {
     if (allowed)
       return true
     const target = targetOf(to.path, to.query)
-    if (target)
-      post({ type: 'deck:intent', direction: before(target, current()) ? 'prev' : 'next' })
+    const here = current()
+    // 같은 자리로 가는 이동(Slidev가 처음 뜰 때 주소를 맞추는 것)은 넘기려 한 것이 아니다. 막기만 하고 알리지 않는다
+    if (target && (target.slide !== here.slide || target.click !== here.click))
+      post({ type: 'deck:intent', direction: before(target, here) ? 'prev' : 'next' })
     return false
   })
 
