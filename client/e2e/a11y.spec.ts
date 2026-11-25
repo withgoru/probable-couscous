@@ -139,6 +139,27 @@ test.describe('교수 화면 (노트북)', () => {
 		await page.getByRole('button', { name: /^빼기: / }).first().click();
 		await expect(page.getByRole('alertdialog')).toBeVisible();
 		await expectNoAxeViolations(page, '빼기 확인 창');
+		await page.keyboard.press('Escape');
+
+		// 회차 선택(002 AC1~AC4): 키보드만으로 만들고, 목록을 열고, 지우기 확인 창까지 간다
+		await page.getByRole('button', { name: '회차 만들기' }).focus();
+		await page.keyboard.press('Enter');
+		await page.keyboard.type('1주차 1회차');
+		await page.keyboard.press('Enter');
+		const picker = page.getByRole('button', { name: /^회차 선택: 1주차 1회차/ });
+		await expect(picker).toBeVisible();
+		await expectNoAxeViolations(page, '회차를 만든 관리 페이지');
+		if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/session-picker.png` });
+		await picker.focus();
+		await page.keyboard.press('Enter');
+		await expect(page.getByRole('menuitemradio', { name: /1주차 1회차/ })).toBeVisible();
+		await expectNoAxeViolations(page, '회차 선택 목록');
+		if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/session-menu.png` });
+		await page.keyboard.press('Escape');
+		await page.getByRole('button', { name: '삭제', exact: true }).click();
+		await expect(page.getByRole('alertdialog')).toContainText('1주차 1회차 회차를 삭제할까요? 올린 슬라이드도 함께 지워집니다.');
+		await expectNoAxeViolations(page, '회차 삭제 확인 창');
+		await tabAround(page, issues, 40);
 
 		expect(unique(issues), '교수 화면의 포커스 링·크기 문제').toEqual([]);
 	});

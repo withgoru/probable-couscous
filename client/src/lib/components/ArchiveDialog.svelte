@@ -69,7 +69,7 @@
 				<AlertDialog.Description class="text-sm text-muted-foreground">{CONFIRM}</AlertDialog.Description>
 			</div>
 			{#if problem}<ErrorNotice title={problem.title} hint={problem.hint} />{/if}
-			{#if liveClass}<a class="btn btn-primary self-start" href={`/courses/${classroom.id}/live`}>수업 화면으로</a>{/if}
+			{#if liveClass}<a class="btn btn-default self-start" href={`/courses/${classroom.id}/live`}>수업 화면으로</a>{/if}
 			<div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
 				<AlertDialog.Cancel bind:ref={cancelButton} class="btn btn-outline" disabled={pending}>취소</AlertDialog.Cancel>
 				<AlertDialog.Action class="btn btn-destructive" disabled={pending} onclick={confirm}>

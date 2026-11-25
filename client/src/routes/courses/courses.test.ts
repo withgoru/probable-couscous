@@ -501,7 +501,7 @@ describe('강좌 보관 (AC9)', () => {
 		expect(alert.textContent).toContain(detail);
 		const link = within(dialog).getByRole('link', { name: '수업 화면으로' });
 		expect(link.getAttribute('href')).toBe('/courses/3/live');
-		expect(link.className).toContain('btn'); // 44px 버튼 모양
+		expect(link.className).toContain('btn btn-default'); // 44px 주 버튼 모양(테마에 있는 클래스)
 		expect(nav.invalidate).not.toHaveBeenCalled(); // 아무것도 바뀌지 않았다
 		expect(tab(/진행 중/).getAttribute('aria-selected')).toBe('true');
 	});
