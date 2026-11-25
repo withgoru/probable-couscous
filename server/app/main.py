@@ -32,6 +32,8 @@ from app.routes_auth import router as auth_router
 from app.session_lifecycle import router as session_lifecycle_router
 from app.sessions import router as sessions_router
 from app.ws_admin import router as ws_admin_router
+from app.ws_class import Presence
+from app.ws_class import router as ws_class_router
 
 log = logging.getLogger(__name__)
 NOT_BUILT = "클라이언트가 아직 빌드되지 않았습니다. client 폴더에서 npm run build를 실행하세요."
@@ -103,6 +105,7 @@ def create_app(
     app.state.clock = clock
     app.state.mailer = mailer
     app.state.bus = bus or InMemoryRoomBus()
+    app.state.presence = Presence()  # 수업 화면의 따라가기 현황(메모리, DB에 쓰지 않는다)
     app.state.mail_worker = mail_worker
     app.state.purge_job = purge_job
     app.state.deck_store = DeckStore(
@@ -129,6 +132,7 @@ def create_app(
     app.include_router(sessions_router)
     app.include_router(session_lifecycle_router)
     app.include_router(class_state_router)
+    app.include_router(ws_class_router)
     app.include_router(decks_router)
     app.include_router(deck_files_router)
     app.include_router(ws_admin_router)

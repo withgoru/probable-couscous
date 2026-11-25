@@ -12,7 +12,8 @@ import sqlite3
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException
+from starlette.requests import HTTPConnection
 
 from app import identity, student_login
 from app.authz import Action, Actor, ClassroomRef, Granted, _deny, decide, get_actor
@@ -22,7 +23,7 @@ from app.roster import find_live_by_email
 from app.student_login import LOGIN_COOKIE, current_login
 
 
-def fresh_login(request: Request, db: sqlite3.Connection, classroom_id: int):
+def fresh_login(request: HTTPConnection, db: sqlite3.Connection, classroom_id: int):
     """이 강좌에서 쓸 수 있는 기기 로그인과 그 계정의 명단 항목. 쓸 수 없으면 None.
 
     로그인이 유효해야 하고, 계정의 이메일이 이 강좌의 살아 있는 명단에 있어야 하며,
@@ -41,7 +42,7 @@ def fresh_login(request: Request, db: sqlite3.Connection, classroom_id: int):
     return login, entry, "ok"
 
 
-def entered_membership(request: Request, db: sqlite3.Connection, classroom_id: int) -> int | None:
+def entered_membership(request: HTTPConnection, db: sqlite3.Connection, classroom_id: int) -> int | None:
     """이 기기로 이 강좌에 입장한 학생의 멤버십 번호. 아니면 None. 아무것도 만들지 않는다."""
     login, _, status = fresh_login(request, db, classroom_id)
     if status != "ok":
@@ -52,7 +53,7 @@ def entered_membership(request: Request, db: sqlite3.Connection, classroom_id: i
     return membership.id
 
 
-def class_actor(request: Request, db: sqlite3.Connection, classroom: ClassroomRef) -> Actor:
+def class_actor(request: HTTPConnection, db: sqlite3.Connection, classroom: ClassroomRef) -> Actor:
     professor = get_actor(request, db)
     if professor.kind == "professor":
         return professor
@@ -70,10 +71,10 @@ NOT_FOUND = "찾을 수 없습니다."
 
 
 def guard_class(action: Action, load: Callable[..., ClassroomRef | None]) -> Callable[..., Granted]:
-    """`guard`와 같지만 학생도 알아본다. 대상(강좌)이 없으면 404다(묶음 번호처럼 강좌 아래의 대상을 찾을 때)."""
+    """`guard`와 같지만 학생도 알아본다. HTTP와 WebSocket 연결 모두에 건다. 대상(강좌)이 없으면 404다(묶음 번호처럼 강좌 아래의 대상을 찾을 때)."""
 
     def check(
-        request: Request,
+        request: HTTPConnection,
         db: Annotated[sqlite3.Connection, Depends(get_db)],
         classroom: Annotated[ClassroomRef | None, Depends(load)],
     ) -> Granted:
