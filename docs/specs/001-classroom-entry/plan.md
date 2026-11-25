@@ -1,7 +1,7 @@
 ---
 spec: 001-classroom-entry
 status: approved        # draft | approved | stale
-updated: 2026-11-17
+updated: 2026-11-25
 ---
 
 # 계획: 로그인, 강좌, 학생 입장
@@ -75,10 +75,19 @@ updated: 2026-11-17
 - `mail_outbox`: `id`, `classroom_id`, `kind`, `to_email`, `body_ref`(챌린지 번호), `status`(pending/sent/failed), `attempts`, `next_try_at`, `sent_at`. 발송 뒤 `to_email`은 비운다.
 
 **기록 (C6)**
-- `events`: `id`, `classroom_id`, `type`, `actor_kind`(professor/student/system), `actor_ref`(교수는 `github_id`, 학생은 `membership_id`), `subject_roster_entry_id`(비어 있을 수 있음), `payload`(JSON, 이메일·이름·학번 금지), `created_at`. `BEFORE UPDATE`와 `BEFORE DELETE` 트리거가 오류를 내서 추가만 가능하다. 종류: `code_revealed`, `join_request_approved/rejected`, `roster_removed`, `login_revoked`, `classroom_archived`, `pii_purged`.
+- `events`: `id`, `classroom_id`, `type`, `actor_kind`(professor/student/system), `actor_ref`(교수는 `github_id`, 학생은 `membership_id`), `subject_roster_entry_id`(비어 있을 수 있음), `payload`(JSON, 이메일·이름·학번 금지), `created_at`. `BEFORE UPDATE`와 `BEFORE DELETE` 트리거가 오류를 내서 추가만 가능하다. 종류: `code_revealed`, `join_request_approved/rejected`, `roster_removed`, `login_revoked`, `classroom_archived`, `classroom_unarchived`, `pii_purged`.
 
 **보관 후 6개월 삭제 (C11)**
 하루 한 번 도는 정리 작업이 `archived_at + 6개월`이 지난 강좌에서 `roster_entries`, `member_identities`, `join_requests`, `login_challenges`, `mail_outbox`, `device_logins`와 이들만 가리키던 `accounts`를 지운다(다른 살아 있는 강좌에 쓰이는 계정은 남긴다). `memberships`(가명)와 `events`는 남는다. 정리 결과는 `pii_purged` 기록으로 쌓는다. 작업은 같은 입력에 여러 번 돌려도 결과가 같다.
+
+**다시 열기 (AC52, AC53)**
+`POST /classrooms/{id}/unarchive`는 소유 교수만(`classroom.manage`) 한다. 한 쓰기 트랜잭션에서 다음을 한다.
+- `archived_at`이 정리 작업과 같은 기준(`archived_at + 6개월`)을 넘었으면 409 "보관 후 6개월이 지나 다시 열 수 없습니다."로 거절한다. 정리 작업이 아직 돌지 않았어도 같은 기준이라, 반쯤 지운 강좌를 여는 일이 없다.
+- `status`를 `active`로, `archived_at`을 비운다. 다시 보관하면 새 시각이 들어가 6개월을 처음부터 센다.
+- 그 강좌의 모든 `memberships.reverify_after`를 지금으로 둔다. 보관은 기기 로그인을 지우지 않고 막기만 하므로, 이렇게 해야 AC9의 "로그인 유지가 끝납니다"가 다시 열어도 지켜진다(AC20 로그인 끊기와 같은 방식).
+- 보관 때 무효가 된 인증 코드와 발송 대기 메일은 되살리지 않는다. 초대 링크는 그대로 다시 쓴다.
+- `classroom_unarchived`를 기록한다. 이미 진행 중인 강좌면 409 "이미 진행 중인 강좌입니다.".
+- 강좌 목록 항목에 `can_unarchive`(보관됐고 6개월 전)를 더해 화면이 버튼과 안내 중 하나를 고른다.
 
 ## 인터페이스
 
@@ -86,7 +95,7 @@ updated: 2026-11-17
 
 - HTTP, 교수:
   - `GET /auth/github/login`, `GET /auth/github/callback`, `POST /auth/logout`, `GET /me`, `GET /me/summary`
-  - `GET /classrooms`, `POST /classrooms`, `GET /classrooms/{id}`, `POST /classrooms/{id}/archive`, `POST /classrooms/{id}/clone`
+  - `GET /classrooms`, `POST /classrooms`, `GET /classrooms/{id}`, `POST /classrooms/{id}/archive`, `POST /classrooms/{id}/unarchive`, `POST /classrooms/{id}/clone`
   - `GET /classrooms/{id}/roster`, `POST /classrooms/{id}/roster/import`(CSV), `POST /classrooms/{id}/roster`, `DELETE /classrooms/{id}/roster/{entry}`, `POST /classrooms/{id}/roster/{entry}/revoke-login`
   - `GET /classrooms/{id}/invite`, `POST /classrooms/{id}/invite/regenerate`
   - `GET /classrooms/{id}/join-requests`, `POST …/join-requests/{req}/approve`, `POST …/join-requests/{req}/reject`
@@ -139,7 +148,7 @@ updated: 2026-11-17
 | C13 | 명단, 챌린지, 멤버십, 로그인 상태, 입장 요청, 메일 대기열은 모두 DB가 진실이다. 서버를 다시 시작해도 남는다. 실시간 이벤트는 기록 뒤에 보낸다 |
 | C14 | 색은 `theme.css` 토큰만 쓴다. 오류와 상태에 아이콘과 문구를 함께 쓰고, 버튼·입력 `h-11`, 코드 입력 72px, 포커스 링 `ring-2 ring-ring ring-offset-2`. 학생 화면 390px 기준 |
 | C15 | `Mailer`, `RoomBus`, `AuthProvider`, `Clock`, 데이터 접근을 인터페이스 뒤에 모으고, 지금 필요 없는 구현은 만들지 않는다 |
-| C16 | 설정 화면, 보관 해제, 출석, 채팅 등 스펙 밖 기능은 만들지 않는다 |
+| C16 | 설정 화면, 6개월이 지난 강좌 다시 열기, 출석, 채팅 등 스펙 밖 기능은 만들지 않는다 |
 | C17 | 새 의존성은 위 표에서 확인했고, 마이그레이션 실행기·HTTP 호출·CSV는 표준 라이브러리로 해결해 늘리지 않는다. 구현 때 lockfile로 고정 |
 | C18 | `server/pyproject.toml`과 `client/package.json`이 생기면 CI의 `server`, `client` 작업이 켜진다. 첫 작업이 이 폴더를 만들 때 Dependabot 주석 처리된 두 항목을 푼다 |
 
@@ -155,7 +164,7 @@ updated: 2026-11-17
   - (C11) 시계를 6개월 넘겨 정리 작업을 돌리면 개인정보 표가 비고 `memberships`와 `events`는 남으며, 두 번 돌려도 같다.
   - 004에서 만드는 (C9) 신원 조회 테스트는 이 스펙 범위가 아니다.
 - **단위 테스트**: 이메일 정규화(AC16), 코드 계산·검증·만료·횟수·재요청 간격(AC30~AC32), 기기 묶음(AC33), 닉네임 생성과 충돌, CSV 행 검사(AC14), 200명 상한(AC18), 권한 판단 함수의 행동별 표.
-- **통합 테스트(서버, `OutboxMailer`와 가짜 `Clock`)**: S1~S11 흐름, 교수 소유 확인(AC8), 보관 뒤 접근(AC10), 링크 재생성(AC22), 로그인 끊기(AC20), 로그인 유지와 다른 강좌 입장(AC35~AC37), 입장 요청 상태 전이(AC38~AC43), 대기 중인 인증과 `code_revealed` 기록(AC44~AC48), 서버 재시작 뒤 상태 유지(C13), 마이페이지 합계(AC49).
+- **통합 테스트(서버, `OutboxMailer`와 가짜 `Clock`)**: S1~S11 흐름, 교수 소유 확인(AC8), 보관 뒤 접근(AC10), 다시 열기와 6개월 기준(AC52, AC53), 링크 재생성(AC22), 로그인 끊기(AC20), 로그인 유지와 다른 강좌 입장(AC35~AC37), 입장 요청 상태 전이(AC38~AC43), 대기 중인 인증과 `code_revealed` 기록(AC44~AC48), 서버 재시작 뒤 상태 유지(C13), 마이페이지 합계(AC49).
 - **클라이언트 테스트(vitest)**: 학생 4단계 화면의 오류 문구와 비활성 버튼, 오류가 글로 나오는지(AC50).
 - **E2E(Playwright)**: 학생 입장 전체(AC24~AC28)를 서로 다른 브라우저 컨텍스트 두 개로 실행해 기기 묶음(AC33)을 확인한다. 키보드만으로 로그인·입장(AC51)과 390px 폭 가로 스크롤 없음을 확인한다.
 - **측정(구현 후)**: 위험 1의 200명 부하, 위험 4의 실기기 확인은 자동 테스트가 아니라 수동 확인 목록으로 두고 결과를 위험 표에 쓴다.
