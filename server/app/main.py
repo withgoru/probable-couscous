@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 NOT_BUILT = "클라이언트가 아직 빌드되지 않았습니다. client 폴더에서 npm run build를 실행하세요."
 BAD_ORIGIN = "허용되지 않은 출처의 요청입니다. 서비스 주소에서 다시 시도해 주세요."
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+GUARDED_PREFIXES = {"api", "decks", "ws"}
 
 
 def _safe_file(dist: Path, relative: str) -> Path | None:
@@ -124,7 +125,9 @@ def create_app(
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def client_app(full_path: str):
-        if full_path == "api" or full_path.startswith("api/"):
+        # API, 슬라이드 묶음, 수업 연결 주소는 화면 대체 경로로 빠지지 않는다. 전용 라우트(권한 판단 있음)가
+        # 없으면 404다(C8, fail closed)
+        if full_path.split("/", 1)[0] in GUARDED_PREFIXES:
             raise HTTPException(status_code=404, detail="찾을 수 없는 API 주소입니다.")
         dist = settings.client_dist
         asset = _safe_file(dist, full_path) if full_path else None

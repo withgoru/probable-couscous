@@ -27,6 +27,11 @@ class Action(StrEnum):
     JOINREQUEST_DECIDE = "joinrequest.decide"
     PENDINGAUTH_VIEW = "pendingauth.view"
     STUDENT_ENTER = "student.enter"
+    # 002 회차와 수업
+    SESSION_MANAGE = "session.manage"  # 회차와 슬라이드 묶음 관리. 보관된 강좌도 관리는 된다
+    SESSION_PRESENT = "session.present"  # 시작·종료·이어서·넘기기·보내기·거두기. 진행 중인 강좌만(AC11)
+    CLASS_VIEW = "class.view"  # 회차 목록, 현재 상태, 묶음 파일. 소유 교수 또는 입장한 학생(AC44)
+    DECK_NOTES = "deck.notes"  # 발표자 노트. 소유 교수만(AC30)
     # 강좌와 무관한 계정 단계 행동. 로그인한 교수만 할 수 있다
     ME_READ = "me.read"
     CLASSROOM_CREATE = "classroom.create"
@@ -78,6 +83,10 @@ _OWNER_ONLY = {
 }
 
 
+# 002 교수 전용 행동. 권한이 없으면 AC43 문구("이 강좌에 대한 권한이 없습니다.")를 쓴다
+_SESSION_OWNER_ONLY = {Action.SESSION_MANAGE, Action.SESSION_PRESENT, Action.DECK_NOTES}
+
+
 _ACCOUNT_LEVEL = {Action.ME_READ, Action.CLASSROOM_CREATE, Action.CLASSROOM_LIST}
 
 
@@ -108,6 +117,21 @@ def decide(actor: Actor, action: Action | str, classroom: ClassroomRef | None = 
             return Decision(False, "forbidden")
         return Decision(True) if actor.github_id == classroom.owner_github_id else Decision(False, "not_owner")
 
+    if action in _SESSION_OWNER_ONLY:
+        if actor.kind != "professor" or actor.github_id != classroom.owner_github_id:
+            return Decision(False, "no_class_permission")
+        if action is Action.SESSION_PRESENT and classroom.status != "active":
+            return Decision(False, "archived_no_class")
+        return Decision(True)
+
+    if action is Action.CLASS_VIEW:
+        if actor.kind == "professor":
+            ok = actor.github_id == classroom.owner_github_id
+            return Decision(True) if ok else Decision(False, "no_class_permission")
+        if actor.classroom_id != classroom.id:
+            return Decision(False, "not_member")
+        return Decision(True) if classroom.status == "active" else Decision(False, "archived")
+
     if action is Action.CLASSROOM_READ:
         if actor.kind == "professor":
             return Decision(True) if actor.github_id == classroom.owner_github_id else Decision(False, "not_owner")
@@ -127,6 +151,8 @@ _DENIAL: dict[str, tuple[int, str]] = {
     "not_member": (403, "이 강좌에 입장한 학생만 볼 수 있습니다."),
     "archived": (403, "이 강좌는 보관되었습니다. 교수님께 문의해 주세요."),
     "unknown_action": (403, "허용되지 않은 요청입니다."),
+    "no_class_permission": (403, "이 강좌에 대한 권한이 없습니다."),  # 002 AC43
+    "archived_no_class": (409, "보관된 강좌는 수업을 시작할 수 없습니다."),  # 002 AC11
 }
 _NOT_FOUND = "찾을 수 없는 강좌입니다."
 
