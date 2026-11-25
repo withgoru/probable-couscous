@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.auth import AuthProvider, GitHubProvider
+from app.class_state import router as class_state_router
 from app.classrooms import router as classrooms_router
 from app.clock import Clock, SystemClock
 from app.config import Settings, load_settings
@@ -127,6 +128,7 @@ def create_app(
     app.include_router(pending_auth_router)
     app.include_router(sessions_router)
     app.include_router(session_lifecycle_router)
+    app.include_router(class_state_router)
     app.include_router(decks_router)
     app.include_router(deck_files_router)
     app.include_router(ws_admin_router)
