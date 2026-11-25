@@ -39,7 +39,7 @@ packaging==26.3
     # via pytest
 pluggy==1.7.0
     # via pytest
-pydantic==2.14.3
+pydantic==2.14.4
     # via fastapi
 pydantic-core==2.50.4
     # via pydantic
