@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import MyPage from './+page.svelte';
 
 const item = (id: number, name: string, section: string | null, students: number) => ({
-	id, name, section_name: section, status: 'active' as const, student_count: students,
+	id, name, section_name: section, status: 'active' as const, student_count: students, session_count: 0,
 	created_at: '2026-03-01T09:00:00+00:00'
 });
 const DATA = {

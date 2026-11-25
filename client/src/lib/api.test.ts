@@ -37,7 +37,7 @@ describe('logout', () => {
 	});
 });
 
-const ITEM = { id: 7, name: '알고리즘', section_name: '월수반', status: 'active', student_count: 0, created_at: 'x' };
+const ITEM = { id: 7, name: '알고리즘', section_name: '월수반', status: 'active', student_count: 0, session_count: 0, created_at: 'x' };
 
 describe('fetchClassrooms', () => {
 	it('목록과 개수를 돌려준다', async () => {
