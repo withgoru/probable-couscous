@@ -235,26 +235,34 @@ def _live_entry(db: sqlite3.Connection, classroom_id: int, entry_id: int) -> sql
     return row
 
 
-def remove_entry(db: sqlite3.Connection, classroom_id: int, entry_id: int, professor: int, now: datetime) -> list[int]:
+def remove_entry(
+    db: sqlite3.Connection, classroom_id: int, entry_id: int, professor: int, now: datetime
+) -> tuple[list[int], int | None]:
     """명단에서 뺀다. 행은 지우지 않고 뺀 시각만 남긴다(기록이 가리킬 대상이 남아야 한다. 실제 삭제는 보관 6개월 뒤 정리 작업).
 
     함께 하는 일: 이 강좌의 로그인 유지를 끝내고(다시 넣어도 코드가 필요하다), 받아 둔 코드를 쓸 수 없게 하고, 기록한다.
-    대기 중인 인증 목록에서 사라진 챌린지 번호를 돌려준다(저장 뒤 교수 화면에 알리려고).
+    (대기 중인 인증 목록에서 사라진 챌린지 번호, 로그아웃시킨 멤버십 번호 또는 입장한 적 없으면 None)을 돌려준다.
+    저장 뒤 교수 화면에 알리고 그 학생의 수업 연결을 닫으려고 쓴다(002 AC44).
     """
     with transaction(db):
         entry = _live_entry(db, classroom_id, entry_id)
         gone = notified_active_ids(db, classroom_id, entry["email_norm"])
         db.execute("UPDATE roster_entries SET removed_at = ? WHERE id = ?", (now.isoformat(), entry_id))
-        identity.cut_login(db, classroom_id, entry_id, now)
+        membership_id = identity.cut_login(db, classroom_id, entry_id, now)
         supersede_active(db, classroom_id, entry["email_norm"])
         events.record_event(db, classroom_id, "roster_removed", "professor", professor, entry_id, {}, now)
-    return gone
+    return gone, membership_id
 
 
-def revoke_login(db: sqlite3.Connection, classroom_id: int, entry_id: int, professor: int, now: datetime) -> None:
-    """로그인 끊기. 이 학생의 모든 기기가 이 강좌에서 로그아웃된다. 명단과 닉네임은 그대로다. 기록한다."""
+def revoke_login(db: sqlite3.Connection, classroom_id: int, entry_id: int, professor: int, now: datetime) -> int:
+    """로그인 끊기. 이 학생의 모든 기기가 이 강좌에서 로그아웃된다. 명단과 닉네임은 그대로다. 기록한다.
+
+    로그아웃시킨 멤버십 번호를 돌려준다(저장 뒤 그 학생의 수업 연결을 닫으려고).
+    """
     with transaction(db):
         _live_entry(db, classroom_id, entry_id)
-        if identity.cut_login(db, classroom_id, entry_id, now) is None:
+        membership_id = identity.cut_login(db, classroom_id, entry_id, now)
+        if membership_id is None:
             raise RosterError("not_entered", NOT_ENTERED)
         events.record_event(db, classroom_id, "login_revoked", "professor", professor, entry_id, {}, now)
+    return membership_id

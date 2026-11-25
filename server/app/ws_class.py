@@ -11,6 +11,9 @@
  - 학생 `mode{follow|browse}`: 연결마다 메모리에 두고, 바뀌면 교수 화면에만 `presence{follow, browse}`(숫자만, C7).
  - 그 밖은 `error{req, reason, message}`로 답하고 연결은 그대로 둔다.
 
+내보내기(AC44, T011): 001의 빼기·로그인 끊기가 저장 뒤 방에 `member_revoked{membership_id, reason}`을 발행하면
+그 학생의 연결만 `goodbye{reason, message}`를 받고 닫힌다(코드 4403). 다른 화면에는 이 발행을 보내지 않는다.
+
 현황은 진실이 아니라 지금 붙어 있는 화면의 모습이라 DB에 쓰지 않는다(plan '동기화 현황').
 """
 
@@ -36,6 +39,11 @@ ViewGuard = Annotated[Granted, Depends(guard_class(Action.CLASS_VIEW, load_class
 
 MAX_CLICK = 999  # 서버는 슬라이드마다 단계 수를 모른다. 정수가 아닌 값과 터무니없는 값만 막는다
 PROFESSOR_ONLY = "professor"  # 발행에 붙이면 교수 화면(프로젝터 제외)만 받는다
+GOODBYE_CODE = 4403  # 명단에서 빠졌거나 로그인이 끊겨 닫는다. 화면은 이 코드면 다시 붙지 않고 입장 화면으로 간다
+GOODBYES = {
+    "removed": "수강생 명단에서 빠져 이 수업을 볼 수 없습니다. 교수님께 문의해 주세요.",
+    "signed_out": "이 강좌에서 로그아웃되었습니다. 강좌 링크를 다시 열어 이메일 인증부터 해 주세요.",
+}
 
 ERRORS = {
     "bad_message": "알 수 없는 요청입니다. 화면을 새로 고쳐 주세요.",
@@ -138,9 +146,10 @@ def _goto(db: sqlite3.Connection, classroom_id: int, message: dict) -> tuple[int
 class Screen:
     """연결 하나. 보내기는 한 번에 하나씩 한다(구독 전달과 응답이 같은 연결에 겹쳐 쓰지 않게)."""
 
-    def __init__(self, websocket: WebSocket, role: Role) -> None:
+    def __init__(self, websocket: WebSocket, role: Role, membership_id: int | None) -> None:
         self.websocket = websocket
         self.role = role
+        self.membership_id = membership_id
         self._lock = asyncio.Lock()
 
     async def send(self, message: dict) -> None:
@@ -148,9 +157,17 @@ class Screen:
             await self.websocket.send_json(message)
 
 
-async def _pump(screen: Screen, sub) -> None:
+async def _pump(screen: Screen, sub) -> str:
+    """구독한 발행을 화면에 보낸다. 이 학생을 내보내라는 발행이면 `goodbye`를 보내고 끝낸다."""
     while True:
         event = await sub.get()
+        if event["type"] == "member_revoked":
+            # 누가 빠졌는지는 그 학생의 연결에만 의미가 있다. 다른 화면에는 보내지 않는다(C9)
+            if screen.role == "student" and event["membership_id"] == screen.membership_id:
+                reason = event["reason"]
+                await screen.send({"type": "goodbye", "reason": reason, "message": GOODBYES[reason]})
+                return "goodbye"
+            continue
         to = event.pop("to", None)
         if to == PROFESSOR_ONLY and screen.role != "professor":
             continue
@@ -207,7 +224,7 @@ async def class_screen(
     classroom_id = granted.resource.id
     bus = websocket.app.state.bus
     room = class_room(classroom_id)
-    screen = Screen(websocket, _role(websocket, granted))
+    screen = Screen(websocket, _role(websocket, granted), granted.actor.membership_id)
     presence: Presence = websocket.app.state.presence
     conn = id(screen)
     membership_id = granted.actor.membership_id
@@ -236,10 +253,13 @@ async def class_screen(
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        said_goodbye = False
         for task in done:
             # 화면이 끊어서 보내지 못한 것은 정상이다. 그 밖의 오류는 그대로 올린다
             with contextlib.suppress(WebSocketDisconnect, RuntimeError):
-                task.result()
+                said_goodbye = task.result() == "goodbye"
+        if said_goodbye:
+            await websocket.close(code=GOODBYE_CODE)
     finally:
         sub.close()
         if screen.role == "student":

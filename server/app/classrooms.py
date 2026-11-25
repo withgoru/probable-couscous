@@ -18,7 +18,7 @@ from app.challenges import supersede_classroom
 from app.clock import Clock
 from app.db import get_db, transaction
 from app.identity import entered_roster_ids
-from app.realtime import publish_admin
+from app.realtime import publish_admin, publish_class
 from app.roster import (
     IMPORT_MAX_BYTES,
     ROSTER_LIMIT,
@@ -250,22 +250,28 @@ def remove_student(entry_id: int, granted: RosterGuard, db: Db, clock: ClockDep,
     """명단에서 빼기(AC19). 입장이 거부되고 이 강좌의 로그인 유지가 끝난다. 기록한다(AC48)."""
     classroom_id = granted.resource.id
     try:
-        gone = remove_entry(db, classroom_id, entry_id, granted.actor.github_id, clock.now())
+        gone, membership_id = remove_entry(db, classroom_id, entry_id, granted.actor.github_id, clock.now())
     except RosterError as err:
         raise _roster_problem(err, _ROSTER_STATUS[err.reason]) from err
     for challenge_id in gone:  # 저장이 끝난 뒤에 알린다
         publish_admin(request, classroom_id, "pending_auth.updated", id=challenge_id)
     publish_admin(request, classroom_id, "roster.updated")
+    if membership_id is not None:  # 수업 중이면 그 학생의 연결을 닫는다(002 AC44)
+        publish_class(request, classroom_id, "member_revoked", membership_id=membership_id, reason="removed")
     return {"id": entry_id, "removed": True}
 
 
 @router.post("/api/classrooms/{classroom_id}/roster/{entry_id}/revoke-login")
-def revoke_student_login(entry_id: int, granted: RosterGuard, db: Db, clock: ClockDep):
-    """로그인 끊기(AC20). 이 학생의 모든 기기가 이 강좌에서 로그아웃된다. 바뀌는 목록이 없어 교수 화면에 알리지 않는다."""
+def revoke_student_login(entry_id: int, granted: RosterGuard, db: Db, clock: ClockDep, request: Request):
+    """로그인 끊기(AC20). 이 학생의 모든 기기가 이 강좌에서 로그아웃된다. 바뀌는 목록이 없어 교수 화면에 알리지 않는다.
+
+    수업 중이면 그 학생의 수업 연결을 닫는다(002 AC44).
+    """
     try:
-        revoke_login(db, granted.resource.id, entry_id, granted.actor.github_id, clock.now())
+        membership_id = revoke_login(db, granted.resource.id, entry_id, granted.actor.github_id, clock.now())
     except RosterError as err:
         raise _roster_problem(err, _ROSTER_STATUS[err.reason]) from err
+    publish_class(request, granted.resource.id, "member_revoked", membership_id=membership_id, reason="signed_out")
     return {"id": entry_id, "revoked": True}
 
 
