@@ -18,6 +18,12 @@ updates:
       # 타입은 CI와 로컬의 Node 버전(22)을 따라간다. Node를 올릴 때 함께 올린다.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+  # 교수 컴퓨터용 슬라이드 템플릿(002). 올리면 테스트용 묶음(npm run build:fixture)도 다시 만든다
+  - package-ecosystem: npm
+    directory: "/slides-template"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
   - package-ecosystem: pip
     directory: "/server"
     schedule:

@@ -64,3 +64,7 @@ playwright/.cache/
 # --- Logs and temp ---
 *.log
 tmp/
+
+# --- 슬라이드 템플릿(002) ---
+slides-template/.build/
+slides-template/*.zip
