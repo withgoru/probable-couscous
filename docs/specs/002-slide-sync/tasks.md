@@ -82,7 +82,7 @@ updated: 2026-11-25
   - 완료 기준: `/ws/class/{강좌}`가 동작하고 발행은 모두 DB 기록 뒤다. 테스트 통과
   - 관련 원칙: C7, C8, C13, C15
 
-- [ ] **T010. 보내기·거두기 서버**
+- [x] **T010. 보내기·거두기 서버**
   - 대응 AC: AC31, AC32, AC33, AC35
   - 의존: T008
   - 먼저 쓸 테스트: 글 1~2000자 또는 링크(http/https만), 둘 다 비면 거절, 같은 `client_key`는 한 번만 저장되고 같은 응답, 진행 중인 회차에만 보냄, 저장 뒤 `item.created` 발행, 거두기는 `retracted_at` 기록과 `item.retracted` 발행이며 되돌릴 수 없음, `events`에 `item_sent`·`item_retracted`(본문 없음)
