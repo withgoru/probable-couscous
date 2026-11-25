@@ -29,6 +29,7 @@ from app.purge import PurgeJob
 from app.realtime import InMemoryRoomBus, RoomBus
 from app.resend import mailer_from_settings
 from app.routes_auth import router as auth_router
+from app.session_items import router as session_items_router
 from app.session_lifecycle import router as session_lifecycle_router
 from app.sessions import router as sessions_router
 from app.ws_admin import router as ws_admin_router
@@ -132,6 +133,7 @@ def create_app(
     app.include_router(sessions_router)
     app.include_router(session_lifecycle_router)
     app.include_router(class_state_router)
+    app.include_router(session_items_router)
     app.include_router(ws_class_router)
     app.include_router(decks_router)
     app.include_router(deck_files_router)
