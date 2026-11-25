@@ -25,6 +25,11 @@ def admin_room(classroom_id: int) -> str:
     return f"admin:{classroom_id}"
 
 
+def class_room(classroom_id: int) -> str:
+    """강좌 하나의 수업 방(002). 교수 수업 화면·프로젝터·학생 화면이 구독한다."""
+    return f"class:{classroom_id}"
+
+
 class Subscription:
     """한 구독자. 이벤트 루프 안에서 만들고 `get()`으로 하나씩 받는다."""
 
@@ -107,12 +112,21 @@ class InMemoryRoomBus:
             return sorted(self._rooms)
 
 
+def _publish(request: HTTPConnection, room: str, type_: str, data: dict) -> None:
+    try:
+        request.app.state.bus.publish(room, {"type": type_, **data})
+    except Exception:
+        log.exception("화면에 알리지 못했습니다(%s). 저장은 끝났습니다.", type_)
+
+
 def publish_admin(request: HTTPConnection, classroom_id: int, type_: str, **data: object) -> None:
     """교수 관리 화면에 알린다. 이미 저장된 변화에 대해 **저장이 끝난 뒤에** 부른다.
 
     알리다 실패해도 처리 결과는 바꾸지 않는다(저장은 끝났고 화면은 다시 접속하면 목록을 새로 받는다).
     """
-    try:
-        request.app.state.bus.publish(admin_room(classroom_id), {"type": type_, **data})
-    except Exception:
-        log.exception("교수 화면에 알리지 못했습니다(%s). 저장은 끝났습니다.", type_)
+    _publish(request, admin_room(classroom_id), type_, data)
+
+
+def publish_class(request: HTTPConnection, classroom_id: int, type_: str, **data: object) -> None:
+    """수업 방에 알린다. `publish_admin`과 같이 **DB에 기록이 끝난 뒤에** 부르고, 실패해도 결과는 그대로다."""
+    _publish(request, class_room(classroom_id), type_, data)
