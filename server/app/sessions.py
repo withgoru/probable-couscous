@@ -15,6 +15,7 @@ from app.authz import Action, Granted, guard
 from app.classrooms import load_classroom
 from app.clock import Clock
 from app.db import get_db, transaction
+from app.deck_store import DeckStore
 from app.events import record_event
 
 router = APIRouter()
@@ -60,26 +61,29 @@ def clean_title(value: object) -> str:
     return title
 
 
-def deck_item(row: sqlite3.Row) -> dict:
+def _store(request: Request) -> DeckStore:
+    return request.app.state.deck_store
+
+
+StoreDep = Annotated[DeckStore, Depends(_store)]
+
+
+def deck_item(row: sqlite3.Row, deck_id: int, available: bool) -> dict:
+    """회차의 슬라이드 묶음. `available`이 거짓이면 파일이 없어 열 수 없다(오류 동작 "슬라이드 묶음이 열리지 않음")."""
     return {
-        "id": row["id"],
+        "id": deck_id,
         "original_name": row["original_name"],
         "slide_count": row["slide_count"],
         "size_bytes": row["size_bytes"],
         "uploaded_at": row["uploaded_at"],
+        "available": available,
     }
 
 
-def _item(row: sqlite3.Row) -> dict:
+def _item(row: sqlite3.Row, store: DeckStore, classroom_id: int) -> dict:
     deck = None
     if row["deck_id"] is not None:
-        deck = {
-            "id": row["deck_id"],
-            "original_name": row["original_name"],
-            "slide_count": row["slide_count"],
-            "size_bytes": row["size_bytes"],
-            "uploaded_at": row["uploaded_at"],
-        }
+        deck = deck_item(row, row["deck_id"], store.exists(classroom_id, row["deck_id"]))
     return {
         "id": row["id"],
         "title": row["title"],
@@ -91,8 +95,8 @@ def _item(row: sqlite3.Row) -> dict:
     }
 
 
-def _listed(db: sqlite3.Connection, classroom_id: int, session_id: int) -> dict:
-    return _item(db.execute(_LIST_SQL + " AND s.id = ?", (classroom_id, session_id)).fetchone())
+def _listed(db: sqlite3.Connection, store: DeckStore, classroom_id: int, session_id: int) -> dict:
+    return _item(db.execute(_LIST_SQL + " AND s.id = ?", (classroom_id, session_id)).fetchone(), store, classroom_id)
 
 
 def load_session(db: sqlite3.Connection, classroom_id: int, session_id: int) -> sqlite3.Row:
@@ -113,13 +117,13 @@ def _record(db: sqlite3.Connection, granted: Granted, type: str, session_id: int
 
 
 @router.get("/api/classrooms/{classroom_id}/sessions")
-def list_sessions(granted: ManageGuard, db: Db):
+def list_sessions(granted: ManageGuard, db: Db, store: StoreDep):
     rows = db.execute(_LIST_SQL + " ORDER BY s.sort_order, s.id", (granted.resource.id,)).fetchall()
-    return {"items": [_item(r) for r in rows]}
+    return {"items": [_item(r, store, granted.resource.id) for r in rows]}
 
 
 @router.post("/api/classrooms/{classroom_id}/sessions", status_code=201)
-def create_session(body: SessionTitle, granted: ManageGuard, db: Db, clock: ClockDep):
+def create_session(body: SessionTitle, granted: ManageGuard, db: Db, clock: ClockDep, store: StoreDep):
     title = clean_title(body.title)
     classroom_id = granted.resource.id
     with transaction(db):
@@ -131,11 +135,13 @@ def create_session(body: SessionTitle, granted: ManageGuard, db: Db, clock: Cloc
             (classroom_id, title, last + 1, clock.now().isoformat()),
         )
         _record(db, granted, "session_created", cursor.lastrowid, clock)
-    return _listed(db, classroom_id, cursor.lastrowid)
+    return _listed(db, store, classroom_id, cursor.lastrowid)
 
 
 @router.patch("/api/classrooms/{classroom_id}/sessions/{session_id}")
-def rename_session(session_id: int, body: SessionTitle, granted: ManageGuard, db: Db, clock: ClockDep):
+def rename_session(
+    session_id: int, body: SessionTitle, granted: ManageGuard, db: Db, clock: ClockDep, store: StoreDep
+):
     title = clean_title(body.title)
     classroom_id = granted.resource.id
     with transaction(db):
@@ -144,7 +150,7 @@ def rename_session(session_id: int, body: SessionTitle, granted: ManageGuard, db
             "UPDATE class_sessions SET title = ? WHERE id = ? AND classroom_id = ?", (title, session_id, classroom_id)
         )
         _record(db, granted, "session_renamed", session_id, clock)
-    return _listed(db, classroom_id, session_id)
+    return _listed(db, store, classroom_id, session_id)
 
 
 @router.delete("/api/classrooms/{classroom_id}/sessions/{session_id}", status_code=204)

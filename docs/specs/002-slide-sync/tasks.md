@@ -54,7 +54,7 @@ updated: 2026-11-24
   - 완료 기준: `PUT/DELETE …/sessions/{s}/deck`과 `DeckStore`(임시 폴더에 풀고 이름 바꿔 교체)가 동작한다. 설정 `DATA_DIR`, `DECK_MAX_*`가 `.env.example`에 있다. 테스트 통과
   - 관련 원칙: C5, C6, C13, C15
 
-- [ ] **T006. 묶음 파일 내려주기와 노트 서버**
+- [x] **T006. 묶음 파일 내려주기와 노트 서버**
   - 대응 AC: AC30, AC43, AC44
   - 의존: T005
   - 먼저 쓸 테스트: 소유 교수와 입장한 학생은 `/decks/{번호}/…`를 받고 다른 강좌 학생·로그인 안 함은 거절, 폴더 밖 경로 거절, 해시 파일은 `immutable` 캐시·`index.html`은 `no-cache`, 응답에 `frame-ancestors 'self'`, 노트(`…/deck/notes`)는 교수만, 학생이 받는 파일에 노트가 없음

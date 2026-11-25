@@ -28,12 +28,13 @@ from app.challenges import (
     verify_code_unlocked,
     was_notified,
 )
+from app.class_access import fresh_login as _fresh_login
 from app.db import get_db, transaction
 from app.invites import resolve_token
 from app.mail import enqueue_code_mail
 from app.realtime import publish_admin
 from app.roster import RosterError, clean_entry, find_live_by_email, is_valid_email, normalize_email
-from app.student_login import LOGIN_COOKIE, PERSISTENT_MAX_AGE, create_device_login, current_login
+from app.student_login import LOGIN_COOKIE, PERSISTENT_MAX_AGE, create_device_login
 
 router = APIRouter()
 
@@ -255,25 +256,6 @@ NOT_ON_ROSTER = "이 강좌의 수강생 명단에 없습니다. 교수님께 �
 
 def _classroom_name(db: sqlite3.Connection, classroom_id: int) -> str:
     return db.execute("SELECT name FROM classrooms WHERE id = ?", (classroom_id,)).fetchone()["name"]
-
-
-def _fresh_login(request: Request, db: sqlite3.Connection, classroom_id: int):
-    """이 강좌에서 쓸 수 있는 기기 로그인과 그 계정의 명단 항목. 쓸 수 없으면 None.
-
-    로그인이 유효해야 하고, 계정의 이메일이 이 강좌의 살아 있는 명단에 있어야 하며,
-    교수가 로그인을 끊은 뒤(`reverify_after`)에 인증한 로그인이어야 한다.
-    """
-    now = request.app.state.clock.now()
-    login = current_login(db, request.cookies.get(LOGIN_COOKIE), request.cookies.get(DEVICE_COOKIE), now)
-    if login is None:
-        return None, None, "login"
-    entry = find_live_by_email(db, classroom_id, student_login.account_email(db, login.account_id))
-    if entry is None:
-        return login, None, "not_on_roster"
-    existing = identity.find_membership(db, classroom_id, login.account_id)
-    if existing and existing.reverify_after and login.created_at <= existing.reverify_after:
-        return login, entry, "login"  # 끊긴 뒤에는 이메일 인증부터 다시 한다(AC20)
-    return login, entry, "ok"
 
 
 @router.get("/api/join/{token}/me")
