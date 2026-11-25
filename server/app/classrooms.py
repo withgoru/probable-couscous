@@ -4,8 +4,10 @@
 다른 교수의 강좌는 번호로 조회해도 `guard`가 막는다. 초대 토큰은 응답에 싣지 않는다(초대 링크는 T014).
 """
 
+import logging
 import secrets
 import sqlite3
+from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -31,7 +33,9 @@ from app.roster import (
     remove_entry,
     revoke_login,
 )
+from app.session_clone import copy_sessions
 
+log = logging.getLogger(__name__)
 router = APIRouter()
 
 NAME_MAX = 100
@@ -120,9 +124,18 @@ def _item(db: sqlite3.Connection, classroom_id: int) -> dict:
 
 
 def _insert_classroom(
-    db: sqlite3.Connection, owner: int, name: str, section: str | None, source_id: int | None, now: str
+    db: sqlite3.Connection,
+    owner: int,
+    name: str,
+    section: str | None,
+    source_id: int | None,
+    now: str,
+    fill: Callable[[sqlite3.Connection, int], None] | None = None,
 ) -> dict:
-    """강좌 한 개를 새로 만든다. 새 초대 토큰을 받고 명단과 기록은 비어 있다. 토큰이 겹치면 다시 시도한다."""
+    """강좌 한 개를 새로 만든다. 새 초대 토큰을 받고 명단과 기록은 비어 있다. 토큰이 겹치면 다시 시도한다.
+
+    `fill(db, 새 강좌 번호)`가 있으면 같은 쓰기 트랜잭션에서 부른다(복제의 회차 복사). 실패하면 강좌도 만들지 않는다.
+    """
     for _ in range(TOKEN_ATTEMPTS):
         try:
             with transaction(db):
@@ -131,6 +144,8 @@ def _insert_classroom(
                     "source_classroom_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                     (owner, name, section, secrets.token_urlsafe(16), source_id, now),
                 )
+                if fill is not None:
+                    fill(db, cursor.lastrowid)
             return _item(db, cursor.lastrowid)
         except sqlite3.IntegrityError as err:
             if "invite_token" not in str(err):
@@ -146,8 +161,11 @@ def create_classroom(body: NewClassroom, granted: CreateGuard, db: Db, clock: Cl
 
 
 @router.post("/api/classrooms/{classroom_id}/clone", status_code=201)
-def clone_classroom(body: CloneClassroom, granted: CloneGuard, db: Db, clock: ClockDep):
-    """분반 만들기, 새 학기로 복제. 이름과 분반만 가져오고 명단, 입장 기록, 초대 링크는 새로 시작한다(AC12)."""
+def clone_classroom(body: CloneClassroom, granted: CloneGuard, db: Db, clock: ClockDep, request: Request):
+    """분반 만들기, 새 학기로 복제. 이름과 분반을 가져오고 명단, 입장 기록, 초대 링크는 새로 시작한다(AC12).
+
+    회차와 슬라이드 묶음은 '예정' 상태로 복사한다(002 AC42). 보낸 항목과 위치는 복사하지 않는다.
+    """
     source = db.execute(
         "SELECT name, section_name FROM classrooms WHERE id = ?", (granted.resource.id,)
     ).fetchone()
@@ -155,11 +173,27 @@ def clone_classroom(body: CloneClassroom, granted: CloneGuard, db: Db, clock: Cl
     section = (
         _clean_section(body.section_name) if "section_name" in body.model_fields_set else source["section_name"]
     )
-    return _insert_classroom(
-        db, granted.actor.github_id, name, section, granted.resource.id, clock.now().isoformat()
-    )
+    store = request.app.state.deck_store
+    now = clock.now().isoformat()
+    copied: list[int] = []
+    new_id: list[int] = []
+
+    def fill(conn: sqlite3.Connection, classroom_id: int) -> None:
+        new_id[:] = [classroom_id]
+        copy_sessions(conn, store, granted.resource.id, classroom_id, now, copied)
+
+    try:
+        return _insert_classroom(db, granted.actor.github_id, name, section, granted.resource.id, now, fill)
+    except HTTPException:
+        raise
+    except Exception as err:
+        for deck_id in copied:  # 되돌린 강좌의 파일을 남기지 않는다
+            store.remove(new_id[0], deck_id)
+        log.exception("강좌 %s를 복제하지 못했습니다.", granted.resource.id)
+        raise HTTPException(status_code=500, detail=CLONE_FAILED) from err
 
 
+CLONE_FAILED = "강좌를 복제하지 못했습니다. 잠시 뒤 다시 시도해 주세요."
 ALREADY_ARCHIVED = "이미 보관된 강좌입니다."
 LIVE_CANNOT_ARCHIVE = "{title} 수업이 진행 중입니다. 수업을 끝낸 뒤 보관해 주세요."
 
