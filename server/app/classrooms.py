@@ -50,7 +50,9 @@ ClockDep = Annotated[Clock, Depends(_clock)]
 _ITEM_SQL = """
 SELECT c.id, c.name, c.section_name, c.status, c.created_at,
        (SELECT COUNT(*) FROM roster_entries r
-         WHERE r.classroom_id = c.id AND r.removed_at IS NULL) AS student_count
+         WHERE r.classroom_id = c.id AND r.removed_at IS NULL) AS student_count,
+       (SELECT COUNT(*) FROM class_sessions s
+         WHERE s.classroom_id = c.id AND s.first_started_at IS NOT NULL) AS session_count
   FROM classrooms c
 """
 

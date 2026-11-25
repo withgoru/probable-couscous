@@ -25,6 +25,7 @@ from app.purge import PurgeJob
 from app.realtime import InMemoryRoomBus, RoomBus
 from app.resend import mailer_from_settings
 from app.routes_auth import router as auth_router
+from app.sessions import router as sessions_router
 from app.ws_admin import router as ws_admin_router
 
 log = logging.getLogger(__name__)
@@ -117,6 +118,7 @@ def create_app(
     app.include_router(join_router)
     app.include_router(join_requests_router)
     app.include_router(pending_auth_router)
+    app.include_router(sessions_router)
     app.include_router(ws_admin_router)
 
     @app.get("/api/health")
