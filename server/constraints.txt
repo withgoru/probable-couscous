@@ -17,7 +17,7 @@ click==8.5.1
     # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via pytest
-fastapi==0.163.1
+fastapi==0.165.0
     # via classroom-server (pyproject.toml)
 h11==0.16.0
     # via
