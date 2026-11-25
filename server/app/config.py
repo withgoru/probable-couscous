@@ -27,6 +27,15 @@ class Settings:
     mail_rate_per_sec: int = 8
     database_path: Path = REPO_ROOT / "server" / "data" / "app.db"
     client_dist: Path = REPO_ROOT / "client" / "build"
+    # 슬라이드 묶음 등 DB 밖의 파일. 비우면 DB 파일과 같은 폴더(002 plan 위험 9: 백업할 때 함께 옮긴다)
+    data_dir: Path | None = None
+    deck_max_bytes: int = 100 * 1024 * 1024  # 올리는 zip(002 AC6)
+    deck_max_unzipped_bytes: int = 300 * 1024 * 1024  # 풀었을 때(압축 폭탄 막기)
+    deck_max_files: int = 5000
+
+    @property
+    def deck_root(self) -> Path:
+        return (self.data_dir or self.database_path.parent) / "decks"
 
     @classmethod
     def env_names(cls) -> list[str]:
@@ -79,9 +88,9 @@ def load_settings(
             continue
         if f.name == "professor_github_ids":
             kwargs[f.name] = _to_id_list(key, raw)
-        elif f.name == "mail_rate_per_sec":
+        elif f.name in ("mail_rate_per_sec", "deck_max_bytes", "deck_max_unzipped_bytes", "deck_max_files"):
             kwargs[f.name] = _to_int(key, raw)
-        elif f.name in ("database_path", "client_dist"):
+        elif f.name in ("database_path", "client_dist", "data_dir"):
             kwargs[f.name] = Path(raw)
         else:
             kwargs[f.name] = raw

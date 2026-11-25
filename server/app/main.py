@@ -16,6 +16,8 @@ from app.classrooms import router as classrooms_router
 from app.clock import Clock, SystemClock
 from app.config import Settings, load_settings
 from app.db import MIGRATIONS_DIR, connect, migrate
+from app.deck_store import DeckStore
+from app.decks import router as decks_router
 from app.invites import router as invites_router
 from app.join import router as join_router
 from app.join_requests import router as join_requests_router
@@ -100,6 +102,9 @@ def create_app(
     app.state.bus = bus or InMemoryRoomBus()
     app.state.mail_worker = mail_worker
     app.state.purge_job = purge_job
+    app.state.deck_store = DeckStore(
+        settings.deck_root, settings.deck_max_unzipped_bytes, settings.deck_max_files
+    )  # 슬라이드 묶음 파일(002)
     app.state.auth_provider = auth_provider  # 설정이 없으면 None. 로그인 시작이 안내와 함께 503을 준다
     allowed_origin = _origin_of(settings.base_url)
     app.state.allowed_origin = allowed_origin
@@ -119,6 +124,7 @@ def create_app(
     app.include_router(join_requests_router)
     app.include_router(pending_auth_router)
     app.include_router(sessions_router)
+    app.include_router(decks_router)
     app.include_router(ws_admin_router)
 
     @app.get("/api/health")
