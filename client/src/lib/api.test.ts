@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, archiveClassroom, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
+import { ApiError, archiveClassroom, createSession, deleteSession, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -356,5 +356,44 @@ describe('빼기와 로그인 끊기 API', () => {
 	it('거부되면 서버의 안내를 담은 ApiError다', async () => {
 		const err = await removeStudent(7, 3, () => json(404, { detail: { field: null, message: '명단에서 찾을 수 없는 학생입니다.' } })).catch((e) => e);
 		expect([err.status, err.message]).toEqual([404, '명단에서 찾을 수 없는 학생입니다.']);
+	});
+});
+
+describe('회차 API (002 AC1~AC4)', () => {
+	const SESSION = { id: 3, title: '1회차', status: 'scheduled', sort_order: 1, created_at: 'x', can_delete: true, deck: null };
+
+	it('회차 목록을 받는다', async () => {
+		const fetch = vi.fn(() => json(200, { items: [SESSION] }));
+		expect(await fetchSessions(7, fetch)).toEqual([SESSION]);
+		expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('/api/classrooms/7/sessions');
+	});
+
+	it('만들기는 이름을 보내고 만든 회차를 돌려준다', async () => {
+		const fetch = vi.fn(() => json(201, SESSION));
+		expect(await createSession(7, '1회차', fetch)).toEqual(SESSION);
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/sessions');
+		expect(init.method).toBe('POST');
+		expect(JSON.parse(init.body as string)).toEqual({ title: '1회차' });
+	});
+
+	it('이름 바꾸기는 PATCH로 보낸다', async () => {
+		const fetch = vi.fn(() => json(200, { ...SESSION, title: '새 이름' }));
+		expect((await renameSession(7, 3, '새 이름', fetch)).title).toBe('새 이름');
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/sessions/3');
+		expect(init.method).toBe('PATCH');
+		expect(JSON.parse(init.body as string)).toEqual({ title: '새 이름' });
+	});
+
+	it('삭제는 DELETE로 보내고 거절되면 서버 안내를 담는다', async () => {
+		const ok = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+		await deleteSession(7, 3, ok);
+		const [url, init] = ok.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/sessions/3');
+		expect(init.method).toBe('DELETE');
+		const err = await deleteSession(7, 3, () => json(409, { detail: '한 번이라도 시작한 회차는 삭제할 수 없습니다.' })).catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.message).toBe('한 번이라도 시작한 회차는 삭제할 수 없습니다.');
 	});
 });

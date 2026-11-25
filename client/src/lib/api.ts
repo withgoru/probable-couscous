@@ -328,3 +328,64 @@ export async function revokeStudentLogin(classroomId: number, entryId: number, f
 	if (!res.ok) throw await failure(res);
 	return (await res.json()) as { id: number; revoked: true };
 }
+
+// --- 회차(002) ---------------------------------------------------------------------------
+
+export type SessionDeck = {
+	id: number;
+	original_name: string;
+	slide_count: number;
+	size_bytes: number;
+	uploaded_at: string;
+	available: boolean;
+};
+export type ClassSession = {
+	id: number;
+	title: string;
+	status: 'scheduled' | 'live' | 'ended';
+	sort_order: number;
+	created_at: string;
+	can_delete: boolean;
+	deck: SessionDeck | null;
+};
+
+async function sendSession(fetchFn: FetchFn, url: string, method: string, title: string): Promise<ClassSession> {
+	const res = await fetchFn(url, {
+		method,
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+		body: JSON.stringify({ title })
+	});
+	if (!res.ok) throw await failure(res);
+	return (await res.json()) as ClassSession;
+}
+
+/** 강좌의 회차 목록(관리 페이지, 교수만). 순서대로 온다. */
+export async function fetchSessions(classroomId: number, fetchFn: FetchFn = fetch): Promise<ClassSession[]> {
+	return (await getJson<{ items: ClassSession[] }>(fetchFn, `/api/classrooms/${classroomId}/sessions`)).items;
+}
+
+/** 회차 만들기(AC2). '예정'으로 목록 끝에 생긴다. 이름이 잘못되면 서버 안내를 담은 ApiError(422). */
+export function createSession(classroomId: number, title: string, fetchFn: FetchFn = fetch): Promise<ClassSession> {
+	return sendSession(fetchFn, `/api/classrooms/${classroomId}/sessions`, 'POST', title);
+}
+
+/** 회차 이름 바꾸기(AC4). 어느 상태든 된다. */
+export function renameSession(
+	classroomId: number,
+	sessionId: number,
+	title: string,
+	fetchFn: FetchFn = fetch
+): Promise<ClassSession> {
+	return sendSession(fetchFn, `/api/classrooms/${classroomId}/sessions/${sessionId}`, 'PATCH', title);
+}
+
+/** 회차 삭제(AC4). 한 번이라도 시작한 회차면 ApiError(409). */
+export async function deleteSession(classroomId: number, sessionId: number, fetchFn: FetchFn = fetch): Promise<void> {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/sessions/${sessionId}`, {
+		method: 'DELETE',
+		credentials: 'same-origin',
+		headers: { Accept: 'application/json' }
+	});
+	if (!res.ok) throw await failure(res);
+}

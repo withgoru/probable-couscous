@@ -2,13 +2,20 @@
 	import { onMount } from 'svelte';
 	import { invalidate } from '$app/navigation';
 	import { connectAdmin, type AdminEvent, type LiveStatus } from '#lib/adminLive.js';
-	import { fetchJoinRequests, fetchPendingAuth, type JoinRequest, type PendingAuth } from '#lib/api.js';
+	import {
+		fetchJoinRequests,
+		fetchPendingAuth,
+		type ClassSession,
+		type JoinRequest,
+		type PendingAuth
+	} from '#lib/api.js';
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import InviteCard from '#lib/components/InviteCard.svelte';
 	import JoinRequestsSection from '#lib/components/JoinRequestsSection.svelte';
 	import PendingAuthSection from '#lib/components/PendingAuthSection.svelte';
 	import RosterSection from '#lib/components/RosterSection.svelte';
+	import SessionPicker from '#lib/components/SessionPicker.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -27,6 +34,17 @@
 	let pendingError = $state<string | null>(null);
 	let live = $state<LiveStatus | 'connecting'>('connecting');
 	let now = $state(new Date()); // 대기 중인 인증의 만료 표시를 위한 시계
+
+	// 회차 선택(002). 고르지 않았으면 진행 중인 회차, 없으면 아직 시작하지 않은 첫 회차, 그것도 없으면 마지막 회차
+	let chosenId = $state<number | null>(null);
+	const sessions = $derived<ClassSession[]>(data.sessions ?? []);
+	function defaultSession(list: ClassSession[]): number | null {
+		const pick = list.find((s) => s.status === 'live') ?? list.find((s) => s.status === 'scheduled') ?? list.at(-1);
+		return pick?.id ?? null;
+	}
+	const selectedId = $derived(
+		chosenId !== null && sessions.some((s) => s.id === chosenId) ? chosenId : defaultSession(sessions)
+	);
 
 	async function loadRequests(id: number) {
 		try {
@@ -97,8 +115,19 @@
 		<ErrorNotice title={data.notice.message} hint={HINTS[data.notice.status]} />
 		<a href="/courses" class="btn btn-outline self-start">내 강좌로 돌아가기</a>
 	{:else if data.classroom}
-		<h1 class="text-3xl font-bold tracking-tight">관리 페이지</h1>
-		<p class="text-muted-foreground">{data.classroom.name}</p>
+		<div class="flex flex-wrap items-start justify-between gap-4">
+			<div class="flex flex-col gap-1">
+				<h1 class="text-3xl font-bold tracking-tight">관리 페이지</h1>
+				<p class="text-muted-foreground">{data.classroom.name}</p>
+			</div>
+			<SessionPicker
+				classroomId={data.classroom.id}
+				{sessions}
+				{selectedId}
+				onChanged={() => invalidate('app:sessions')}
+				onSelect={(id) => (chosenId = id)}
+			/>
+		</div>
 		{#if live === 'reconnecting' || live === 'never-connected'}
 			<div role="status" class="alert alert-warning">
 				<Icon name="warning-circle" />
