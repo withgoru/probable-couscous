@@ -47,7 +47,7 @@ pygments==2.21.0
     # via pytest
 pytest==9.2.0
     # via classroom-server (pyproject.toml)
-ruff==0.17.5
+ruff==0.17.6
     # via classroom-server (pyproject.toml)
 starlette==1.10.0
     # via fastapi
