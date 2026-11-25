@@ -161,6 +161,7 @@ def clone_classroom(body: CloneClassroom, granted: CloneGuard, db: Db, clock: Cl
 
 
 ALREADY_ARCHIVED = "이미 보관된 강좌입니다."
+LIVE_CANNOT_ARCHIVE = "{title} 수업이 진행 중입니다. 수업을 끝낸 뒤 보관해 주세요."
 
 
 @router.post("/api/classrooms/{classroom_id}/archive")
@@ -168,19 +169,34 @@ def archive_classroom(granted: ManageGuard, db: Db, clock: ClockDep):
     """강좌 보관(AC9, AC10). 학생 입장을 닫고(로그인 유지 중이던 학생도 `student.enter`에서 막힌다) 기록한다.
 
     아직 쓰지 않은 코드는 모두 쓸 수 없게 해서 보내지 않은 코드 메일도 나가지 않는다. 기록은 그대로 볼 수 있다.
-    되돌리는 기능은 없다(스펙 범위 밖). 보관 시각은 6개월 정리의 기준이라 다시 보관해도 바꾸지 않는다.
+    수업 중이면 보관하지 않는다(002 AC46). 보관 시각은 6개월 정리의 기준이라 다시 보관해도 바꾸지 않는다.
     """
     classroom_id = granted.resource.id
     now = clock.now()
     with transaction(db):
-        changed = db.execute(
-            "UPDATE classrooms SET status = 'archived', archived_at = ? WHERE id = ? AND status = 'active'",
-            (now.isoformat(), classroom_id),
-        ).rowcount
-        if not changed:
-            raise HTTPException(status_code=409, detail=ALREADY_ARCHIVED)
-        supersede_classroom(db, classroom_id)
-        events.record_event(db, classroom_id, "classroom_archived", "professor", granted.actor.github_id, None, {}, now)
+        # 수업 중에는 보관하지 않는다(002 AC46). 보관하면 학생 로그인이 모두 끊겨 수업이 멈춘다.
+        # 같은 쓰기 트랜잭션에서 보므로 시작·이어서 하기와 엇갈리지 않는다
+        live = db.execute(
+            "SELECT id, title FROM class_sessions WHERE classroom_id = ? AND status = 'live'", (classroom_id,)
+        ).fetchone()
+        changed = 0
+        if live is None:
+            changed = db.execute(
+                "UPDATE classrooms SET status = 'archived', archived_at = ? WHERE id = ? AND status = 'active'",
+                (now.isoformat(), classroom_id),
+            ).rowcount
+            if changed:
+                supersede_classroom(db, classroom_id)
+                events.record_event(
+                    db, classroom_id, "classroom_archived", "professor", granted.actor.github_id, None, {}, now
+                )
+    if live is not None:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": LIVE_CANNOT_ARCHIVE.format(title=live["title"]), "live_session_id": live["id"]},
+        )
+    if not changed:
+        raise HTTPException(status_code=409, detail=ALREADY_ARCHIVED)
     return _item(db, classroom_id)
 
 

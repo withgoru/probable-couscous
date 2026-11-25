@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
+import { ApiError, archiveClassroom, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -115,6 +115,23 @@ describe('cloneClassroom', () => {
 		expect(err).toBeInstanceOf(ApiError);
 		expect(err.status).toBe(403);
 		expect(err.message).toBe('이 강좌를 볼 권한이 없습니다.');
+	});
+});
+
+describe('archiveClassroom', () => {
+	it('수업 중이라 거절되면 안내와 진행 중인 회차 번호를 담은 ApiError다 (002 AC46)', async () => {
+		const detail = '1회차 수업이 진행 중입니다. 수업을 끝낸 뒤 보관해 주세요.';
+		const err = await archiveClassroom(7, () => json(409, { detail, live_session_id: 12 })).catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.status).toBe(409);
+		expect(err.message).toBe(detail);
+		expect(err.data).toEqual({ live_session_id: 12 });
+	});
+
+	it('이미 보관된 강좌면 덧붙은 값 없이 안내만 담는다', async () => {
+		const err = await archiveClassroom(7, () => json(409, { detail: '이미 보관된 강좌입니다.' })).catch((e) => e);
+		expect(err.message).toBe('이미 보관된 강좌입니다.');
+		expect(err.data).toBeUndefined();
 	});
 });
 

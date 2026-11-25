@@ -492,6 +492,20 @@ describe('강좌 보관 (AC9)', () => {
 		expect(nav.invalidate).toHaveBeenCalledWith('app:classrooms');
 	});
 
+	it('수업 중이면 보관하지 않고 이유와 수업 화면으로 가는 버튼을 보인다 (002 AC46)', async () => {
+		const detail = '1회차 수업이 진행 중입니다. 수업을 끝낸 뒤 보관해 주세요.';
+		api.archiveClassroom.mockRejectedValue(new ApiError(409, detail, undefined, { live_session_id: 12 }));
+		const { dialog } = await openDialog();
+		await fireEvent.click(within(dialog).getByRole('button', { name: '보관' }));
+		const alert = await within(dialog).findByRole('alert');
+		expect(alert.textContent).toContain(detail);
+		const link = within(dialog).getByRole('link', { name: '수업 화면으로' });
+		expect(link.getAttribute('href')).toBe('/courses/3/live');
+		expect(link.className).toContain('btn'); // 44px 버튼 모양
+		expect(nav.invalidate).not.toHaveBeenCalled(); // 아무것도 바뀌지 않았다
+		expect(tab(/진행 중/).getAttribute('aria-selected')).toBe('true');
+	});
+
 	it('연결이 안 되면 무엇을 하면 되는지 알려 준다', async () => {
 		api.archiveClassroom.mockRejectedValue(new TypeError('Failed to fetch'));
 		const { dialog } = await openDialog();

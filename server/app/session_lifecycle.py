@@ -27,6 +27,7 @@ from app.sessions import _listed, load_session
 router = APIRouter()
 
 NOT_STARTED = "아직 시작하지 않은 회차입니다."
+ARCHIVED = "보관된 강좌는 수업을 시작할 수 없습니다."
 ENDED_USE_RESUME = "끝난 회차입니다. '이어서 수업하기'로 다시 시작해 주세요."
 
 Db = Annotated[sqlite3.Connection, Depends(get_db)]
@@ -34,6 +35,15 @@ PresentGuard = Annotated[Granted, Depends(guard(Action.SESSION_PRESENT, load_cla
 ManageGuard = Annotated[Granted, Depends(guard(Action.SESSION_MANAGE, load_classroom))]
 
 _BASE = "/api/classrooms/{classroom_id}/sessions/{session_id}"
+# 권한 판단 뒤 쓰기 전에 강좌가 보관됐을 수 있다. 쓰는 순간에도 진행 중인 강좌일 때만 진행 중으로 바꾼다(AC46)
+_STILL_ACTIVE = " AND EXISTS (SELECT 1 FROM classrooms WHERE id = ? AND status = 'active')"
+
+
+def _went_live(db: sqlite3.Connection) -> bool:
+    (changed,) = db.execute("SELECT changes()").fetchone()
+    if not changed:
+        raise HTTPException(status_code=409, detail=ARCHIVED)
+    return True
 
 
 def live_session(db: sqlite3.Connection, classroom_id: int) -> sqlite3.Row | None:
@@ -95,10 +105,10 @@ def start_session(session_id: int, granted: PresentGuard, db: Db, request: Reque
         db.execute(
             # 예정 회차는 위치가 기본값(1번·0단계)이고 시작·종료 시각이 비어 있다(넘기기는 진행 중에만 된다)
             "UPDATE class_sessions SET status = 'live', first_started_at = ?, started_at = ?, version = version + 1 "
-            "WHERE id = ? AND classroom_id = ?",
-            (now, now, session_id, granted.resource.id),
+            "WHERE id = ? AND classroom_id = ?" + _STILL_ACTIVE,
+            (now, now, session_id, granted.resource.id, granted.resource.id),
         )
-        return True
+        return _went_live(db)
 
     return _change(request, db, granted, session_id, "session_started", apply)
 
@@ -112,10 +122,10 @@ def resume_session(session_id: int, granted: PresentGuard, db: Db, request: Requ
             raise HTTPException(status_code=409, detail=NOT_STARTED)
         db.execute(
             "UPDATE class_sessions SET status = 'live', started_at = ?, ended_at = NULL, version = version + 1 "
-            "WHERE id = ? AND classroom_id = ?",
-            (now, session_id, granted.resource.id),
+            "WHERE id = ? AND classroom_id = ?" + _STILL_ACTIVE,
+            (now, session_id, granted.resource.id, granted.resource.id),
         )
-        return True
+        return _went_live(db)
 
     return _change(request, db, granted, session_id, "session_resumed", apply)
 
