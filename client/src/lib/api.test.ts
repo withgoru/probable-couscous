@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, archiveClassroom, createSession, deleteSession, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
+import { ApiError, archiveClassroom, createSession, deleteSession, removeDeck, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -395,5 +395,49 @@ describe('회차 API (002 AC1~AC4)', () => {
 		const err = await deleteSession(7, 3, () => json(409, { detail: '한 번이라도 시작한 회차는 삭제할 수 없습니다.' })).catch((e) => e);
 		expect(err).toBeInstanceOf(ApiError);
 		expect(err.message).toBe('한 번이라도 시작한 회차는 삭제할 수 없습니다.');
+	});
+});
+
+describe('슬라이드 묶음과 수업 시작 API (002 AC5~AC10, AC40)', () => {
+	const DECK = { id: 9, original_name: '3주차.zip', slide_count: 12, size_bytes: 100, uploaded_at: 'x', available: true };
+
+	it('묶음은 zip 본문 그대로 PUT하고 파일 이름은 주소에 붙인다', async () => {
+		const fetch = vi.fn(() => json(200, { deck: DECK }));
+		const file = new File(['zip'], '3주차 슬라이드.zip', { type: 'application/zip' });
+		expect(await uploadDeck(7, 3, file, fetch)).toEqual(DECK);
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/sessions/3/deck?filename=3%EC%A3%BC%EC%B0%A8%20%EC%8A%AC%EB%9D%BC%EC%9D%B4%EB%93%9C.zip');
+		expect(init.method).toBe('PUT');
+		expect(init.body).toBe(file);
+		expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/zip');
+	});
+
+	it('거절되면 서버 안내를 담은 ApiError다 (AC6)', async () => {
+		const file = new File(['x'], 'a.zip');
+		const bad = await uploadDeck(7, 3, file, () => json(422, { detail: '슬라이드 묶음을 읽을 수 없습니다.' })).catch((e) => e);
+		expect(bad).toBeInstanceOf(ApiError);
+		expect(bad.message).toBe('슬라이드 묶음을 읽을 수 없습니다.');
+		const big = await uploadDeck(7, 3, file, () => json(413, { detail: '파일이 너무 큽니다. 100MB 이하로 올려 주세요.' })).catch((e) => e);
+		expect(big.status).toBe(413);
+	});
+
+	it('지우기는 DELETE다', async () => {
+		const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+		await removeDeck(7, 3, fetch);
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/sessions/3/deck');
+		expect(init.method).toBe('DELETE');
+	});
+
+	it('수업 시작과 이어서 하기는 POST이고, 다른 회차가 진행 중이면 그 회차 번호를 담는다 (AC10)', async () => {
+		const fetch = vi.fn(() => json(200, { id: 3, status: 'live', version: 1 }));
+		expect((await startSession(7, 3, fetch)).status).toBe('live');
+		expect((fetch.mock.calls[0] as unknown as [string, RequestInit])[0]).toBe('/api/classrooms/7/sessions/3/start');
+		await resumeSession(7, 3, fetch);
+		expect((fetch.mock.calls[1] as unknown as [string, RequestInit])[0]).toBe('/api/classrooms/7/sessions/3/resume');
+		expect((fetch.mock.calls[1] as unknown as [string, RequestInit])[1].method).toBe('POST');
+		const busy = await startSession(7, 3, () => json(409, { detail: '1회차 수업이 진행 중입니다. 먼저 끝내 주세요.', live_session_id: 2 })).catch((e) => e);
+		expect(busy.message).toBe('1회차 수업이 진행 중입니다. 먼저 끝내 주세요.');
+		expect(busy.data).toEqual({ live_session_id: 2 });
 	});
 });

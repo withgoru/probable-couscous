@@ -169,6 +169,27 @@ describe('관리 페이지 위쪽의 회차 선택 (002 AC1, AC3)', () => {
 		expect(screen.getByRole('button', { name: '회차 만들기' })).toBeTruthy();
 	});
 
+	it('고른 회차의 자료와 수업 버튼이 보인다 (002 AC5, AC9, AC18)', () => {
+		render(AdminPage, page(SESSIONS));
+		expect(screen.getByRole('region', { name: '이 회차의 자료' })).toBeTruthy();
+		expect(screen.getByRole('link', { name: '수업 화면으로' }).getAttribute('href')).toBe('/courses/7/live');
+	});
+
+	it('회차가 없으면 자료와 수업 버튼도 없다', () => {
+		render(AdminPage, page([]));
+		expect(screen.queryByRole('region', { name: '이 회차의 자료' })).toBeNull();
+		expect(screen.queryByRole('button', { name: '수업 시작' })).toBeNull();
+	});
+
+	it('보관된 강좌에서는 수업 시작 대신 안내가 보인다 (002 AC11)', () => {
+		render(AdminPage, {
+			params: { id: '7' },
+			data: { me: null, classroom: { ...MINE, status: 'archived' }, roster: ROSTER, invite: INVITE, sessions: [session(3, '3회차', 'scheduled')], notice: null }
+		});
+		expect(screen.getByText('보관된 강좌는 수업을 시작할 수 없습니다.')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: '수업 시작' })).toBeNull();
+	});
+
 	it('다른 회차를 고르면 그 회차가 선택된다', async () => {
 		render(AdminPage, page(SESSIONS));
 		await fireEvent.keyDown(trigger(), { key: 'Enter' });

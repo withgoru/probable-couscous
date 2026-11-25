@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { checkFocused, expectNoAxeViolations, expectNoHorizontalScroll, noTransitions, tabTo, unique, type FocusIssue } from './a11y-helpers';
 import { classroomWith, lastCode, student } from './helpers';
@@ -6,6 +7,8 @@ import { classroomWith, lastCode, student } from './helpers';
 // 그리고 axe로 화면마다 WCAG 2.2 AA 자동 점검.
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
+// 슬라이드 템플릿으로 빌드한 4장짜리 테스트용 묶음(서버 테스트와 같은 파일)
+const DECK_ZIP = fileURLToPath(new URL('../../server/tests/fixtures/deck-small.zip', import.meta.url));
 
 test('키보드만으로 교수 로그인 → 강좌 만들기 → 명단 올리기 → 학생 입장을 끝낸다 (AC51)', async ({ browser }) => {
 	const issues: FocusIssue[] = [];
@@ -149,7 +152,18 @@ test.describe('교수 화면 (노트북)', () => {
 		const picker = page.getByRole('button', { name: /^회차 선택: 1주차 1회차/ });
 		await expect(picker).toBeVisible();
 		await expectNoAxeViolations(page, '회차를 만든 관리 페이지');
-		if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/session-picker.png` });
+		// 슬라이드 없이 시작하려 하면 먼저 묻는다(AC9). 여기서는 취소한다
+		await page.getByRole('button', { name: '수업 시작' }).click();
+		await expect(page.getByRole('alertdialog')).toContainText('슬라이드 없이 시작할까요?');
+		await expectNoAxeViolations(page, '슬라이드 없이 시작 확인 창');
+		await page.keyboard.press('Escape');
+		// 이 회차의 자료(AC5): 테스트용 묶음을 올린다
+		await page.getByLabel('슬라이드 묶음(zip) 올리기').setInputFiles(DECK_ZIP);
+		const materials = page.getByRole('region', { name: '이 회차의 자료' });
+		await expect(materials.getByText('업로드됨')).toBeVisible();
+		await expect(materials.getByText('슬라이드 4장')).toBeVisible();
+		await expectNoAxeViolations(page, '묶음을 올린 관리 페이지');
+		if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/session-picker.png`, fullPage: true });
 		await picker.focus();
 		await page.keyboard.press('Enter');
 		await expect(page.getByRole('menuitemradio', { name: /1주차 1회차/ })).toBeVisible();

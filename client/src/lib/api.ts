@@ -389,3 +389,49 @@ export async function deleteSession(classroomId: number, sessionId: number, fetc
 	});
 	if (!res.ok) throw await failure(res);
 }
+
+/** 슬라이드 묶음 올리기·바꾸기(AC5, AC6). zip을 본문 그대로 보낸다. 거절되면 서버 안내를 담은 ApiError(422, 413, 409). */
+export async function uploadDeck(
+	classroomId: number,
+	sessionId: number,
+	file: File,
+	fetchFn: FetchFn = fetch
+): Promise<SessionDeck> {
+	const url = `/api/classrooms/${classroomId}/sessions/${sessionId}/deck?filename=${encodeURIComponent(file.name)}`;
+	const res = await fetchFn(url, {
+		method: 'PUT',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/zip', Accept: 'application/json' },
+		body: file
+	});
+	if (!res.ok) throw await failure(res);
+	return ((await res.json()) as { deck: SessionDeck }).deck;
+}
+
+/** 슬라이드 묶음 지우기(AC7). 수업 중이면 ApiError(409). */
+export async function removeDeck(classroomId: number, sessionId: number, fetchFn: FetchFn = fetch): Promise<void> {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/sessions/${sessionId}/deck`, {
+		method: 'DELETE',
+		credentials: 'same-origin',
+		headers: { Accept: 'application/json' }
+	});
+	if (!res.ok) throw await failure(res);
+}
+
+export type StartedSession = ClassSession & { version: number };
+
+async function postSession(fetchFn: FetchFn, url: string): Promise<StartedSession> {
+	const res = await fetchFn(url, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } });
+	if (!res.ok) throw await failure(res);
+	return (await res.json()) as StartedSession;
+}
+
+/** 수업 시작(AC9). 다른 회차가 진행 중이면 ApiError(409, data.live_session_id), 보관된 강좌면 ApiError(409). */
+export function startSession(classroomId: number, sessionId: number, fetchFn: FetchFn = fetch): Promise<StartedSession> {
+	return postSession(fetchFn, `/api/classrooms/${classroomId}/sessions/${sessionId}/start`);
+}
+
+/** 이어서 수업하기(AC40). 거절은 수업 시작과 같다. */
+export function resumeSession(classroomId: number, sessionId: number, fetchFn: FetchFn = fetch): Promise<StartedSession> {
+	return postSession(fetchFn, `/api/classrooms/${classroomId}/sessions/${sessionId}/resume`);
+}
