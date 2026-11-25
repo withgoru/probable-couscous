@@ -15,12 +15,12 @@ vi.mock('#lib/api.js', async (original) => ({
 import { ApiError } from '#lib/api.js';
 import CoursesPage from './+page.svelte';
 
-const item = (id: number, name: string, section: string | null, status: 'active' | 'archived', students: number) => ({
-	id, name, section_name: section, status, student_count: students, created_at: '2026-03-01T09:00:00+00:00'
+const item = (id: number, name: string, section: string | null, status: 'active' | 'archived', students: number, sessions = 0) => ({
+	id, name, section_name: section, status, student_count: students, session_count: sessions, created_at: '2026-03-01T09:00:00+00:00'
 });
 const DATA = {
 	classrooms: [
-		item(3, '데이터베이스', '수요반', 'active', 55),
+		item(3, '데이터베이스', '수요반', 'active', 55, 7),
 		item(2, '웹 프로그래밍', null, 'active', 38),
 		item(1, '웹 프로그래밍', '월수반', 'archived', 40)
 	],
@@ -80,6 +80,13 @@ describe('내 강좌 목록 (AC7)', () => {
 		expect(within(card).getByText('진행 중').className).toContain('badge-success');
 		expect(within(card).getByText('수강생 55명')).toBeTruthy();
 		expect(within(card).getByRole('link', { name: '열기' })).toBeTruthy();
+	});
+
+	it('카드에 진행 회차 수(한 번이라도 시작한 회차)가 서버 값으로 보인다 (002 AC8)', () => {
+		render(CoursesPage, { params: {}, data: { ...DATA, me: null } });
+		const card = (name: string) => screen.getByRole('heading', { level: 2, name }).closest('li') as HTMLElement;
+		expect(within(card('데이터베이스')).getByText('진행 회차 7')).toBeTruthy();
+		expect(within(card('웹 프로그래밍')).getByText('진행 회차 0')).toBeTruthy();
 	});
 
 	it('분반이 없으면 "분반 없음"이라고 보여 준다', () => {

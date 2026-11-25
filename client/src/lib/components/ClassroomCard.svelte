@@ -24,6 +24,8 @@
 	</div>
 	<div class="card-content flex flex-col gap-1.5 text-sm text-muted-foreground">
 		<span class="flex items-center gap-2"><Icon name="group" class="size-4" />수강생 {classroom.student_count}명</span>
+		<!-- 한 번이라도 시작한 회차 수(002 AC8) -->
+		<span class="flex items-center gap-2"><Icon name="presentation" class="size-4" />진행 회차 {classroom.session_count}</span>
 	</div>
 	<div class="card-footer flex-wrap">
 		<a href="/courses/{classroom.id}/admin" class="btn btn-default flex-1">{archived ? '기록 보기' : '열기'}</a>

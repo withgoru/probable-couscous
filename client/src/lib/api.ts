@@ -25,6 +25,8 @@ export type Classroom = {
 	section_name: string | null;
 	status: 'active' | 'archived';
 	student_count: number;
+	/** 한 번이라도 시작한 회차 수(002 AC8). */
+	session_count: number;
 	created_at: string;
 };
 export type ClassroomList = {

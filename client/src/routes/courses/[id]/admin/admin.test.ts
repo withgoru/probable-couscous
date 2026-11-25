@@ -67,7 +67,7 @@ const routed = (
 		)
 	);
 const res = (status: number, body: unknown) => () => new Response(JSON.stringify(body), { status });
-const MINE = { id: 7, name: '알고리즘', section_name: null, status: 'active', student_count: 0, created_at: 'x' } as const;
+const MINE = { id: 7, name: '알고리즘', section_name: null, status: 'active', student_count: 0, session_count: 0, created_at: 'x' } as const;
 
 describe('관리 페이지 load (AC8)', () => {
 	it('내 강좌면 강좌를 돌려준다', async () => {
