@@ -50,12 +50,14 @@ export class ApiError extends Error {
 
 async function failure(res: Response): Promise<ApiError> {
 	let detail: unknown;
+	let extra: Record<string, unknown> = {};
 	try {
-		detail = ((await res.json()) as { detail?: unknown }).detail;
+		({ detail, ...extra } = (await res.json()) as { detail?: unknown });
 	} catch {
 		// 본문이 JSON이 아니면 안내 없이 상태 번호만 쓴다
 	}
-	if (typeof detail === 'string') return new ApiError(res.status, detail);
+	// 안내 옆에 서버가 함께 준 값(예: 보관 거절의 live_session_id)은 data에 담는다
+	if (typeof detail === 'string') return new ApiError(res.status, detail, undefined, Object.keys(extra).length ? extra : undefined);
 	// 명단 API는 {field, message}로 어느 입력 칸의 오류인지 알려 준다
 	if (detail && typeof detail === 'object' && typeof (detail as { message?: unknown }).message === 'string') {
 		const { field, message, ...rest } = detail as { field?: string | null; message: string };
@@ -104,7 +106,7 @@ export function cloneClassroom(
 	return postClassroom(fetchFn, `/api/classrooms/${sourceId}/clone`, input);
 }
 
-/** 강좌 보관(AC9). 학생 입장을 닫는다. 되돌리는 기능은 없다. */
+/** 강좌 보관(AC9). 학생 입장을 닫는다. 수업 중이면 409(data.live_session_id, 002 AC46). */
 export async function archiveClassroom(id: number, fetchFn: FetchFn = fetch): Promise<Classroom> {
 	const res = await fetchFn(`/api/classrooms/${id}/archive`, {
 		method: 'POST',

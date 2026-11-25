@@ -212,11 +212,12 @@ def test_ending_twice_is_harmless_and_scheduled_cannot_end(world):
 
 
 def test_a_live_session_can_still_be_ended_after_the_classroom_is_archived(world):
-    # 수업 중에 강좌를 보관해도 그 수업을 끝낼 수는 있어야 한다(진행 중으로 묶여 남지 않게)
+    # 수업 중 보관은 막지만(AC46, T031), 그 전에 생긴 "보관된 강좌의 진행 중 회차"도 끝낼 수 있어야 한다
     prof, cid = classroom(world)
     sid = create(prof, cid)
     act(prof, cid, sid, "start")
-    assert prof.post(f"/api/classrooms/{cid}/archive", headers=ORIGIN).status_code == 200
+    with world.db() as db:
+        db.execute("UPDATE classrooms SET status = 'archived', archived_at = ? WHERE id = ?", ("2026-03-01T09:00:00+00:00", cid))
     res = act(prof, cid, sid, "end")
     assert res.status_code == 200 and row(world, sid)["status"] == "ended"
 
