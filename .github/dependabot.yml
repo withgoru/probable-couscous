@@ -29,3 +29,7 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      # pydantic은 pydantic-core를 정확한 버전으로 고정한다(예: 2.14.4 → 2.50.5). 따로 올리면 설치가 실패한다
+      pydantic:
+        patterns: ["pydantic", "pydantic-core"]
