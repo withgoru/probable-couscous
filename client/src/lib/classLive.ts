@@ -22,7 +22,14 @@ export type LiveItem = {
 	retracted_at?: string | null; // 교수에게만 온다
 };
 export type LiveState = {
-	session: { id: number; title: string; status: 'scheduled' | 'live' | 'ended'; version: number };
+	session: {
+		id: number;
+		title: string;
+		status: 'scheduled' | 'live' | 'ended';
+		version: number;
+		/** 마지막으로 시작(또는 이어서)한 시각. 교수 화면의 경과 시간(AC12). */
+		started_at?: string | null;
+	};
 	deck: { id: number; slide_count: number; available: boolean } | null;
 	current: Position;
 	furthest: Position;
@@ -38,6 +45,8 @@ export type ClassSnapshot = {
 	presence: { follow: number; browse: number } | null;
 	goodbye: { reason: string; message: string } | null;
 	loadError: string | null;
+	/** 처음 불러오기를 마쳤는가. 거짓이면 아직 "수업 없음"인지 모른다. */
+	loaded: boolean;
 };
 export type GotoFailure = { reason: string; message: string };
 
@@ -97,7 +106,8 @@ export function connectClass(classroomId: number, options: Options) {
 		state: null,
 		presence: null,
 		goodbye: null,
-		loadError: null
+		loadError: null,
+		loaded: false
 	};
 	const listeners = new Set<(s: ClassSnapshot) => void>();
 	let socket: WebSocket | null = null;
@@ -143,7 +153,7 @@ export function connectClass(classroomId: number, options: Options) {
 				const { liveSessionId, state } = await fetchAll();
 				if (stopped) return;
 				loadFailures = 0;
-				update({ liveSessionId, state, loadError: null });
+				update({ liveSessionId, state, loadError: null, loaded: true });
 				const events = queued;
 				queued = [];
 				for (const event of events) apply(event);

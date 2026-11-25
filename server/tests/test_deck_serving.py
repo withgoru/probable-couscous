@@ -247,3 +247,18 @@ def test_a_link_inside_the_folder_cannot_reach_outside(tmp_path):
     assert _safe_target(folder, "assets/leak.js") is None
     assert _safe_target(folder, "assets/../../secret.txt") is None
     assert _safe_target(folder, "classroom-deck.json") is None
+
+
+def test_the_deck_index_opens_when_the_data_folder_is_reached_through_a_link(tmp_path):
+    # 실제 서버에서 데이터 폴더가 링크(예: macOS의 /var → /private/var) 뒤에 있으면 `/decks/{묶음}/`이 404였다(T018에서 찾음)
+    from app.deck_files import _safe_target
+    from app.deck_store import DeckStore
+
+    real = tmp_path / "real"
+    (real / "1" / "9").mkdir(parents=True)
+    (real / "1" / "9" / "index.html").write_text("<html></html>")
+    linked = tmp_path / "linked"
+    linked.symlink_to(real, target_is_directory=True)
+    folder = DeckStore(linked, 1, 1).path_for(1, 9)
+    assert _safe_target(folder, "") is not None
+    assert _safe_target(folder, "index.html") is not None

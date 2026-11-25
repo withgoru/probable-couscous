@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, archiveClassroom, createSession, deleteSession, removeDeck, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
+import { ApiError, archiveClassroom, createSession, deleteSession, fetchDeckNotes, removeDeck, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -439,5 +439,14 @@ describe('슬라이드 묶음과 수업 시작 API (002 AC5~AC10, AC40)', () => 
 		const busy = await startSession(7, 3, () => json(409, { detail: '1회차 수업이 진행 중입니다. 먼저 끝내 주세요.', live_session_id: 2 })).catch((e) => e);
 		expect(busy.message).toBe('1회차 수업이 진행 중입니다. 먼저 끝내 주세요.');
 		expect(busy.data).toEqual({ live_session_id: 2 });
+	});
+});
+
+describe('발표자 노트 API (002 AC13, AC30)', () => {
+	it('교수 전용 노트 주소에서 받는다', async () => {
+		const NOTES = { deck_id: 9, slide_count: 2, slides: [{ no: 1, title: '인사', note: '노트 1' }, { no: 2, title: '', note: '' }] };
+		const fetch = vi.fn(() => json(200, NOTES));
+		expect(await fetchDeckNotes(7, 3, fetch)).toEqual(NOTES);
+		expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('/api/classrooms/7/sessions/3/deck/notes');
 	});
 });

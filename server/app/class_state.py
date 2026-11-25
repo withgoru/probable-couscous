@@ -115,7 +115,13 @@ def session_live_state(session_id: int, granted: ViewGuard, db: Db, request: Req
     if row is None or (student and row["status"] not in STUDENT_VISIBLE):
         raise HTTPException(status_code=404, detail=NOT_FOUND)
     body = {
-        "session": {"id": row["id"], "title": row["title"], "status": row["status"], "version": row["version"]},
+        "session": {
+            "id": row["id"],
+            "title": row["title"],
+            "status": row["status"],
+            "version": row["version"],
+            "started_at": row["started_at"],  # 마지막으로 시작(또는 이어서)한 시각. 교수 화면의 경과 시간(AC12)
+        },
         "deck": _deck(row, request.app.state.deck_store, classroom_id),
         "current": {"slide": row["current_slide"], "click": row["current_click"]},
         "furthest": {"slide": row["furthest_slide"], "click": row["furthest_click"]},
