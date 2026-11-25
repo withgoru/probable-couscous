@@ -27,7 +27,12 @@ CLASSROOM_SCOPED = {
     "login_challenges",
     "mail_outbox",
     "events",
+    # 002 회차·슬라이드·보낸 항목. 학생을 가리키는 열이 없다
+    "class_sessions",
+    "decks",
+    "session_items",
 }
+SESSION_TABLES = {"class_sessions", "decks", "session_items"}
 # 이메일·이름·학번을 가져도 되는 표. 보관 후 6개월 정리 작업(C11)이 비우는 대상이다.
 PERSONAL_DATA = {"accounts", "roster_entries", "join_requests", "login_challenges", "mail_outbox"}
 FORBIDDEN_COLUMN = re.compile(r"(email|student_no|student_id|phone|^name$|real_name)")
@@ -92,7 +97,7 @@ def make_account(db, email="a@x.kr"):
 def test_c7_activity_tables_have_no_email_name_or_student_number_columns(db):
     # 개인정보를 둘 수 있는 표 밖의 모든 표(멤버십, 이벤트, 앞으로 생길 채팅·출석·퀴즈 표)가 대상이다
     checked = tables(db) - PERSONAL_DATA - {"classrooms"}
-    assert {"memberships", "events"} <= checked
+    assert {"memberships", "events"} | SESSION_TABLES <= checked
     for table in sorted(checked):
         bad = [c for c in columns(db, table) if FORBIDDEN_COLUMN.search(c)]
         assert bad == [], f"{table}에 개인정보 열이 있다: {bad}"
@@ -164,7 +169,7 @@ def test_c5_every_table_is_classified_and_classroom_tables_carry_classroom_id(db
 
 def test_migration_is_applied_once_and_recorded(db):
     versions = [r["version"] for r in db.execute("SELECT version FROM schema_migrations")]
-    assert versions == ["0001_core_schema"]
+    assert versions == ["0001_core_schema", "0002_class_sessions"]
 
 
 def test_login_challenges_do_not_store_the_code(db):
