@@ -24,7 +24,7 @@ updated: 2026-11-24
   - 완료 기준: `slides-template/`에 Slidev 53.1.0(정확한 버전, npm 10 lockfile), 동기화 애드온(`setup/root.ts`: `deck:ready`, `deck:goto`, `deck:limit`, `deck:mode`, `deck:moved`, `deck:intent`, 출처 확인, 지시하지 않은 이동은 거절하고 방향을 `deck:intent`로 알림), 머리말(`routerMode: hash`, 외부 요청 끄기), `npm run build:classroom`(빌드 + 노트 추출 + zip)과 README(빌드 방법, 외부 스크립트를 넣지 말 것)가 있다. 테스트용 묶음은 이 템플릿으로 만든 4장짜리(단계 0·3·0·1개)다. CI는 템플릿을 빌드하지 않는다
   - 관련 원칙: C15, C17, C18
 
-- [ ] **T002. 회차 스키마와 필수 회귀 넓히기(C7)**
+- [x] **T002. 회차 스키마와 필수 회귀 넓히기(C7)**
   - 대응 AC: 없음 (기반·검증)
   - 의존: 없음
   - 먼저 쓸 테스트: (C7, `constitution` 표시) `class_sessions`, `decks`, `session_items`에 이메일·이름·학번 열이 없다. 강좌당 진행 중 회차가 둘이 되는 쓰기가 DB에서 실패한다. `(session_id, client_key)`가 겹치는 항목이 실패한다
