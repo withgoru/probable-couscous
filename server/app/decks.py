@@ -20,13 +20,15 @@ from typing import Annotated
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 
-from app.authz import Granted
+from app.authz import Action, Granted, guard
+from app.classrooms import load_classroom
 from app.clock import Clock
 from app.db import get_db, transaction
 from app.deck_store import DeckError, DeckStore
 from app.events import record_event
-from app.sessions import ManageGuard, deck_item, load_session
+from app.sessions import ManageGuard, StoreDep, deck_item, load_session
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,13 +48,6 @@ def _clock(request: Request) -> Clock:
 
 
 ClockDep = Annotated[Clock, Depends(_clock)]
-
-
-def _store(request: Request) -> DeckStore:
-    return request.app.state.deck_store
-
-
-StoreDep = Annotated[DeckStore, Depends(_store)]
 
 
 def too_big_message(limit: int) -> str:
@@ -164,7 +159,8 @@ def upload_deck(
         raise HTTPException(status_code=500, detail=SAVE_FAILED) from None
     if old is not None:  # 4. 이전 파일 지우기
         store.remove(classroom_id, old["id"])
-    return {"deck": deck_item(db.execute("SELECT * FROM decks WHERE id = ?", (deck_id,)).fetchone())}
+    row = db.execute("SELECT * FROM decks WHERE id = ?", (deck_id,)).fetchone()
+    return {"deck": deck_item(row, deck_id, store.exists(classroom_id, deck_id))}
 
 
 def _discard(db: sqlite3.Connection, store: DeckStore, classroom_id: int, deck_id: int) -> None:
@@ -185,3 +181,29 @@ def remove_deck(session_id: int, granted: ManageGuard, session: EditableSession,
         _record(db, granted, "deck_removed", session_id, deck["id"], clock)
     store.remove(classroom_id, deck["id"])
     return Response(status_code=204)
+
+
+CANNOT_OPEN = "슬라이드를 열 수 없습니다. 묶음을 다시 올려 주세요."
+NotesGuard = Annotated[Granted, Depends(guard(Action.DECK_NOTES, load_classroom))]
+
+
+@router.get("/api/classrooms/{classroom_id}/sessions/{session_id}/deck/notes")
+def deck_notes(session_id: int, granted: NotesGuard, db: Db, store: StoreDep):
+    """발표자 노트(AC30). 교수 수업 화면만 부른다. 학생이 받는 파일에는 노트가 없다."""
+    classroom_id = granted.resource.id
+    load_session(db, classroom_id, session_id)
+    deck = live_deck(db, classroom_id, session_id)
+    if deck is None:
+        raise HTTPException(status_code=404, detail=NO_DECK)
+    if not store.exists(classroom_id, deck["id"]):
+        raise HTTPException(status_code=410, detail=CANNOT_OPEN)
+    meta = store.read_meta(classroom_id, deck["id"])
+    slides = [
+        {"no": i + 1, "title": str(s.get("title") or ""), "note": str(s.get("note") or "")}
+        for i, s in enumerate(meta.slides)
+    ]
+    return JSONResponse(
+        {"deck_id": deck["id"], "slide_count": meta.slide_count, "slides": slides},
+        headers={"Cache-Control": "no-store"},
+    )
+

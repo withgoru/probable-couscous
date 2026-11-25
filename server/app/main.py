@@ -16,6 +16,7 @@ from app.classrooms import router as classrooms_router
 from app.clock import Clock, SystemClock
 from app.config import Settings, load_settings
 from app.db import MIGRATIONS_DIR, connect, migrate
+from app.deck_files import router as deck_files_router
 from app.deck_store import DeckStore
 from app.decks import router as decks_router
 from app.invites import router as invites_router
@@ -125,6 +126,7 @@ def create_app(
     app.include_router(pending_auth_router)
     app.include_router(sessions_router)
     app.include_router(decks_router)
+    app.include_router(deck_files_router)
     app.include_router(ws_admin_router)
 
     @app.get("/api/health")
