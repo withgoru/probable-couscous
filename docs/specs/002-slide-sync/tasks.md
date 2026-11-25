@@ -112,7 +112,7 @@ updated: 2026-11-25
 
 ### 화면
 
-- [ ] **T014. 수업 연결 모듈과 슬라이드 다리**
+- [x] **T014. 수업 연결 모듈과 슬라이드 다리**
   - 대응 AC: 없음 (기반·검증)
   - 의존: T009
   - 먼저 쓸 테스트: (연결) 연결 → 구독 → `live` 받기 → 받은 `version`보다 큰 발행만 적용, 끊기면 1·2·5·10초 간격으로 다시 붙고 다시 통째로 받음, `resync`와 화면 다시 보임(`visibilitychange`)에도 다시 받음 / (다리) 다른 출처 메시지는 무시, `deck:ready`·`deck:moved`·`deck:intent`를 상태와 이벤트로 바꿈, `goto`·`limit`·`mode`를 iframe에 보냄. 가짜 WebSocket과 가짜 iframe으로 vitest
