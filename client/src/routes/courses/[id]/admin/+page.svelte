@@ -15,6 +15,8 @@
 	import JoinRequestsSection from '#lib/components/JoinRequestsSection.svelte';
 	import PendingAuthSection from '#lib/components/PendingAuthSection.svelte';
 	import RosterSection from '#lib/components/RosterSection.svelte';
+	import ClassStart from '#lib/components/ClassStart.svelte';
+	import DeckSection from '#lib/components/DeckSection.svelte';
 	import SessionPicker from '#lib/components/SessionPicker.svelte';
 	import type { PageProps } from './$types';
 
@@ -45,6 +47,8 @@
 	const selectedId = $derived(
 		chosenId !== null && sessions.some((s) => s.id === chosenId) ? chosenId : defaultSession(sessions)
 	);
+	const selected = $derived(sessions.find((s) => s.id === selectedId) ?? null);
+	const reloadSessions = () => invalidate('app:sessions');
 
 	async function loadRequests(id: number) {
 		try {
@@ -124,10 +128,24 @@
 				classroomId={data.classroom.id}
 				{sessions}
 				{selectedId}
-				onChanged={() => invalidate('app:sessions')}
+				onChanged={reloadSessions}
 				onSelect={(id) => (chosenId = id)}
 			/>
 		</div>
+		{#if selected}
+			<!-- 회차를 바꾸면 안의 상태(오류, 확인 창)를 새로 시작한다 -->
+			{#key selected.id}
+				<ClassStart
+					classroomId={data.classroom.id}
+					archived={data.classroom.status === 'archived'}
+					session={selected}
+					{sessions}
+					onChanged={reloadSessions}
+					onSelect={(id) => (chosenId = id)}
+				/>
+				<DeckSection classroomId={data.classroom.id} session={selected} onChanged={reloadSessions} />
+			{/key}
+		{/if}
 		{#if live === 'reconnecting' || live === 'never-connected'}
 			<div role="status" class="alert alert-warning">
 				<Icon name="warning-circle" />

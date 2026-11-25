@@ -12,7 +12,8 @@
 		busyLabel,
 		onConfirm,
 		onDone,
-		onCancel
+		onCancel,
+		tone = 'destructive'
 	}: {
 		title: string;
 		description: string;
@@ -21,6 +22,8 @@
 		onConfirm: () => Promise<Problem | null>;
 		onDone: () => void;
 		onCancel: () => void;
+		/** 확인 버튼 모양. 지우기처럼 되돌릴 수 없는 일은 destructive, 그 밖의 확인은 default. */
+		tone?: 'destructive' | 'default';
 	} = $props();
 
 	let pending = $state(false);
@@ -63,7 +66,7 @@
 			{#if problem}<ErrorNotice title={problem.title} hint={problem.hint} />{/if}
 			<div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
 				<AlertDialog.Cancel bind:ref={cancelButton} class="btn btn-outline" disabled={pending}>취소</AlertDialog.Cancel>
-				<AlertDialog.Action class="btn btn-destructive" disabled={pending} onclick={confirm}>
+				<AlertDialog.Action class={`btn btn-${tone}`} disabled={pending} onclick={confirm}>
 					{pending ? busyLabel : confirmLabel}
 				</AlertDialog.Action>
 			</div>
