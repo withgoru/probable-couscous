@@ -34,7 +34,6 @@ const LIVE: LiveState = {
 	session: { id: 5, title: '1회차', status: 'live', version: 3 },
 	deck: { id: 9, slide_count: 4, available: true, public: true },
 	current: { slide: 2, click: 0 },
-	limit: { slide: 4, click: null }, // 서버는 보내지 않는다. 이 모듈이 채운다(공개 묶음은 끝까지)
 	items: [{ id: 1, body: '첫 자료', url: null, created_at: '2026-03-01T09:00:00+00:00' }]
 };
 
@@ -155,42 +154,22 @@ describe('받은 version보다 큰 발행만 적용한다', () => {
 		last().push({ type: 'position', session_id: 5, current: { slide: 3, click: 0 }, version: 4 });
 		expect(now().state).toMatchObject({
 			current: { slide: 3, click: 0 },
-			limit: { slide: 4, click: null }, // 볼 수 있는 끝은 늘 묶음의 끝이다
 			session: { version: 4 }
 		});
 	});
 
-	it('서버가 보내지 않는 볼 수 있는 끝을 묶음의 끝으로 채운다(묶음이 없으면 첫 슬라이드)', async () => {
-		const { limit: _, ...fromServer } = structuredClone(LIVE);
-		const { now, live } = setup({ server: { live: fromServer as LiveState } });
-		await ready();
-		expect(now().state?.limit).toEqual({ slide: 4, click: null });
-		live.stop();
-		const { now: again } = setup({ server: { live: { ...(fromServer as LiveState), deck: null } } });
-		await ready();
-		expect(again().state?.limit).toEqual({ slide: 1, click: null });
-	});
-
-	it('비공개 묶음의 볼 수 있는 끝은 교수의 지금 위치이고, 교수가 넘기면 따라온다(T035까지의 임시 처리)', async () => {
-		const { now } = setup({ server: { live: { ...structuredClone(LIVE), deck: { ...LIVE.deck!, public: false } } } });
-		await ready();
-		expect(now().state?.limit).toEqual({ slide: 2, click: 0 });
-		last().push({ type: 'position', session_id: 5, current: { slide: 3, click: 1 }, version: 4 });
-		expect(now().state?.limit).toEqual({ slide: 3, click: 1 });
-	});
-
-	it('공개·비공개가 바뀌면 묶음과 볼 수 있는 끝을 바꾸고 위치는 둔다 (AC48)', async () => {
+	it('공개·비공개가 바뀌면 묶음을 바꾸고 위치는 둔다 (AC48)', async () => {
 		const { now } = setup();
 		await ready();
 		last().push({ type: 'deck.updated', session_id: 5, deck: { id: 9, slide_count: 4, available: true, public: false }, version: 4 });
 		expect(now().state).toMatchObject({
 			deck: { id: 9, public: false },
 			current: { slide: 2, click: 0 },
-			limit: { slide: 2, click: 0 },
 			session: { version: 4 }
 		});
+		expect(now().state).not.toHaveProperty('limit'); // 볼 수 있는 끝은 없다(2026-11-26)
 		last().push({ type: 'deck.updated', session_id: 5, deck: { id: 9, slide_count: 4, available: true, public: true }, version: 5 });
-		expect(now().state?.limit).toEqual({ slide: 4, click: null });
+		expect(now().state?.deck?.public).toBe(true);
 	});
 
 	it('교수 화면도 공개·비공개 바뀜을 그대로 적용한다', async () => {

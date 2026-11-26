@@ -3,7 +3,7 @@
  *
  * 슬라이드 묶음 안의 애드온(`slides-template/setup/root.ts`)과 `postMessage`로만 대화한다. 연결·인증은 하지 않는다.
  * - 슬라이드 → 화면: `deck:ready{total}`, `deck:moved{slide, click, clicksTotal, total}`, `deck:intent{next|prev}`
- * - 화면 → 슬라이드: `deck:goto{slide, click}`, `deck:limit{limit}`, `deck:mode{mode}`
+ * - 화면 → 슬라이드: `deck:goto{slide, click}`, `deck:mode{mode}`
  *
  * 같은 출처이고 그 iframe 창에서 온 메시지만 받는다. 준비(`deck:ready`) 전에 받은 지시는 마지막 것만 기억했다가
  * 준비되면 보낸다. iframe이 다시 뜨면(새 `deck:ready`) 기억한 지시를 다시 보낸다.
@@ -38,8 +38,6 @@ export function connectDeck(frame: () => Window | null, options: Options = {}) {
 	const listeners = new Set<Listener>();
 
 	let mode: DeckMode | null = null;
-	let limit: Position | null = null;
-	let limitSet = false;
 	let lastGoto: Position | null = null;
 
 	function update(next: Partial<DeckSnapshot>) {
@@ -53,7 +51,6 @@ export function connectDeck(frame: () => Window | null, options: Options = {}) {
 
 	function replay() {
 		if (mode) post({ type: 'deck:mode', mode });
-		if (limitSet) post({ type: 'deck:limit', limit });
 		if (lastGoto) post({ type: 'deck:goto', ...lastGoto });
 	}
 
@@ -88,11 +85,6 @@ export function connectDeck(frame: () => Window | null, options: Options = {}) {
 		goto(position: Position) {
 			lastGoto = { slide: position.slide, click: position.click };
 			post({ type: 'deck:goto', ...lastGoto });
-		},
-		setLimit(next: Position | null) {
-			limit = next ? { slide: next.slide, click: next.click } : null;
-			limitSet = true;
-			post({ type: 'deck:limit', limit });
 		},
 		setMode(next: DeckMode) {
 			mode = next;

@@ -497,15 +497,6 @@ describe('회차 상태 API (002 AC39)', () => {
 		expect((await fetchClassLive(7, 4, fetch)).session.id).toBe(4);
 		expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('/api/class/7/sessions/4/live');
 	});
-
-	it('서버가 보내지 않는 볼 수 있는 끝을 채운다', async () => {
-		const deck = { id: 8, slide_count: 6, available: true, public: true };
-		const body = { session: { id: 4 }, deck, current: { slide: 2, click: 1 }, items: [] };
-		expect((await fetchClassLive(7, 4, vi.fn(() => json(200, body)))).limit).toEqual({ slide: 6, click: null });
-		const closed = { ...body, deck: { ...deck, public: false } };
-		expect((await fetchClassLive(7, 4, vi.fn(() => json(200, closed)))).limit).toEqual({ slide: 2, click: 1 });
-		expect((await fetchClassLive(7, 4, vi.fn(() => json(200, { ...body, deck: null })))).limit).toEqual({ slide: 1, click: null });
-	});
 });
 
 describe('묶음 공개·비공개 API (002 AC47)', () => {

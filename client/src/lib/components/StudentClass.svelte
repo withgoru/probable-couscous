@@ -9,27 +9,26 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import NicknameCard from '#lib/components/NicknameCard.svelte';
 	import { connectDeck, type DeckBridge, type DeckSnapshot, type Direction, type Position } from '#lib/deckBridge.js';
-	import { isAfter, nextPosition, prevPosition } from '#lib/slides.js';
+	import { nextPosition, prevPosition } from '#lib/slides.js';
 	import { dateTime } from '#lib/time.js';
 
 	// 학생 수업 화면(002 AC23~AC25, AC29, AC30). 입장한 학생이 강좌 링크를 열면 보인다.
 	// 진행 중인 회차가 없으면 대기 화면과 지난 회차 목록, 있으면 수업 화면이다. 수업이 시작되면 연결이 상태를 다시 받아
 	// 새로 고치지 않아도 바뀐다. 발표자 노트는 받지도 보이지도 않는다(AC30).
-	// 따라가는 중에 학생이 넘기면(이전·다음, 슬라이드 밀기, ←·→) 따라가기가 풀리고 직접 넘겨 본다. 범위는 가장 멀리 간
-	// 위치까지다. '교수 화면으로'를 눌러야 다시 따라간다(AC26~AC28). 자료 탭의 알림·복사는 T025.
+	// 공개 묶음이면 따라가는 중에 학생이 넘기면(이전·다음, 슬라이드 밀기, ←·→) 따라가기가 풀리고 처음부터 끝까지
+	// 직접 넘겨 본다. '교수 화면으로'를 눌러야 다시 따라간다(AC26, AC28). 비공개 묶음이면 따라가기만 한다(AC27).
+	// 수업 중에 공개 여부가 바뀌면 바로 따른다(AC48). 자료 탭의 알림·복사는 T025.
 	// 수업이 끝나면 새로 고치지 않아도 같은 회차의 다시 보기로 바뀌고(AC38), 대기 화면의 지난 회차도 다시 볼 수 있다(AC39)
 	const EMPTY_DECK: DeckSnapshot = { ready: false, total: null, position: null, clicksTotal: null };
+	const UNPUBLISHED = '교수님이 슬라이드를 비공개로 바꿨습니다. 교수 화면을 따라갑니다.';
 	let { classroomId, title, nickname }: { classroomId: number; title: string; nickname: string } = $props();
-
-	// 볼 수 있는 끝의 단계를 모르면(묶음을 바꾼 뒤) 그 슬라이드의 단계 전부까지다(AC41)
-	const ALL_CLICKS = 9999;
 
 	let snapshot = $state<ClassSnapshot | null>(null);
 	let past = $state<ClassSessionSummary[] | null>(null);
 	let pastFailed = $state(false);
 	let pastRequest = 0; // 늦게 온 예전 응답이 새 목록을 덮지 않게 요청마다 번호를 붙인다
 	let announcement = $state(''); // 화면이 바뀐 것을 화면 낭독기에 알린다(늘 있는 알림 자리)
-	let lastSent = ''; // 슬라이드에 마지막으로 보낸 위치와 끝. 같으면 다시 보내지 않는다
+	let lastSent = ''; // 슬라이드에 마지막으로 보낸 위치. 같으면 다시 보내지 않는다
 	let frame = $state<HTMLIFrameElement | null>(null);
 	let send: DeckBridge | null = null;
 	let classLive: ClassLive | null = null;
@@ -47,11 +46,18 @@
 	// 초점이 수업 화면 안에 있었는가. 수업이 끝나 그 화면이 사라지면 초점을 다시 보기 제목으로 옮긴다
 	let liveBox = $state<HTMLElement | null>(null);
 	let focusInLive = false;
+	// 비공개로 바뀌어 직접 넘겨 보다 교수 화면으로 돌아왔다는 안내(AC48). 다시 공개되거나 회차가 바뀌면 지운다
+	let unpublished = $state(false);
+	let heading = $state<HTMLElement | null>(null);
+	// 초점이 넘기기 버튼들에 있었는가. 비공개로 바뀌어 버튼이 사라지면 초점을 수업 제목으로 옮긴다
+	let controls = $state<HTMLElement | null>(null);
+	let focusInControls = false;
 
 	const liveState = $derived(snapshot?.state?.session.status === 'live' ? snapshot.state : null);
 	const deck = $derived(liveState?.deck ?? null);
 	const current = $derived(liveState?.current ?? null);
-	const limit = $derived(liveState ? { slide: liveState.limit.slide, click: liveState.limit.click ?? ALL_CLICKS } : null);
+	// 직접 넘겨 볼 수 있는가: 공개 묶음이고 열 수 있을 때만(AC26, AC27)
+	const browsable = $derived(!!deck?.available && deck.public);
 	const waiting = $derived(!!snapshot?.loaded && !liveState);
 	// 화면에 보일 위치: 따라가는 중이면 교수 위치, 아니면 내가 넘긴 위치
 	const shown = $derived(mode === 'follow' ? current : (mine ?? current));
@@ -61,30 +67,59 @@
 	);
 	const clicksTotal = $derived(settled ? mainDeck.clicksTotal : null);
 	const total = $derived(mainDeck.total ?? deck?.slide_count ?? null);
-	const nextRaw = $derived(shown ? nextPosition(shown, clicksTotal, total) : null);
-	// 가장 멀리 간 위치 뒤로는 가지 않는다(AC27)
-	const next = $derived(nextRaw && limit && !isAfter(nextRaw, limit) ? nextRaw : null);
+	const next = $derived(shown ? nextPosition(shown, clicksTotal, total) : null);
 	const prev = $derived(shown ? prevPosition(shown, seenClicks) : null);
 	const atStart = $derived(settled && !prev);
 	const atEnd = $derived(settled && !next);
 	// 처음과 끝, 슬라이드가 따라오는 중에는 흐리게 한다. 진짜 disabled는 쓰지 않는다(초점을 잃지 않게)
-	// 묶음이 남았는데 교수님이 아직 보여 주지 않아 못 가는 때만 그렇게 알린다(묶음의 마지막은 그냥 끝이다)
-	const notShownYet = $derived(settled && !!nextRaw && !next);
-	const canMove = $derived(!!deck?.available && settled);
+	const canMove = $derived(browsable && settled);
 
 	$effect(() => {
 		if (mainDeck.position && mainDeck.clicksTotal !== null) seenClicks.set(mainDeck.position.slide, mainDeck.clicksTotal);
 	});
 
-	// 직접 넘겨 보던 곳이 볼 수 있는 끝이나 묶음 밖이 되면(교수가 넘겨 끝이 정해짐, 더 짧은 묶음으로 바뀜) 끝으로
-	// 당긴다. 그대로 두면 애드온이 끝에서 멈춰 슬라이드가 그 위치를 그리지 못하고 넘기기가 멈춘다
+	// 비공개로 바뀌면(AC48) 직접 넘겨 보던 학생은 교수 화면으로 돌아가 따라간다. 다시 공개되면 안내를 지운다.
+	// 넘기기 버튼이 사라지므로, 초점이 거기 있었으면 수업 제목으로 옮긴다
+	let seen: { session: number | null; browsable: boolean } | null = null;
 	$effect(() => {
-		if (mode !== 'browse' || !mine || !limit) return;
-		let target = mine;
-		if (isAfter(target, limit)) target = limit.click >= ALL_CLICKS ? { slide: limit.slide, click: 0 } : { ...limit };
-		if (total !== null && target.slide > total) target = { slide: total, click: 0 };
-		if (target !== mine) untrack(() => (mine = target));
+		const now = { session: liveState?.session.id ?? null, browsable };
+		const before = seen;
+		seen = now;
+		// 처음 열 때나 다른 회차가 시작될 때는 바뀐 것이 아니다
+		if (!before || before.session !== now.session || before.browsable === now.browsable) return;
+		untrack(() => {
+			if (now.browsable) {
+				unpublished = false;
+				return;
+			}
+			// 넘겨 볼 수 없게 됐다(비공개, 또는 묶음을 열 수 없음): 직접 넘겨 보던 학생은 교수 화면으로 돌아간다
+			if (mode === 'browse') {
+				backToProfessor();
+				if (deck?.available && !deck.public) {
+					unpublished = true;
+					announce(UNPUBLISHED);
+				}
+			}
+			if (focusInControls) {
+				focusInControls = false;
+				// 버튼이 사라져 초점을 잃었을 때만 옮긴다(다른 곳을 쓰는 중이면 빼앗지 않는다)
+				tick().then(() => {
+					if (!document.activeElement || document.activeElement === document.body) heading?.focus();
+				});
+			}
+		});
 	});
+
+	/** 늘 있는 알림 자리에 쓴다. 같은 글이 다시 와도 바뀐 것으로 읽히게 비웠다가 쓴다. */
+	function announce(text: string) {
+		announcement = '';
+		tick().then(() => (announcement = text));
+	}
+
+	function leftControls() {
+		const box = controls;
+		queueMicrotask(() => (focusInControls = !!box?.contains(document.activeElement)));
+	}
 
 	// 묶음이 바뀌면 예전 묶음의 단계 수를 버린다
 	let deckId: number | null = null;
@@ -106,17 +141,19 @@
 			// 보던 수업이 끝났다: 같은 회차를 보던 곳에서 이어 본다(AC38). 새 수업이 시작되면 그쪽이 먼저다
 			replay = id === null && ended !== null ? { id: ended, start: 'last', ended: true, takeFocus: focusInLive } : null;
 			focusInLive = false;
-			if (replay) announcement = '수업이 끝났습니다.'; // 늘 있는 알림 자리라 화면 낭독기가 읽는다
+			if (replay) announce('수업이 끝났습니다.'); // 늘 있는 알림 자리라 화면 낭독기가 읽는다
 			if (mode === 'browse') backToProfessor();
 			seenClicks.clear();
+			unpublished = false;
+			focusInControls = false; // 화면이 사라질 때는 focusout이 오지 않는다
 		});
 	});
 
-	/** 학생이 넘기려 했다. 범위 안이면 따라가기를 풀고 한 단계 움직인다. 범위 밖이면 아무것도 하지 않는다. */
+	/** 학생이 넘기려 했다. 공개 묶음의 처음·끝 안이면 따라가기를 풀고 한 단계 움직인다. 아니면 아무것도 하지 않는다. */
 	function turn(direction: Direction) {
 		if (!canMove) return;
 		const target = direction === 'next' ? next : prev;
-		if (!target) return; // 범위 밖: 움직이지 않고 따라가기도 그대로(AC26)
+		if (!target) return; // 묶음의 처음·끝 밖: 움직이지 않고 따라가기도 그대로(AC26)
 		if (mode === 'follow') setMode('browse');
 		mine = target;
 	}
@@ -165,14 +202,11 @@
 	}
 
 	// 보일 위치로 간다: 따라가는 중이면 교수 위치(AC25, AC29), 직접 넘겨 보는 중이면 내 위치(교수가 넘겨도 그대로).
-	// 볼 수 있는 끝을 먼저 보낸다. 애드온은 끝 뒤로 가는 지시를 끝에서 멈추므로, 새 슬라이드로 넘어갈 때 끝이 늦게
-	// 가면 따라가지 못한다. 위치와 끝이 그대로면(자료가 오는 등) 다시 보내지 않는다
+	// 위치가 그대로면(자료가 오는 등) 다시 보내지 않는다
 	$effect(() => {
-		const key = limit && shown ? JSON.stringify([limit, shown]) : ''; // 먼저 읽어야 바뀔 때 다시 돈다
-		if (!send || !limit || !shown) return;
-		if (key === lastSent) return;
+		const key = shown ? JSON.stringify(shown) : ''; // 먼저 읽어야 바뀔 때 다시 돈다
+		if (!send || !shown || key === lastSent) return;
 		lastSent = key;
-		send.setLimit(limit);
 		send.goto(shown);
 	});
 
@@ -182,7 +216,7 @@
 		if (waiting) wasWaiting = true;
 		else if (liveState && wasWaiting) {
 			wasWaiting = false;
-			announcement = '수업이 시작되었습니다.';
+			announce('수업이 시작되었습니다.');
 		}
 	});
 
@@ -196,9 +230,8 @@
 		send = bridge;
 		untrack(() => {
 			bridge.setMode(mode);
-			if (limit) bridge.setLimit(limit);
 			if (shown) bridge.goto(shown);
-			lastSent = limit && shown ? JSON.stringify([limit, shown]) : '';
+			lastSent = shown ? JSON.stringify(shown) : '';
 		});
 		return () => {
 			unsubscribe();
@@ -260,7 +293,7 @@
 
 		<!-- 수업 정보 줄 -->
 		<div class="flex flex-col gap-0.5">
-			<h1 tabindex="-1" class="text-lg leading-tight font-bold break-all outline-none">{title}</h1>
+			<h1 bind:this={heading} tabindex="-1" class="text-lg leading-tight font-bold break-all outline-none">{title}</h1>
 			<p class="text-sm">{liveState.session.title}</p>
 			<p class="flex items-center gap-1 text-sm">
 				<Icon name="user" class="size-4" /><span class="text-muted-foreground">내 닉네임</span>
@@ -268,18 +301,26 @@
 			</p>
 		</div>
 
-		<!-- 따라가기 줄(AC24, AC26, AC28). 상태 글은 바뀔 때 화면 낭독기에도 읽힌다 -->
+		<!-- 따라가기 줄(AC24, AC26~AC28). 상태 글은 바뀔 때 화면 낭독기에도 읽힌다 -->
 		<div class="flex flex-col gap-2">
 			<p role="status" class="flex items-center gap-2 text-sm font-medium">
 				<Icon name="presentation" class="size-4" />
-				{#if mode === 'follow'}
-					교수 화면 따라가는 중
-				{:else}
+				{#if mode === 'browse'}
 					직접 넘겨 보는 중 · 교수 화면은 {current?.slide}번 슬라이드입니다.
+				{:else if deck?.available && !deck.public}
+					교수 화면 따라가는 중 · 교수님이 슬라이드를 공개하면 직접 넘겨 볼 수 있습니다.
+				{:else}
+					교수 화면 따라가는 중
 				{/if}
 			</p>
-			{#if deck?.available}
-				<div class="flex flex-wrap items-center gap-2">
+			{#if unpublished}<p class="text-sm">{UNPUBLISHED}</p>{/if}
+			{#if browsable}
+				<div
+					class="flex flex-wrap items-center gap-2"
+					bind:this={controls}
+					onfocusin={() => (focusInControls = true)}
+					onfocusout={leftControls}
+				>
 					<!-- 흐림은 처음·끝에서만 보인다. 슬라이드가 따라오는 잠깐은 누른 것만 받지 않는다(깜빡이지 않게) -->
 					<button
 						type="button"
@@ -293,16 +334,12 @@
 						class="btn btn-outline {atEnd ? 'opacity-50' : ''}"
 						bind:this={nextButton}
 						aria-disabled={!canMove || atEnd}
-						aria-describedby={notShownYet ? 'not-shown-yet' : undefined}
 						onclick={() => turn('next')}>다음</button
 					>
 					{#if mode === 'browse'}
 						<button type="button" class="btn btn-default" onclick={() => backToProfessor(true)}>교수 화면으로</button>
 					{/if}
 				</div>
-				{#if notShownYet}
-					<p id="not-shown-yet" class="text-sm text-muted-foreground">교수님이 아직 보여 주지 않은 슬라이드입니다.</p>
-				{/if}
 			{/if}
 		</div>
 

@@ -279,3 +279,47 @@ test('수업이 끝나면 다시 보기로 바뀌고, 지난 회차를 처음부
 	await expect.poll(replayHash).toMatch(/^#\/2/);
 	await expectNoAxeViolations(page, '지난 회차 다시 보기');
 });
+
+// 002 T035: 비공개 묶음은 따라가기만, 수업 중 공개하면 직접 넘겨 보고, 다시 비공개로 바꾸면 교수 화면으로 돌아간다
+// (AC27, AC48)
+test('비공개 묶음은 따라가기만 하고, 수업 중 공개 여부가 바뀌면 바로 따른다 (AC27, AC48)', async ({ page }) => {
+	const han = student('private');
+	const room = await classroomWith([han], `비공개 묶음 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '7주차' } })).json();
+	await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck?filename=deck.zip`, {
+		headers: { 'Content-Type': 'application/zip' },
+		data: readFileSync(DECK_ZIP)
+	});
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`);
+	const visibility = (isPublic: boolean) =>
+		room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck/visibility`, { data: { public: isPublic } });
+
+	await enterLive(page, room.token, han.email);
+	await noTransitions(page);
+	// 새 묶음은 비공개: 넘기기 버튼이 없고, 슬라이드 안에서 →를 눌러도 움직이지 않는다(AC27)
+	await expect(page.getByText('교수 화면 따라가는 중 · 교수님이 슬라이드를 공개하면 직접 넘겨 볼 수 있습니다.')).toBeVisible();
+	await expect(page.getByRole('button', { name: '다음' })).toHaveCount(0);
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/1/);
+	await page.frameLocator('iframe[title="수업 슬라이드"]').locator('body').press('ArrowRight');
+	await page.waitForTimeout(300);
+	expect(await slideOf(page)).toMatch(/^#\/1(\?|$)/);
+	await expectNoAxeViolations(page, '비공개 묶음을 따라가는 학생 화면');
+
+	// 교수가 수업 중에 공개한다: 이전·다음이 나타나고 끝까지 넘긴다(AC48, AC26)
+	expect((await visibility(true)).status()).toBe(200);
+	const next = page.getByRole('button', { name: '다음' });
+	await expect(next).toBeVisible();
+	await expect(next).toHaveAttribute('aria-disabled', 'false');
+	await next.click();
+	await expect(page.getByText('직접 넘겨 보는 중 · 교수 화면은 1번 슬라이드입니다.')).toBeVisible();
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/2/);
+
+	// 다시 비공개로 바꾼다: 교수 위치로 돌아가 따라가고, 안내가 보이며 화면 낭독기에도 읽힌다(AC48)
+	expect((await visibility(false)).status()).toBe(200);
+	const notice = '교수님이 슬라이드를 비공개로 바꿨습니다. 교수 화면을 따라갑니다.';
+	await expect(page.locator('p:not([data-class-status])', { hasText: notice })).toBeVisible();
+	await expect(page.locator('[data-class-status]')).toHaveText(notice);
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/1(\?|$)/);
+	await expect(page.getByRole('button', { name: '다음' })).toHaveCount(0);
+	await expectNoAxeViolations(page, '비공개로 바뀐 학생 화면');
+});

@@ -33,24 +33,9 @@ export type LiveState = {
 	/** `public`: 학생에게 공개한 묶음(AC47). 공개 묶음은 처음부터 끝까지 넘겨 본다. */
 	deck: LiveDeck | null;
 	current: Position;
-	/**
-	 * 학생이 넘겨 볼 수 있는 끝. 서버가 보내지 않고 이 모듈이 채운다(click null = 그 슬라이드 전부).
-	 * 공개 묶음은 묶음의 끝, 비공개 묶음은 교수의 지금 위치다(가장 멀리 간 위치는 2026-11-26에 없어졌다).
-	 * 비공개 묶음을 따라가기만 하게 바꾸는 T035까지 쓰는 임시 처리이고, T035에서 함께 없앤다.
-	 */
-	limit: { slide: number; click: number | null };
 	items: LiveItem[];
 };
 export type LiveDeck = { id: number; slide_count: number; available: boolean; public: boolean };
-/** 서버가 보내는 상태(`…/live`). */
-export type ServerState = Omit<LiveState, 'limit'>;
-
-/** 볼 수 있는 끝을 채운다: 공개 묶음은 끝까지, 비공개 묶음은 교수의 지금 위치까지, 묶음이 없으면 첫 슬라이드뿐이다. */
-export function withLimit(state: ServerState): LiveState {
-	const { deck, current } = state;
-	const limit = !deck ? { slide: 1, click: null } : deck.public ? { slide: deck.slide_count, click: null } : { ...current };
-	return { ...state, limit };
-}
 export type ClassStatus = 'connecting' | 'live' | 'reconnecting' | 'gone';
 export type ClassSnapshot = {
 	status: ClassStatus;
@@ -151,7 +136,7 @@ export function connectClass(classroomId: number, options: Options) {
 		const list = await getJson<{ live_session_id: number | null }>(fetchFn, `/api/class/${classroomId}/sessions`);
 		const focus = options.sessionId ?? list.live_session_id;
 		const state =
-			focus == null ? null : withLimit(await getJson<ServerState>(fetchFn, `/api/class/${classroomId}/sessions/${focus}/live`));
+			focus == null ? null : await getJson<LiveState>(fetchFn, `/api/class/${classroomId}/sessions/${focus}/live`);
 		return { liveSessionId: list.live_session_id, state };
 	}
 
@@ -203,12 +188,12 @@ export function connectClass(classroomId: number, options: Options) {
 		const session = { ...state.session, version };
 		if (event.type === 'position') {
 			if (!isPosition(event.current)) return;
-			setState(withLimit({ ...state, session, current: { ...event.current } })); // 비공개 묶음의 끝이 따라온다
+			setState({ ...state, session, current: { ...event.current } });
 		} else if (event.type === 'deck.updated') {
 			// 교수가 공개·비공개를 바꿨다(AC48). 묶음이 그대로라 위치는 둔다
 			const deck = event.deck as LiveDeck | undefined;
 			if (!deck || typeof deck.id !== 'number' || typeof deck.public !== 'boolean') return reload();
-			setState(withLimit({ ...state, session, deck: { ...deck } }));
+			setState({ ...state, session, deck: { ...deck } });
 		} else if (role === 'professor') {
 			reload(); // 교수 목록은 거둔 시각까지 보여 주므로 다시 받는다
 		} else if (event.type === 'item.created') {

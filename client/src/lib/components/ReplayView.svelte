@@ -6,11 +6,11 @@
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
 	import MaterialsPanel from '#lib/components/MaterialsPanel.svelte';
 	import { connectDeck, type DeckBridge, type DeckSnapshot, type Direction, type Position } from '#lib/deckBridge.js';
-	import { isAfter, nextPosition, prevPosition } from '#lib/slides.js';
+	import { nextPosition, prevPosition } from '#lib/slides.js';
 
 	// 지난 회차 다시 보기(002 AC38, AC39, AC41). 끝난 회차라 바뀌지 않으므로 상태를 한 번 받는다.
-	// 슬라이드는 처음부터(또는 수업이 끝나 이어 볼 때는 보던 곳에서) 가장 멀리 간 위치까지 넘겨 볼 수 있고,
-	// 거두지 않은 자료가 보인다. 넘기기 규칙은 수업 중 직접 넘겨 보기(T024)와 같다
+	// 공개 묶음이면 슬라이드를 처음부터(또는 수업이 끝나 이어 볼 때는 보던 곳에서) 끝까지 넘겨 볼 수 있다. 비공개 묶음이면
+	// 슬라이드를 얹지 않는다(AC50). 거두지 않은 자료가 보인다. 넘기기 규칙은 수업 중 직접 넘겨 보기와 같다
 	let {
 		classroomId,
 		sessionId,
@@ -27,7 +27,6 @@
 		onBack: () => void;
 	} = $props();
 
-	const ALL_CLICKS = 9999; // 끝의 단계를 모르면(묶음을 바꾼 회차) 그 슬라이드의 단계 전부(AC41)
 	const EMPTY_DECK: DeckSnapshot = { ready: false, total: null, position: null, clicksTotal: null };
 
 	let replayState = $state<LiveState | null>(null);
@@ -42,30 +41,26 @@
 	const seenClicks = new SvelteMap<number, number>();
 
 	const deck = $derived(replayState?.deck ?? null);
-	const limit = $derived(replayState ? { slide: replayState.limit.slide, click: replayState.limit.click ?? ALL_CLICKS } : null);
 	const settled = $derived(
 		!!mine && mainDeck.position?.slide === mine.slide && mainDeck.position.click === mine.click
 	);
 	const clicksTotal = $derived(settled ? mainDeck.clicksTotal : null);
 	const total = $derived(mainDeck.total ?? deck?.slide_count ?? null);
-	const nextRaw = $derived(mine ? nextPosition(mine, clicksTotal, total) : null);
-	const next = $derived(nextRaw && limit && !isAfter(nextRaw, limit) ? nextRaw : null);
+	const next = $derived(mine ? nextPosition(mine, clicksTotal, total) : null);
 	const prev = $derived(mine ? prevPosition(mine, seenClicks) : null);
 	const atStart = $derived(settled && !prev);
 	const atEnd = $derived(settled && !next);
-	const notShownYet = $derived(settled && !!nextRaw && !next);
 	const canMove = $derived(!!deck?.available && deck.public && settled);
 
 	$effect(() => {
 		if (mainDeck.position && mainDeck.clicksTotal !== null) seenClicks.set(mainDeck.position.slide, mainDeck.clicksTotal);
 	});
 
-	// 볼 수 있는 끝을 먼저 보내고 위치를 보낸다(애드온이 끝에서 멈추므로). 같으면 다시 보내지 않는다
+	// 넘긴 위치를 슬라이드에 보낸다. 같으면 다시 보내지 않는다
 	$effect(() => {
-		const key = limit && mine ? JSON.stringify([limit, mine]) : '';
-		if (!send || !limit || !mine || key === lastSent) return;
+		const key = mine ? JSON.stringify(mine) : '';
+		if (!send || !mine || key === lastSent) return;
 		lastSent = key;
-		send.setLimit(limit);
 		send.goto(mine);
 	});
 
@@ -77,9 +72,8 @@
 		bridge.setMode('browse');
 		send = bridge;
 		untrack(() => {
-			if (limit) bridge.setLimit(limit);
 			if (mine) bridge.goto(mine);
-			lastSent = limit && mine ? JSON.stringify([limit, mine]) : '';
+			lastSent = mine ? JSON.stringify(mine) : '';
 		});
 		return () => {
 			unsubscribe();
@@ -90,13 +84,10 @@
 		};
 	});
 
-	// 보던 곳(교수의 마지막 위치)에서 이어 본다. 볼 수 있는 끝이나 묶음 밖이면(수업 중에 더 짧은 묶음으로 바꿈) 끝으로
-	// 당긴다. 그대로 두면 애드온이 끝에서 멈춰 슬라이드가 그 위치를 그리지 못하고 넘기기가 멈춘다
+	// 보던 곳(교수의 마지막 위치)에서 이어 본다. 묶음 밖이면(끝난 뒤 더 짧은 묶음으로 바꿈) 마지막 슬라이드에서
 	function startAt(s: LiveState): Position {
-		let at: Position = { ...s.current };
-		const end = { slide: s.limit.slide, click: s.limit.click ?? ALL_CLICKS };
-		if (isAfter(at, end)) at = { slide: s.limit.slide, click: s.limit.click ?? 0 };
-		if (s.deck && at.slide > s.deck.slide_count) at = { slide: Math.max(1, s.deck.slide_count), click: 0 };
+		const at: Position = { ...s.current };
+		if (s.deck && at.slide > s.deck.slide_count) return { slide: Math.max(1, s.deck.slide_count), click: 0 };
 		return at;
 	}
 
@@ -173,14 +164,10 @@
 					type="button"
 					class="btn btn-outline {atEnd ? 'opacity-50' : ''}"
 					aria-disabled={!canMove || atEnd}
-					aria-describedby={notShownYet ? 'replay-not-shown' : undefined}
 					onclick={() => turn('next')}>다음</button
 				>
 				<span class="text-sm text-muted-foreground" aria-live="polite">{mine?.slide} / {total ?? '?'} 슬라이드</span>
 			</div>
-			{#if notShownYet}
-				<p id="replay-not-shown" class="text-sm text-muted-foreground">수업에서 보여 주지 않은 슬라이드입니다.</p>
-			{/if}
 		{/if}
 		<MaterialsPanel items={replayState.items} />
 	{/if}

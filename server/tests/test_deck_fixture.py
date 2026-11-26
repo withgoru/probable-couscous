@@ -71,9 +71,10 @@ def test_build_has_the_sync_bridge(deck):
     for message in (
         "deck:ready",
         "deck:goto",
-        "deck:limit",
         "deck:mode",
         "deck:moved",
         "deck:intent",
     ):
         assert message in js, f"{message}가 빌드에 없습니다"
+    # 볼 수 있는 끝(가장 멀리 간 위치)은 없어졌다(2026-11-26, T035). 예전 애드온으로 빌드한 묶음이 아니다
+    assert "deck:limit" not in js

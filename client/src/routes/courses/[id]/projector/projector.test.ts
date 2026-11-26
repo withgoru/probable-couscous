@@ -34,7 +34,6 @@ vi.mock('#lib/deckBridge.js', () => ({
 			},
 			goto: deck.goto,
 			setMode: deck.setMode,
-			setLimit: vi.fn(),
 			stop: deck.stop
 		};
 	}
@@ -47,7 +46,6 @@ const STATE: LiveState = {
 	session: { id: 5, title: '3주차 1회차', status: 'live', version: 3, started_at: '2026-03-04T05:00:00+00:00' },
 	deck: { id: 9, slide_count: 4, available: true, public: false },
 	current: { slide: 2, click: 1 },
-	limit: { slide: 2, click: 1 },
 	items: []
 };
 const snapshot = (over: Partial<ClassSnapshot> = {}): ClassSnapshot => ({
