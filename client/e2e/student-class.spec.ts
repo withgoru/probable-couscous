@@ -164,3 +164,44 @@ async function enterLive(page: Page, token: string, email: string) {
 	await page.getByRole('button', { name: '확인하고 입장' }).click();
 	await expect(page.getByText('교수 화면 따라가는 중')).toBeVisible();
 }
+
+test('교수가 보낸 자료가 바로 나타나고 알림이 뜨며, 복사할 수 있고, 거두면 사라진다 (AC33~AC35)', async ({ page, context }) => {
+	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+	const choi = student('materials');
+	const room = await classroomWith([choi], `자료 받기 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '6주차' } })).json();
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`);
+	await enterLive(page, room.token, choi.email);
+
+	const professor = await page.context().browser()!.newContext();
+	const teacher = await professor.newPage();
+	await teacher.goto('/api/auth/github/login');
+	await teacher.waitForURL('**/courses');
+	await teacher.goto(`/courses/${room.id}/live`);
+	const panel = teacher.getByRole('region', { name: '메시지·자료 보내기' });
+	await panel.getByLabel('글').fill('과제는 금요일까지');
+	await panel.getByRole('button', { name: '학생에게 보내기' }).click();
+	await panel.getByLabel('글').fill('실습 코드 예시');
+	await panel.getByLabel('링크(선택)').fill('https://example.com/lab');
+	await panel.getByRole('button', { name: '학생에게 보내기' }).click();
+
+	// 학생: 맨 위에 새 항목, 도착 알림(AC33)
+	const list = page.getByRole('list', { name: '자료' });
+	await expect(list.getByRole('listitem').first()).toContainText('실습 코드 예시');
+	await expect(page.locator('[data-arrival]')).toContainText('교수님이 자료를 보냈습니다.');
+	await expectNoAxeViolations(page, '자료를 받은 학생 화면');
+
+	// 복사(AC34)
+	await list.getByRole('button', { name: '복사: 과제는 금요일까지' }).click();
+	await expect(list.getByText('복사했습니다.')).toBeVisible();
+	expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('과제는 금요일까지');
+	const link = list.getByRole('link', { name: /https:\/\/example\.com\/lab/ });
+	await expect(link).toHaveAttribute('target', '_blank');
+
+	// 거두면 학생 화면에서 사라진다(AC35)
+	await panel.getByRole('button', { name: '거두기: 과제는 금요일까지' }).click();
+	await teacher.getByRole('alertdialog').getByRole('button', { name: '거두기' }).click();
+	await expect(list.getByText('과제는 금요일까지')).toHaveCount(0);
+	await expect(list.getByText('실습 코드 예시')).toBeVisible();
+	await professor.close();
+});

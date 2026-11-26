@@ -247,6 +247,14 @@ describe('수업 화면 (AC24, AC25, AC29, AC30)', () => {
 		expect(rows[1].textContent).toContain('첫 자료');
 	});
 
+	it('다른 회차의 수업이 시작되면 그 회차의 자료를 새로 받은 것으로 세지 않는다', async () => {
+		mount();
+		await server(snapshot());
+		await server(snapshot({ state: { ...STATE, session: { ...STATE.session, id: 6 }, items: [{ id: 9, body: '6회차 자료', url: null, created_at: '2026-03-11T05:00:00+00:00' }] } }));
+		expect(screen.getByText('6회차 자료')).toBeTruthy();
+		expect((document.querySelector('[data-arrival]') as HTMLElement).textContent?.trim()).toBe('');
+	});
+
 	it('자료가 없으면 그렇게 알린다', async () => {
 		mount();
 		await server(snapshot({ state: { ...STATE, items: [] } }));

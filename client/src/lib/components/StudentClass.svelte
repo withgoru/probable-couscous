@@ -4,11 +4,12 @@
 	import { fetchClassSessions, type ClassSessionSummary } from '#lib/api.js';
 	import { connectClass, type ClassLive, type ClassSnapshot } from '#lib/classLive.js';
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
+	import MaterialsPanel from '#lib/components/MaterialsPanel.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import NicknameCard from '#lib/components/NicknameCard.svelte';
 	import { connectDeck, type DeckBridge, type DeckSnapshot, type Direction, type Position } from '#lib/deckBridge.js';
 	import { isAfter, nextPosition, prevPosition } from '#lib/slides.js';
-	import { clockTime, dateTime } from '#lib/time.js';
+	import { dateTime } from '#lib/time.js';
 
 	// 학생 수업 화면(002 AC23~AC25, AC29, AC30). 입장한 학생이 강좌 링크를 열면 보인다.
 	// 진행 중인 회차가 없으면 대기 화면과 지난 회차 목록, 있으면 수업 화면이다. 수업이 시작되면 연결이 상태를 다시 받아
@@ -43,7 +44,6 @@
 	const deck = $derived(liveState?.deck ?? null);
 	const current = $derived(liveState?.current ?? null);
 	const limit = $derived(liveState ? { slide: liveState.limit.slide, click: liveState.limit.click ?? ALL_CLICKS } : null);
-	const items = $derived([...(liveState?.items ?? [])].sort((a, b) => b.id - a.id)); // 최근 것부터
 	const waiting = $derived(!!snapshot?.loaded && !liveState);
 	// 화면에 보일 위치: 따라가는 중이면 교수 위치, 아니면 내가 넘긴 위치
 	const shown = $derived(mode === 'follow' ? current : (mine ?? current));
@@ -277,25 +277,10 @@
 			{/if}
 		</div>
 
-		<!-- 자료 -->
-		<section class="flex flex-col gap-2" aria-labelledby="materials-heading">
-			<h2 id="materials-heading" class="text-base font-semibold">자료</h2>
-			{#if items.length === 0}
-				<p class="text-sm text-muted-foreground">아직 받은 자료가 없습니다.</p>
-			{:else}
-				<ul class="flex flex-col gap-2" aria-labelledby="materials-heading">
-					{#each items as item (item.id)}
-						<li class="flex flex-col gap-1 rounded-md border border-border p-3 text-sm">
-							<span class="text-muted-foreground">{clockTime(item.created_at)}</span>
-							{#if item.body}<p class="break-words whitespace-pre-wrap">{item.body}</p>{/if}
-							{#if item.url}
-								<a class="break-all underline" href={item.url} target="_blank" rel="noopener noreferrer">{item.url}</a>
-							{/if}
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</section>
+		<!-- 자료(AC33~AC35). 회차가 바뀌면 새로 시작한다(새 회차의 항목을 '새 자료'로 세지 않게) -->
+		{#key liveState.session.id}
+			<MaterialsPanel items={liveState.items} />
+		{/key}
 	</div>
 {:else}
 	<!-- 입장 완료와 대기(AC23, 001 AC28) -->
