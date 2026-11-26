@@ -22,7 +22,7 @@ describe('로그인 가드 (AC3)', () => {
 		expect(await loadSession(loggedIn, at('/courses'))).toEqual({ me: ME });
 	});
 
-	it.each(['/courses', '/courses/42/admin', '/mypage', '/', '/something-unknown'])(
+	it.each(['/courses', '/courses/42/admin', '/courses/42/live', '/courses/42/projector', '/mypage', '/', '/something-unknown'])(
 		'로그인하지 않은 채 %s를 열면 로그인 화면으로 보낸다',
 		async (path) => {
 			expect(await redirectOf(loadSession(loggedOut, at(path)))).toEqual({ status: 302, location: '/login' });
