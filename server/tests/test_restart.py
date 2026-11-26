@@ -119,7 +119,7 @@ def test_c13_everything_a_class_depends_on_survives_a_restart(boot):
     assert [e["name"] for e in roster["entries"]] == ["김철수", "이영희", "최지은"]
     assert [e["entered"] for e in roster["entries"]] == [True, False, False]
     # 로그인 유지: 이메일·코드 없이 바로 입장, 닉네임은 같다
-    assert kim.get(f"/api/join/{token}/me").json() == {"state": "entered", "nickname": nickname, "classroom": "웹"}
+    assert kim.get(f"/api/join/{token}/me").json() == {"state": "entered", "nickname": nickname, "classroom": "웹", "classroom_id": cid}
     # 챌린지: 다시 뜨기 전에 받은 코드로 입장할 수 있다
     assert lee.post(f"/api/join/{token}/code", json={"email": "lee@x.kr", "code": lee_code}, headers=ORIGIN).status_code == 200
     # 입장 요청

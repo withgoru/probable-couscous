@@ -274,11 +274,14 @@ def my_state(granted: EnterGuard, request: Request, db: Db):
         membership = identity.membership_for(db, classroom_id, login.account_id, entry["id"], now)
         # 이 로그인은 끊긴 뒤에 만들어진 것이 확인됐으므로(_fresh_login) 그 로그인의 입장 기록이면 유효하다
         entered = student_login.verified_at(db, login.id, classroom_id) is not None
-    return {
+    state = {
         "state": "entered" if entered else "notice",
         "nickname": membership.nickname,
         "classroom": _classroom_name(db, classroom_id),
     }
+    if entered:
+        state["classroom_id"] = classroom_id  # 입장한 학생의 수업 화면이 수업 연결과 상태 API에 쓴다(002)
+    return state
 
 
 @router.post("/api/join/{token}/enter")
@@ -295,4 +298,9 @@ def enter_classroom(granted: EnterGuard, request: Request, db: Db):
         membership = identity.membership_for(db, classroom_id, login.account_id, entry["id"], now)
         identity.acknowledge_notice(db, membership.id, now)
         student_login.record_verification(db, login.id, classroom_id, membership.id, now)
-    return {"next": "entered", "nickname": membership.nickname, "classroom": _classroom_name(db, classroom_id)}
+    return {
+        "next": "entered",
+        "nickname": membership.nickname,
+        "classroom": _classroom_name(db, classroom_id),
+        "classroom_id": classroom_id,  # 수업 화면이 쓴다(002)
+    }

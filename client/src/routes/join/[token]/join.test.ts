@@ -11,6 +11,15 @@ vi.mock('#lib/api.js', async (original) => ({
 	enterClassroom: api.enterClassroom
 }));
 
+// 입장 뒤 수업 화면의 수업 연결은 열지 않는다(연결 없이 대기 머리말만 그려진다)
+const classLive = vi.hoisted(() => ({ connectClass: vi.fn() }));
+vi.mock('#lib/classLive.js', () => ({
+	connectClass: (id: number, options: unknown) => {
+		classLive.connectClass(id, options);
+		return { subscribe: () => () => {}, goto: vi.fn(), setMode: vi.fn(), reload: vi.fn(), stop: vi.fn() };
+	}
+}));
+
 import { ApiError } from '#lib/api.js';
 import JoinPage from './+page.svelte';
 
@@ -26,7 +35,8 @@ const ARCHIVED = '이 강좌는 보관되었습니다. 교수님께 문의해 �
 
 type JoinState =
 	| { state: 'login' }
-	| { state: 'notice' | 'entered'; nickname: string; classroom: string };
+	| { state: 'notice'; nickname: string; classroom: string }
+	| { state: 'entered'; nickname: string; classroom: string; classroom_id: number };
 const open = (section: string | null = '월수반', me: JoinState = { state: 'login' }) => ({
 	me: null,
 	token: 'tok',
@@ -443,14 +453,16 @@ describe('채팅 이용 안내에서 입장까지 (AC27, AC28)', () => {
 	});
 
 	it("'확인하고 입장'을 누르면 강좌 이름과 닉네임이 보이는 입장 완료 화면이 열린다", async () => {
-		api.enterClassroom.mockResolvedValue({ next: 'entered', nickname: '느긋한 고래', classroom: '웹 프로그래밍' });
+		api.enterClassroom.mockResolvedValue({ next: 'entered', nickname: '느긋한 고래', classroom: '웹 프로그래밍', classroom_id: 7 });
 		await toNotice();
 		await fireEvent.click(screen.getByRole('button', { name: '확인하고 입장' }));
 		const h1 = await screen.findByRole('heading', { level: 1, name: '웹 프로그래밍 · 월수반' });
 		expect(screen.getByText('입장했습니다')).toBeTruthy();
 		expect(screen.getByText('느긋한 고래')).toBeTruthy();
 		await waitFor(() => expect(document.activeElement).toBe(h1));
-		expect(screen.queryByRole('button')).toBeNull(); // 수업 화면(002)이 오기 전에는 할 일이 없다
+		expect(screen.queryByRole('button')).toBeNull(); // 수업을 불러오는 동안은 할 일이 없다
+		expect(screen.getByText('수업을 불러오는 중…')).toBeTruthy(); // 입장 뒤는 수업 화면이다(002)
+		expect(classLive.connectClass).toHaveBeenLastCalledWith(7, { role: 'student' }); // 서버가 알려 준 강좌로 붙는다
 	});
 
 	it('입장 확정 때 인증이 끝나 있으면 이메일 단계에서 이유를 보인다', async () => {
@@ -474,11 +486,12 @@ describe('로그인 유지와 다른 강좌 (AC35, AC37)', () => {
 	it('입장했던 기기로 다시 열면 이메일·코드 없이 입장 완료 화면이 바로 보인다 (AC35)', () => {
 		render(JoinPage, {
 			params: { token: 'tok' },
-			data: open('월수반', { state: 'entered', nickname: '느긋한 고래', classroom: '웹 프로그래밍' })
+			data: open('월수반', { state: 'entered', nickname: '느긋한 고래', classroom: '웹 프로그래밍', classroom_id: 7 })
 		});
 		expect(screen.getByRole('heading', { level: 1, name: '웹 프로그래밍 · 월수반' })).toBeTruthy(); // 안내 화면과 같은 이름(분반 포함)
 		expect(screen.getByText('느긋한 고래')).toBeTruthy();
 		expect(screen.queryByLabelText('이메일')).toBeNull();
+		expect(classLive.connectClass).toHaveBeenLastCalledWith(7, { role: 'student' });
 	});
 
 	it('다른 강좌에서 인증한 기기면 이메일·코드 없이 이 강좌의 채팅 이용 안내가 바로 보인다 (AC37)', () => {

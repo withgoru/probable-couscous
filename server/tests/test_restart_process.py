@@ -143,7 +143,7 @@ def test_c13_answered_writes_survive_a_killed_process(servers, tmp_path):
     prof, kim, lee = (b.client(cookies=c.cookies) for c in (prof, kim, lee))
     assert prof.get("/api/me").status_code == 200
     assert [e["name"] for e in prof.get(f"/api/classrooms/{cid}/roster").json()["entries"]] == ["김철수", "이영희"]
-    assert kim.get(f"/api/join/{token}/me").json() == {"state": "entered", "nickname": nickname, "classroom": "웹"}
+    assert kim.get(f"/api/join/{token}/me").json() == {"state": "entered", "nickname": nickname, "classroom": "웹", "classroom_id": cid}
     assert [r["name"] for r in prof.get(f"/api/classrooms/{cid}/join-requests").json()["requests"]] == ["박민수"]
     assert prof.get(f"/api/classrooms/{cid}/pending-auth").json()["items"][0]["code"] == pending_code
     assert lee.post(f"/api/join/{token}/code", json={"email": "lee@x.kr", "code": pending_code}).status_code == 200

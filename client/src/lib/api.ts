@@ -248,14 +248,18 @@ export function notifyProfessor(
 }
 
 /** 이 기기의 이 강좌 상태. login: 이메일 인증 필요, notice: 인증됨·안내 확인 전, entered: 입장함. */
-export type JoinState = { state: 'login' } | { state: 'notice' | 'entered'; nickname: string; classroom: string };
+export type JoinState =
+	| { state: 'login' }
+	| { state: 'notice'; nickname: string; classroom: string }
+	/** 입장했으면 수업 화면이 쓰는 강좌 번호도 온다(002). */
+	| { state: 'entered'; nickname: string; classroom: string; classroom_id: number };
 
 /** 로그인 유지 중인 기기면 이메일 없이 안내나 입장 완료로 간다(AC35, AC37). 링크를 연 뒤(기기 쿠키를 받은 뒤)에 부른다. */
 export function fetchJoinState(token: string, fetchFn: FetchFn = fetch): Promise<JoinState> {
 	return getJson<JoinState>(fetchFn, joinUrl(token, '/me'));
 }
 
-export type Entered = { next: 'entered'; nickname: string; classroom: string };
+export type Entered = { next: 'entered'; nickname: string; classroom: string; classroom_id: number };
 
 /** '확인하고 입장'(AC28). 채팅 이용 안내를 확인했다고 기록하고 이 기기를 이 강좌에 입장한 기기로 남긴다. */
 export function enterClassroom(token: string, fetchFn: FetchFn = fetch): Promise<Entered> {
@@ -486,4 +490,23 @@ export async function retractItem(
 /** 수업 종료(AC37). 회차가 '종료'가 된다. 이미 끝났으면 그대로 돌려준다. */
 export function endSession(classroomId: number, sessionId: number, fetchFn: FetchFn = fetch): Promise<StartedSession> {
 	return postSession(fetchFn, `/api/classrooms/${classroomId}/sessions/${sessionId}/end`);
+}
+
+// --- 학생 수업 화면(002) ---------------------------------------------------------------------
+
+export type ClassSessionSummary = {
+	id: number;
+	title: string;
+	status: 'scheduled' | 'live' | 'ended';
+	started_at: string | null;
+	ended_at: string | null;
+	deck: { id: number; slide_count: number; available: boolean } | null;
+};
+
+/** 강좌의 회차 목록(class.view). 학생에게는 진행 중과 종료 회차만, 진행 중이 먼저, 그다음 최근에 끝난 것부터 온다. */
+export function fetchClassSessions(
+	classroomId: number,
+	fetchFn: FetchFn = fetch
+): Promise<{ items: ClassSessionSummary[]; live_session_id: number | null }> {
+	return getJson(fetchFn, `/api/class/${classroomId}/sessions`);
 }
