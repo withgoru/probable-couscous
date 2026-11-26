@@ -49,13 +49,15 @@ export default defineRootSetup(() => {
   style.textContent = HIDE_CONTROLS
   document.head.appendChild(style)
 
-  let allowed = false
+  // 부모가 지시한 이동이 진행 중인 수. 지시가 겹쳐도(교수가 빠르게 두 번 넘김) 앞의 것이 끝나며 뒤의 것을 막지 않게
+  // 참/거짓 하나가 아니라 수로 센다
+  let ordered = 0
   let limit: Position | null = null
 
   const current = (): Position => ({ slide: nav.currentSlideNo.value, click: nav.clicks.value })
 
   nav.router.beforeEach((to) => {
-    if (allowed)
+    if (ordered > 0)
       return true
     const target = targetOf(to.path, to.query)
     const here = current()
@@ -69,12 +71,12 @@ export default defineRootSetup(() => {
     let target = { slide: Math.max(1, Math.floor(position.slide)), click: Math.max(0, Math.floor(position.click)) }
     if (limit && before(limit, target))
       target = { ...limit }
-    allowed = true
+    ordered += 1
     try {
       await nav.go(target.slide, target.click, true)
     }
     finally {
-      allowed = false
+      ordered -= 1
     }
   }
 

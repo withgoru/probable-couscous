@@ -81,8 +81,8 @@ def test_confirming_enters_and_me_shows_the_classroom_and_nickname(world):
     _, cid, token, student, nickname = verified_student(world)
     res = enter(student, token)
     assert res.status_code == 200
-    assert res.json() == {"next": "entered", "nickname": nickname, "classroom": "웹"}
-    assert me(student, token).json() == {"state": "entered", "nickname": nickname, "classroom": "웹"}
+    assert res.json() == {"next": "entered", "nickname": nickname, "classroom": "웹", "classroom_id": cid}
+    assert me(student, token).json() == {"state": "entered", "nickname": nickname, "classroom": "웹", "classroom_id": cid}
     (v,) = rows(world, "classroom_verifications")
     login = rows(world, "device_logins")[0]
     membership = rows(world, "memberships")[0]
@@ -120,12 +120,12 @@ def test_me_sets_no_cookies_and_enter_sets_none_either(world):
 
 
 def test_with_keep_login_the_same_device_enters_again_without_a_code_for_as_long_as_the_classroom_is_active(world):
-    _, _cid, token, student, nickname = verified_student(world, keep_login=True)
+    _, cid, token, student, nickname = verified_student(world, keep_login=True)
     enter(student, token)
     for days in (1, 30, 200):
         world.clock.advance(days=days)
         back = reopen(world, student)  # 브라우저를 닫았다 다시 열어도
-        assert me(back, token).json() == {"state": "entered", "nickname": nickname, "classroom": "웹"}
+        assert me(back, token).json() == {"state": "entered", "nickname": nickname, "classroom": "웹", "classroom_id": cid}
     assert len(rows(world, "login_challenges")) == 1  # 새 코드를 받지 않았다
 
 

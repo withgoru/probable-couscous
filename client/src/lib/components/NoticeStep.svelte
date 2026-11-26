@@ -15,7 +15,7 @@
 		token: string;
 		classroom: string;
 		nickname: string;
-		onEntered: (result: { nickname: string; classroom: string }) => void;
+		onEntered: (result: { nickname: string; classroom: string; classroom_id: number }) => void;
 		onClosed: (message: string) => void; // 보관됐거나 명단에서 빠졌거나 링크가 폐기됐다
 		onNeedLogin: (message: string) => void; // 그사이 로그인이 끊겼거나 끝났다
 	} = $props();
@@ -35,7 +35,7 @@
 		problem = null;
 		try {
 			const res = await enterClassroom(token);
-			onEntered({ nickname: res.nickname, classroom: res.classroom });
+			onEntered({ nickname: res.nickname, classroom: res.classroom, classroom_id: res.classroom_id });
 		} catch (e) {
 			if (e instanceof ApiError && e.status === 401) onNeedLogin(e.message);
 			else if (e instanceof ApiError && (e.status === 403 || e.status === 404)) onClosed(e.message);

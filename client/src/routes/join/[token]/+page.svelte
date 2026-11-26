@@ -4,8 +4,8 @@
 	import AccessRequestForm from '#lib/components/AccessRequestForm.svelte';
 	import CodeStep from '#lib/components/CodeStep.svelte';
 	import Icon from '#lib/components/Icon.svelte';
-	import NicknameCard from '#lib/components/NicknameCard.svelte';
 	import NoticeStep from '#lib/components/NoticeStep.svelte';
+	import StudentClass from '#lib/components/StudentClass.svelte';
 	import type { PageProps } from './$types';
 
 	// 학생 입장 1: 이메일 단계, 링크 상태, 입장 요청(AC10, AC22, AC24, AC38, AC39, AC42, AC43).
@@ -28,6 +28,8 @@
 	let waitSeconds = $state(60); // 코드 다시 받기까지 남은 초
 	let codeKey = $state(0); // 이메일을 다시 보내면 코드 단계를 새로 시작한다
 	let nickname = $state(startingMe().state === 'login' ? '' : (startingMe() as { nickname: string }).nickname);
+	// 입장하면 서버가 알려 주는 강좌 번호. 수업 화면이 수업 연결과 상태에 쓴다(002)
+	let classroomId = $state<number | null>(startingMe().state === 'entered' ? (startingMe() as { classroom_id: number }).classroom_id : null);
 	let emailError = $state<string | null>(null);
 	let formError = $state<string | null>(null);
 	let sending = $state(false);
@@ -119,8 +121,9 @@
 		go('email', 'email');
 	}
 
-	async function onEntered(res: { nickname: string; classroom: string }) {
+	async function onEntered(res: { nickname: string; classroom: string; classroom_id: number }) {
 		nickname = res.nickname; // 강좌는 안내 화면과 같은 이름(분반 포함)으로 보인다
+		classroomId = res.classroom_id;
 		await go('entered');
 	}
 
@@ -245,15 +248,9 @@
 			onClosed={(message) => (closedLater = message)}
 			{onNeedLogin}
 		/>
-	{:else if step === 'entered'}
-		<!-- 입장 완료(AC28). 수업 화면(출석, 슬라이드, 채팅)은 002~004에서 이 자리에 이어진다 -->
-		<div class="flex flex-col gap-1">
-			<span class="flex items-center gap-1.5 text-sm font-medium text-success-text">
-				<Icon name="check" class="size-4" />입장했습니다
-			</span>
-			<h1 tabindex="-1" class="text-2xl leading-tight font-bold break-all outline-none">{title}</h1>
-		</div>
-		<NicknameCard {nickname} />
+	{:else if step === 'entered' && classroomId !== null}
+		<!-- 입장 완료(001 AC28) 뒤는 수업 화면이다: 수업이 없으면 대기, 있으면 슬라이드와 자료(002) -->
+		<StudentClass {classroomId} title={title ?? ''} {nickname} />
 	{:else if step === 'result' && result}
 		<h1 tabindex="-1" class="text-2xl leading-tight font-bold outline-none">입장 요청</h1>
 		{@render noticeBox(result)}
