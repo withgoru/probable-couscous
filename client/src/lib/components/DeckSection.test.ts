@@ -18,7 +18,8 @@ const DECK: SessionDeck = {
 	slide_count: 12,
 	size_bytes: 1024,
 	uploaded_at: '2026-03-04T05:05:00+00:00',
-	available: true
+	available: true,
+	public: false
 };
 const session = (status: ClassSession['status'], deck: SessionDeck | null = DECK): ClassSession => ({
 	id: 3,

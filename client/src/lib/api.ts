@@ -1,3 +1,6 @@
+import { withLimit, type LiveState, type ServerState } from './classLive';
+
+
 export type Me = { github_id: number; login: string };
 
 type FetchFn = typeof fetch;
@@ -344,6 +347,8 @@ export type SessionDeck = {
 	size_bytes: number;
 	uploaded_at: string;
 	available: boolean;
+	/** 학생에게 공개(AC47). 새로 올린 묶음은 비공개다. */
+	public: boolean;
 };
 export type ClassSession = {
 	id: number;
@@ -500,7 +505,7 @@ export type ClassSessionSummary = {
 	status: 'scheduled' | 'live' | 'ended';
 	started_at: string | null;
 	ended_at: string | null;
-	deck: { id: number; slide_count: number; available: boolean } | null;
+	deck: { id: number; slide_count: number; available: boolean; public: boolean } | null;
 };
 
 /** 강좌의 회차 목록(class.view). 학생에게는 진행 중과 종료 회차만, 진행 중이 먼저, 그다음 최근에 끝난 것부터 온다. */
@@ -516,6 +521,6 @@ export function fetchClassLive(
 	classroomId: number,
 	sessionId: number,
 	fetchFn: FetchFn = fetch
-): Promise<import('./classLive').LiveState> {
-	return getJson(fetchFn, `/api/class/${classroomId}/sessions/${sessionId}/live`);
+): Promise<LiveState> {
+	return getJson<ServerState>(fetchFn, `/api/class/${classroomId}/sessions/${sessionId}/live`).then(withLimit);
 }

@@ -1,8 +1,8 @@
 """002 T013(C13): 수업 중에 서버 프로세스가 갑자기 죽어도(SIGKILL) 수업 상태가 그대로 남는다.
 
 001 `test_restart_process.py`와 같이 실제 uvicorn 프로세스를 띄워 수업을 시작하고, WebSocket으로 넘기고, 보내고 거둔
-뒤 강제로 죽인다. 같은 DB로 새 프로세스를 띄우면 진행 중 회차, 현재와 가장 멀리 간 위치, 항목과 거둔 상태, `version`이
-그대로이고 수업을 이어 갈 수 있다.
+뒤 강제로 죽인다. 같은 DB로 새 프로세스를 띄우면 진행 중 회차, 현재 위치, 묶음의 공개 여부, 항목과 거둔 상태,
+`version`이 그대로이고 수업을 이어 갈 수 있다.
 """
 
 import json
@@ -90,14 +90,15 @@ def test_c13_a_class_survives_a_killed_process(servers, tmp_path):  # noqa: F811
 
     with socket(a, prof, cid) as ws:
         goto(ws, sid, 3, 1, "a")
-        assert goto(ws, sid, 2, 0, "b")["version"] == 3  # 되돌아왔다: 가장 멀리 간 위치는 3번·1단계
+        assert goto(ws, sid, 2, 0, "b")["version"] == 3  # 되돌아왔다
     kept = prof.post(f"/api/classrooms/{cid}/sessions/{sid}/items", json={"body": "과제", "client_key": "k1"}).json()
     gone = prof.post(
         f"/api/classrooms/{cid}/sessions/{sid}/items", json={"url": "https://example.com/x", "client_key": "k2"}
     ).json()
     assert prof.post(f"/api/classrooms/{cid}/sessions/{sid}/items/{gone['item']['id']}/retract").status_code == 200
+    assert prof.put(f"/api/classrooms/{cid}/sessions/{sid}/deck/visibility", json={"public": True}).status_code == 200
     before = prof.get(f"/api/class/{cid}/sessions/{sid}/live").json()
-    assert before["session"]["version"] == 6
+    assert before["session"]["version"] == 7
 
     a.kill()  # 답을 받은 뒤 바로 죽인다. 종료 처리는 없다
     b = Process(port, db)
@@ -108,7 +109,7 @@ def test_c13_a_class_survives_a_killed_process(servers, tmp_path):  # noqa: F811
     assert after == before  # 상태 전체가 그대로다
     assert after["session"]["status"] == "live"
     assert after["current"] == {"slide": 2, "click": 0}
-    assert after["furthest"] == {"slide": 3, "click": 1}
+    assert after["deck"]["public"] is True
     assert [(i["id"], i["retracted_at"] is not None) for i in after["items"]] == [
         (kept["item"]["id"], False),
         (gone["item"]["id"], True),
@@ -117,10 +118,9 @@ def test_c13_a_class_survives_a_killed_process(servers, tmp_path):  # noqa: F811
 
     seen = student.get(f"/api/class/{cid}/sessions/{sid}/live").json()
     assert [i["id"] for i in seen["items"]] == [kept["item"]["id"]]  # 거둔 항목은 다시 나타나지 않는다
-    assert seen["limit"] == {"slide": 3, "click": 1}
     assert student.get(f"/decks/{deck_id}/index.html").status_code == 200
 
     # 수업을 그대로 이어 간다: 새 프로세스의 WebSocket으로 넘기면 학생이 받고, 버전은 이어서 오른다
     with socket(b, prof, cid) as teacher, socket(b, student, cid) as phone:
-        assert goto(teacher, sid, 4, 0, "c")["version"] == 7
-        assert until(phone, "position")["furthest"] == {"slide": 4, "click": 0}
+        assert goto(teacher, sid, 4, 0, "c")["version"] == 8
+        assert until(phone, "position")["current"] == {"slide": 4, "click": 0}

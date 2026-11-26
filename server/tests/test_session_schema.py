@@ -61,7 +61,7 @@ def test_new_session_starts_scheduled_at_the_first_slide(db):
     c = make_classroom(db)
     s = db.execute("SELECT * FROM class_sessions WHERE id = ?", (make_session(db, c),)).fetchone()
     assert s["status"] == "scheduled"
-    assert (s["current_slide"], s["current_click"], s["furthest_slide"], s["furthest_click"]) == (1, 0, 1, 0)
+    assert (s["current_slide"], s["current_click"]) == (1, 0)
     assert s["version"] == 0
     assert s["first_started_at"] is None and s["started_at"] is None and s["ended_at"] is None
 
@@ -95,20 +95,20 @@ def test_session_status_only_accepts_known_values(db):
         make_session(db, c, status="paused")
 
 
-def test_positions_are_valid_and_furthest_never_behind_current(db):
+def test_positions_are_valid(db):
     c = make_classroom(db)
     s = make_session(db, c)
-    db.execute(
-        "UPDATE class_sessions SET current_slide = 2, current_click = 1, furthest_slide = 4, furthest_click = 0 WHERE id = ?",
-        (s,),
-    )  # 교수가 4번까지 갔다가 2번으로 돌아옴
-    for current, furthest in [((0, 0), (1, 0)), ((1, -1), (1, 0)), ((3, 0), (2, 5)), ((2, 2), (2, 1))]:
+    db.execute("UPDATE class_sessions SET current_slide = 4, current_click = 2 WHERE id = ?", (s,))
+    db.execute("UPDATE class_sessions SET current_slide = 2, current_click = 0 WHERE id = ?", (s,))  # 되돌아가도 된다
+    for current in [(0, 0), (1, -1)]:
         with pytest.raises(sqlite3.IntegrityError):
-            db.execute(
-                "UPDATE class_sessions SET current_slide = ?, current_click = ?, furthest_slide = ?, furthest_click = ? "
-                "WHERE id = ?",
-                (*current, *furthest, s),
-            )
+            db.execute("UPDATE class_sessions SET current_slide = ?, current_click = ? WHERE id = ?", (*current, s))
+
+
+def test_sessions_have_no_furthest_position(db):
+    # 2026-11-26 스펙 변경: 가장 멀리 간 위치는 없다(0003)
+    columns = {r["name"] for r in db.execute("PRAGMA table_info(class_sessions)")}
+    assert "furthest_slide" not in columns and "furthest_click" not in columns
 
 
 # --- 슬라이드 묶음 ---------------------------------------------------------------------
@@ -129,6 +129,18 @@ def test_deck_must_belong_to_a_session_of_the_same_classroom(db):
     session_in_a = make_session(db, a)
     with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
         make_deck(db, b, session_in_a)
+
+
+def test_a_new_deck_is_private_and_public_is_0_or_1(db):
+    # AC47: 새로 올린 묶음은 비공개다(0003)
+    c = make_classroom(db)
+    s = make_session(db, c)
+    d = make_deck(db, c, s)
+    assert db.execute("SELECT public FROM decks WHERE id = ?", (d,)).fetchone()["public"] == 0
+    db.execute("UPDATE decks SET public = 1 WHERE id = ?", (d,))
+    for bad in (2, -1, None):
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute("UPDATE decks SET public = ? WHERE id = ?", (bad, d))
 
 
 def test_deck_needs_at_least_one_slide(db):
@@ -185,3 +197,37 @@ def test_migrations_apply_again_without_change(db):
     migrate(db, MIGRATIONS_DIR, ManualClock(datetime(2026, 3, 2, 9, tzinfo=UTC)))
     after = db.execute("SELECT sql FROM sqlite_master ORDER BY name").fetchall()
     assert [r[0] for r in before] == [r[0] for r in after]
+
+
+def test_upgrading_from_0002_keeps_sessions_decks_and_items(tmp_path):
+    # 0003은 class_sessions를 다시 만든다. 이미 있던 회차·묶음·항목과 그 연결이 그대로 남는다
+    import shutil
+
+    old = tmp_path / "old"
+    old.mkdir()
+    for name in ("0001_core_schema.sql", "0002_class_sessions.sql"):
+        shutil.copy(MIGRATIONS_DIR / name, old / name)
+    clock = ManualClock(datetime(2026, 3, 1, 9, tzinfo=UTC))
+    conn = connect(tmp_path / "app.db")
+    migrate(conn, old, clock)
+    c = make_classroom(conn)
+    live = make_session(conn, c, "1회차", 1, "live")
+    conn.execute(
+        "UPDATE class_sessions SET current_slide = 2, current_click = 1, furthest_slide = 3, version = 7 WHERE id = ?",
+        (live,),
+    )
+    ended = make_session(conn, c, "2회차", 2, "ended")
+    deck = make_deck(conn, c, live)
+    item = make_item(conn, c, live)
+    assert migrate(conn, MIGRATIONS_DIR, clock) == ["0003_deck_visibility"]
+    row = conn.execute("SELECT * FROM class_sessions WHERE id = ?", (live,)).fetchone()
+    assert (row["status"], row["current_slide"], row["current_click"], row["version"]) == ("live", 2, 1, 7)
+    assert conn.execute("SELECT status FROM class_sessions WHERE id = ?", (ended,)).fetchone()["status"] == "ended"
+    assert conn.execute("SELECT session_id, public FROM decks WHERE id = ?", (deck,)).fetchone()["public"] == 0
+    assert conn.execute("SELECT session_id FROM session_items WHERE id = ?", (item,)).fetchone()["session_id"] == live
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    with pytest.raises(sqlite3.IntegrityError):
+        make_session(conn, c, "3회차", 3, "live")  # 강좌당 진행 중 하나는 그대로 지킨다
+    with pytest.raises(sqlite3.IntegrityError):
+        make_deck(conn, c, 999)  # 회차를 가리키는 외래 키도 그대로다
+    conn.close()

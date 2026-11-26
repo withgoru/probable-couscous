@@ -61,9 +61,8 @@ import LivePage from './+page.svelte';
 const CLASSROOM = { id: 7, name: '웹 프로그래밍', section_name: '월수반', status: 'active', student_count: 40, session_count: 3, created_at: 'x' } as const;
 const STATE: LiveState = {
 	session: { id: 5, title: '3주차 1회차', status: 'live', version: 3, started_at: '2026-03-04T05:00:00+00:00' },
-	deck: { id: 9, slide_count: 4, available: true },
+	deck: { id: 9, slide_count: 4, available: true, public: false },
 	current: { slide: 2, click: 0 },
-	furthest: { slide: 2, click: 0 },
 	limit: { slide: 2, click: 0 },
 	items: []
 };
@@ -200,7 +199,7 @@ describe('슬라이드, 다음 슬라이드, 노트 (AC13, AC16)', () => {
 			.mockReturnValueOnce(new Promise((r) => (oldAnswer = r)))
 			.mockResolvedValueOnce({ ...NOTES, deck_id: 10, slides: NOTES.slides.map((s) => ({ ...s, note: `새 ${s.note}` })) });
 		await open();
-		await server(snapshot({ state: { ...STATE, deck: { id: 10, slide_count: 4, available: true } } }));
+		await server(snapshot({ state: { ...STATE, deck: { id: 10, slide_count: 4, available: true, public: false } } }));
 		await waitFor(() => expect(screen.getByText('새 노트 2: 하나씩 보여 준다')).toBeTruthy());
 		await act(() => oldAnswer(NOTES));
 		expect(screen.queryByText('노트 2: 하나씩 보여 준다')).toBeNull();
@@ -214,7 +213,7 @@ describe('슬라이드, 다음 슬라이드, 노트 (AC13, AC16)', () => {
 			.mockReturnValueOnce(new Promise((_, reject) => (oldFail = reject)))
 			.mockResolvedValueOnce(NOTES);
 		await open();
-		await server(snapshot({ state: { ...STATE, deck: { id: 10, slide_count: 4, available: true } } }));
+		await server(snapshot({ state: { ...STATE, deck: { id: 10, slide_count: 4, available: true, public: false } } }));
 		await waitFor(() => expect(screen.getByText('노트 2: 하나씩 보여 준다')).toBeTruthy());
 		await act(() => oldFail(new Error('늦은 실패')));
 		expect(screen.queryByText('발표자 노트를 불러오지 못했습니다.')).toBeNull();
@@ -242,7 +241,7 @@ describe('슬라이드, 다음 슬라이드, 노트 (AC13, AC16)', () => {
 	});
 
 	it('묶음이 열리지 않으면 슬라이드를 열 수 없다고 알린다', async () => {
-		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false } } }));
+		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false, public: false } } }));
 		expect(screen.getByRole('alert').textContent).toContain('슬라이드를 열 수 없습니다. 메시지·자료 보내기는 계속 쓸 수 있습니다.'); // 오류 동작 문구
 		expect(screen.queryByTitle('현재 슬라이드')).toBeNull();
 	});
@@ -458,7 +457,7 @@ describe('메시지·자료 보내기 탭 (AC31, C12)', () => {
 		await open(snapshot({ state: { ...STATE, deck: null } }));
 		expect(screen.getByRole('region', { name: '메시지·자료 보내기' })).toBeTruthy();
 		cleanup();
-		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false } } }));
+		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false, public: false } } }));
 		expect(screen.getByRole('region', { name: '메시지·자료 보내기' })).toBeTruthy();
 	});
 
@@ -617,7 +616,7 @@ describe('동기화 현황 (AC15, C7)', () => {
 		await open(snapshot({ state: { ...STATE, deck: null } }));
 		expect(screen.getByText('따라가는 중 30명 · 직접 넘겨 보는 중 4명').closest('[aria-label="슬라이드"]')).toBeTruthy();
 		cleanup();
-		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false } } }));
+		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false, public: false } } }));
 		expect(screen.getByText('따라가는 중 30명 · 직접 넘겨 보는 중 4명')).toBeTruthy();
 	});
 });

@@ -399,7 +399,7 @@ describe('회차 API (002 AC1~AC4)', () => {
 });
 
 describe('슬라이드 묶음과 수업 시작 API (002 AC5~AC10, AC40)', () => {
-	const DECK = { id: 9, original_name: '3주차.zip', slide_count: 12, size_bytes: 100, uploaded_at: 'x', available: true };
+	const DECK = { id: 9, original_name: '3주차.zip', slide_count: 12, size_bytes: 100, uploaded_at: 'x', available: true, public: false };
 
 	it('묶음은 zip 본문 그대로 PUT하고 파일 이름은 주소에 붙인다', async () => {
 		const fetch = vi.fn(() => json(200, { deck: DECK }));
@@ -496,5 +496,14 @@ describe('회차 상태 API (002 AC39)', () => {
 		const fetch = vi.fn(() => json(200, { session: { id: 4 } }));
 		expect((await fetchClassLive(7, 4, fetch)).session.id).toBe(4);
 		expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('/api/class/7/sessions/4/live');
+	});
+
+	it('서버가 보내지 않는 볼 수 있는 끝을 채운다', async () => {
+		const deck = { id: 8, slide_count: 6, available: true, public: true };
+		const body = { session: { id: 4 }, deck, current: { slide: 2, click: 1 }, items: [] };
+		expect((await fetchClassLive(7, 4, vi.fn(() => json(200, body)))).limit).toEqual({ slide: 6, click: null });
+		const closed = { ...body, deck: { ...deck, public: false } };
+		expect((await fetchClassLive(7, 4, vi.fn(() => json(200, closed)))).limit).toEqual({ slide: 2, click: 1 });
+		expect((await fetchClassLive(7, 4, vi.fn(() => json(200, { ...body, deck: null })))).limit).toEqual({ slide: 1, click: null });
 	});
 });

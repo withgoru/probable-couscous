@@ -29,9 +29,8 @@ import ReplayView from './ReplayView.svelte';
 
 const ENDED: LiveState = {
 	session: { id: 4, title: '2주차 2회차', status: 'ended', version: 9 },
-	deck: { id: 8, slide_count: 4, available: true },
+	deck: { id: 8, slide_count: 4, available: true, public: false },
 	current: { slide: 2, click: 1 },
-	furthest: { slide: 3, click: 0 },
 	limit: { slide: 3, click: 0 },
 	items: [
 		{ id: 1, body: '첫 자료', url: null, created_at: '2026-02-26T05:01:00+00:00' },
@@ -131,7 +130,7 @@ describe('지난 회차 다시 보기 (AC39)', () => {
 		expect(await screen.findByText('이 회차는 슬라이드 없이 진행했습니다.')).toBeTruthy();
 		expect(screen.getByRole('list', { name: '자료' })).toBeTruthy();
 		cleanup();
-		api.fetchClassLive.mockResolvedValue({ ...structuredClone(ENDED), deck: { id: 8, slide_count: 4, available: false } });
+		api.fetchClassLive.mockResolvedValue({ ...structuredClone(ENDED), deck: { id: 8, slide_count: 4, available: false, public: false } });
 		mount();
 		expect(await screen.findByText('슬라이드를 열 수 없습니다. 자료는 계속 볼 수 있습니다.')).toBeTruthy();
 	});

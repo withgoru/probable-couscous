@@ -129,6 +129,57 @@ def test_failing_migration_leaves_no_trace_and_stops_later_ones(conn, tmp_path):
     assert versions == ["0001_ok"]
 
 
+# --- 표 다시 만들기: 외래 키를 잠시 끄는 마이그레이션 ---------------------------------------
+# CHECK에 걸린 열은 DROP COLUMN이 안 되어 표를 다시 만들어야 한다. 자식 표가 가리키는 표는 외래 키를 켠 채로는
+# 다시 만들 수 없다(SQLite 안내: 끄고, 다시 만들고, foreign_key_check로 확인하고, 켠다)
+
+FK_OFF = "-- migrate: foreign_keys=off\n"
+PARENT = """
+CREATE TABLE p(id INTEGER PRIMARY KEY, a INTEGER, f INTEGER, CHECK (f >= a));
+CREATE TABLE ch(id INTEGER PRIMARY KEY, pid INTEGER NOT NULL REFERENCES p(id));
+INSERT INTO p VALUES (1, 1, 1), (2, 1, 3);
+INSERT INTO ch VALUES (1, 1), (2, 2);
+"""
+REBUILD = """
+CREATE TABLE p_new(id INTEGER PRIMARY KEY, a INTEGER);
+INSERT INTO p_new SELECT id, a FROM p;
+DROP TABLE p;
+ALTER TABLE p_new RENAME TO p;
+"""
+
+
+def test_marked_migration_rebuilds_a_parent_table(conn, tmp_path):
+    d = tmp_path / "m"
+    write(d, "0001_base.sql", PARENT)
+    write(d, "0002_rebuild.sql", FK_OFF + REBUILD)
+    assert migrate(conn, d, CLOCK) == ["0001_base", "0002_rebuild"]
+    assert [r["name"] for r in conn.execute("PRAGMA table_info(p)")] == ["id", "a"]
+    assert [tuple(r) for r in conn.execute("SELECT * FROM ch ORDER BY id")] == [(1, 1), (2, 2)]
+    assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1  # 다시 켜져 있다
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO ch VALUES (3, 99)")  # 다시 만든 표도 외래 키로 지킨다
+
+
+def test_without_the_mark_a_parent_table_cannot_be_rebuilt(conn, tmp_path):
+    d = tmp_path / "m"
+    write(d, "0001_base.sql", PARENT)
+    write(d, "0002_rebuild.sql", REBUILD)
+    with pytest.raises(MigrationError, match="0002_rebuild"):
+        migrate(conn, d, CLOCK)
+    assert [r["name"] for r in conn.execute("PRAGMA table_info(p)")] == ["id", "a", "f"]  # 그대로
+
+
+def test_marked_migration_that_breaks_a_foreign_key_is_rolled_back(conn, tmp_path):
+    d = tmp_path / "m"
+    write(d, "0001_base.sql", PARENT)
+    write(d, "0002_lose_rows.sql", FK_OFF + REBUILD.replace("SELECT id, a FROM p", "SELECT id, a FROM p WHERE id = 1"))
+    with pytest.raises(MigrationError, match="0002_lose_rows.*외래 키"):
+        migrate(conn, d, CLOCK)
+    assert conn.execute("SELECT count(*) FROM p").fetchone()[0] == 2  # 아무것도 바뀌지 않았다
+    assert [r["version"] for r in conn.execute("SELECT version FROM schema_migrations")] == ["0001_base"]
+    assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+
+
 def test_editing_an_applied_migration_is_refused(conn, tmp_path):
     d = tmp_path / "m"
     write(d, "0001_a.sql", "CREATE TABLE a(id INTEGER);")
