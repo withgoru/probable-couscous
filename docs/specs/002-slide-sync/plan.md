@@ -1,6 +1,6 @@
 ---
 spec: 002-slide-sync
-status: approved        # draft | approved | stale
+status: draft        # draft | approved | stale
 updated: 2026-11-26
 ---
 
@@ -42,7 +42,7 @@ updated: 2026-11-26
 
 ## 데이터 모델 변경
 
-마이그레이션 `0002_class_sessions.sql`. 공개·비공개(2026-11-26 스펙 변경)는 `0003_deck_visibility.sql`에서 `decks.public`(0/1, 기본 0)을 더하고 `class_sessions.furthest_slide`, `furthest_click`을 지운다(SQLite `DROP COLUMN`). 세 표 모두 강좌 소속이라 `classroom_id`를 가진다(C5). 학생을 가리키는 열이 없다(C7).
+마이그레이션 `0002_class_sessions.sql`. 공개·비공개(2026-11-26 스펙 변경)는 `0003_deck_visibility.sql`에서 `decks.public`(0/1, 기본 0)을 더하고 `class_sessions.furthest_slide`, `furthest_click`을 지운다. 두 열이 CHECK(현재 위치보다 앞일 수 없음)에 걸려 있어 SQLite `DROP COLUMN`이 안 되므로 `class_sessions`를 새로 만들어 옮긴다(열·기본값·CHECK·색인은 0002와 같다). 이 표는 `decks`와 `session_items`가 가리켜 외래 키를 켠 채로는 다시 만들 수 없어, 마이그레이션 실행기(`db.migrate`)가 첫 줄이 `-- migrate: foreign_keys=off`인 파일을 외래 키를 끄고 돌린다. 끝나기 전에 `foreign_key_check`로 어긋난 행이 없는지 확인해 있으면 되돌리고, 성공·실패와 관계없이 외래 키를 다시 켠다. 다른 표가 가리키는 표를 다시 만들 때 같은 방법을 쓴다(T032). 세 표 모두 강좌 소속이라 `classroom_id`를 가진다(C5). 학생을 가리키는 열이 없다(C7).
 
 - `class_sessions`: `id`, `classroom_id`, `name`, `sort_order`, `status`(scheduled/live/ended), `deck_id`(비어 있을 수 있음), `current_slide`, `current_click`, `version`, `first_started_at`(AC8 "진행 회차"와 AC4 삭제 가능 여부), `started_at`, `ended_at`, `created_at`. 부분 고유 색인: 강좌당 `status='live'` 하나(AC10, 경쟁 상태도 DB가 막는다).
 - `decks`: `id`, `classroom_id`, `session_id`, `original_name`, `slide_count`(노트 파일 기준), `size_bytes`, `public`, `uploaded_at`, `removed_at`. 올리거나 바꾸면 새 행이라 `public=0`으로 시작한다(AC47, AC41). 파일은 `DATA_DIR/decks/{classroom_id}/{id}/`. 묶음 행은 바꾸지 않고, 지우면 `removed_at`을 쓰고 파일을 지운다.
@@ -60,7 +60,7 @@ updated: 2026-11-26
 - HTTP, 교수:
   - `GET/POST /classrooms/{id}/sessions`, `PATCH/DELETE /classrooms/{id}/sessions/{s}`
   - `PUT /classrooms/{id}/sessions/{s}/deck`(zip 업로드), `DELETE …/deck`, `GET …/deck/notes`
-  - `PUT …/deck/visibility {public}`(회차 상태와 관계없이, AC47). DB에 쓰고 `events`에 남긴 뒤 회차 `version`을 올리고 `deck.updated`를 발행한다(AC48)
+  - `PUT …/deck/visibility {public}`(회차 상태와 관계없이, AC47). DB에 쓰고 `events`에 남긴 뒤 회차 `version`을 올리고 `deck.updated`를 발행한다(AC48). 스위치는 관리 페이지의 '이 회차의 자료'에만 두고 교수 수업 화면에는 두지 않는다(사용자 결정 2026-11-26)
   - `POST …/sessions/{s}/start`, `POST …/end`, `POST …/resume` (진행 중인 다른 회차가 있으면 409와 그 회차 번호)
   - `POST …/sessions/{s}/items`(`client_key` 포함), `POST …/items/{i}/retract`
 - HTTP, 교수와 학생(`class.view`):

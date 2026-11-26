@@ -1,6 +1,6 @@
 ---
 spec: 002-slide-sync
-status: approved        # draft | approved | stale
+status: stale        # draft | approved | stale
 updated: 2026-11-26
 ---
 
