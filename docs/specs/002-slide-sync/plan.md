@@ -1,6 +1,6 @@
 ---
 spec: 002-slide-sync
-status: approved        # draft | approved | stale
+status: draft        # draft | approved | stale
 updated: 2026-11-26
 ---
 
@@ -42,7 +42,7 @@ updated: 2026-11-26
 
 ## 데이터 모델 변경
 
-마이그레이션 `0002_class_sessions.sql`. 공개·비공개(2026-11-26 스펙 변경)는 `0003_deck_visibility.sql`에서 `decks.public`(0/1, 기본 0)을 더하고 `class_sessions.furthest_slide`, `furthest_click`을 지운다(SQLite `DROP COLUMN`). 세 표 모두 강좌 소속이라 `classroom_id`를 가진다(C5). 학생을 가리키는 열이 없다(C7).
+마이그레이션 `0002_class_sessions.sql`. 공개·비공개(2026-11-26 스펙 변경)는 `0003_deck_visibility.sql`에서 `decks.public`(0/1, 기본 0)을 더하고 `class_sessions.furthest_slide`, `furthest_click`을 지운다. 두 열이 CHECK(현재 위치보다 앞일 수 없음)에 걸려 있어 SQLite `DROP COLUMN`이 안 되므로 `class_sessions`를 새로 만들어 옮긴다(열·기본값·CHECK·색인은 0002와 같다). 이 표는 `decks`와 `session_items`가 가리켜 외래 키를 켠 채로는 다시 만들 수 없어, 마이그레이션 실행기(`db.migrate`)가 첫 줄이 `-- migrate: foreign_keys=off`인 파일을 외래 키를 끄고 돌린다. 끝나기 전에 `foreign_key_check`로 어긋난 행이 없는지 확인해 있으면 되돌리고, 성공·실패와 관계없이 외래 키를 다시 켠다. 다른 표가 가리키는 표를 다시 만들 때 같은 방법을 쓴다(T032). 세 표 모두 강좌 소속이라 `classroom_id`를 가진다(C5). 학생을 가리키는 열이 없다(C7).
 
 - `class_sessions`: `id`, `classroom_id`, `name`, `sort_order`, `status`(scheduled/live/ended), `deck_id`(비어 있을 수 있음), `current_slide`, `current_click`, `version`, `first_started_at`(AC8 "진행 회차"와 AC4 삭제 가능 여부), `started_at`, `ended_at`, `created_at`. 부분 고유 색인: 강좌당 `status='live'` 하나(AC10, 경쟁 상태도 DB가 막는다).
 - `decks`: `id`, `classroom_id`, `session_id`, `original_name`, `slide_count`(노트 파일 기준), `size_bytes`, `public`, `uploaded_at`, `removed_at`. 올리거나 바꾸면 새 행이라 `public=0`으로 시작한다(AC47, AC41). 파일은 `DATA_DIR/decks/{classroom_id}/{id}/`. 묶음 행은 바꾸지 않고, 지우면 `removed_at`을 쓰고 파일을 지운다.
@@ -60,7 +60,7 @@ updated: 2026-11-26
 - HTTP, 교수:
   - `GET/POST /classrooms/{id}/sessions`, `PATCH/DELETE /classrooms/{id}/sessions/{s}`
   - `PUT /classrooms/{id}/sessions/{s}/deck`(zip 업로드), `DELETE …/deck`, `GET …/deck/notes`
-  - `PUT …/deck/visibility {public}`(회차 상태와 관계없이, AC47). DB에 쓰고 `events`에 남긴 뒤 회차 `version`을 올리고 `deck.updated`를 발행한다(AC48)
+  - `PUT …/deck/visibility {public}`(회차 상태와 관계없이, AC47). DB에 쓰고 `events`에 남긴 뒤 회차 `version`을 올리고 `deck.updated`를 발행한다(AC48). 스위치는 관리 페이지의 '이 회차의 자료'에만 두고 교수 수업 화면에는 두지 않는다(사용자 결정 2026-11-26)
   - `POST …/sessions/{s}/start`, `POST …/end`, `POST …/resume` (진행 중인 다른 회차가 있으면 409와 그 회차 번호)
   - `POST …/sessions/{s}/items`(`client_key` 포함), `POST …/items/{i}/retract`
 - HTTP, 교수와 학생(`class.view`):
@@ -89,7 +89,7 @@ updated: 2026-11-26
 | 2. Slidev 애드온으로 할 수 있다고 가정한 것: 바깥에서 위치를 지시하고(슬라이드와 단계), 슬라이드별 단계 수를 알아내고, 자체 키보드·클릭 넘기기를 끄고, `--base /__deck__/`와 `routerMode: hash`로 빌드한 결과를 경로 바꾸기 뒤에도 쓸 수 있고, `@slidev/parser`로 노트를 뽑는다. 문서에 없는 부분이 있다(2026-11-24 확인: 애드온이 쓸 이동 API의 가져오기 경로, 단계 수 노출, 슬라이드가 따로 나뉘어 담기는지) | **000의 2번(따라가기/직접 넘겨 보기 전환)을 첫 작업 전에 짧은 실험으로 채우자고 제안**한다. Slidev 53.1.0으로 템플릿을 만들어 위 다섯 가지를 확인하고 결과를 000 표에 쓴다. 안 되는 것이 있으면 이 plan의 해당 줄을 고쳐 다시 승인받는다 | **통과(2026-11-24, 000 2번).** Slidev 53.1.0으로 다섯 가지 모두 확인. 지시 → 반영 28ms(같은 컴퓨터). 단계 수는 현재 슬라이드 것만 주므로 데이터 모델에서 슬라이드별 단계 수 열을 뺐다. 기본 빌드의 외부 요청(Google Fonts, jsDelivr)을 템플릿에서 끈다. 터치 스와이프가 `deck:intent`로 잡히는지는 실기기에서 다시 본다(AC26) |
 | 3. 프로젝터 화면에 사이드바를 얹을 수 있다(000 3번) | 이 스펙에서는 슬롯만 두고 실험은 003에서 한다. 이 스펙의 프로젝터는 슬라이드만이라 위험이 낮다 | 003으로 미룸 |
 | 4. 수업 시작에 학생 200명이 묶음(수 MB)을 한꺼번에 받으면 교실 와이파이나 서버 대역폭이 버티지 못할 수 있다 | 템플릿으로 만든 보통 크기 묶음(그림 10장 안팎)의 크기를 재고, 위험 1의 측정에서 첫 로딩 시간을 함께 기록한다. 학생이 입장할 때(수업 전) 묶음을 미리 받게 해 몰림을 줄인다. 해시 파일은 오래 캐시한다 | 미확인 |
-| 5. 수업 중 비공개 묶음을 따라가는 학생은 개발자 도구로 묶음 파일을 열어 아직 안 보여 준 슬라이드를 볼 수 있다(스펙 미결정) | 수업 밖에서는 서버가 비공개 묶음을 내주지 않는다(AC50, 통합 테스트). 수업 중에는 받아들이는 것으로 제안하고, 파일 단위로 숨기는 학생용 단계별 그림 내보내기는 만들지 않는다 | 미결정(스펙 질문). 이전 결정(2026-11-24, 화면에서 막기)은 공개·비공개로 바뀌어 다시 정한다 |
+| 5. 수업 중 비공개 묶음을 따라가는 학생은 개발자 도구로 묶음 파일을 열어 아직 안 보여 준 슬라이드를 볼 수 있다(스펙 미결정) | 수업 밖에서는 서버가 비공개 묶음을 내주지 않는다(AC50, 통합 테스트). 수업 중에는 받아들이는 것으로 제안하고, 파일 단위로 숨기는 학생용 단계별 그림 내보내기는 만들지 않는다 | **결정됨(사용자, 2026-11-26)**: 받아들인다. 수업 밖에서는 막고(T033), 숨길 내용은 묶음에 넣지 않는다. 슬라이드별 조각만 내주기(Slidev의 조각 나누기는 공개된 약속이 아니고 단계는 숨기지 못한다), 단계별 그림(애니메이션·링크·복사가 사라지고 교수 준비가 늘어난다), 서버가 그림 만들기(헤드리스 브라우저 의존성, C17)는 하지 않는다 |
 | 6. 슬라이드 묶음 안의 코드는 같은 출처에서 돌아 학생의 로그인 쿠키로 API를 부를 수 있다 | 묶음은 강좌 교수 본인이 만든 것만 올라간다(교수만 올릴 수 있음). 받아들인 위험으로 기록하고, 묶음에 외부 스크립트를 넣지 말라는 안내를 템플릿 README에 둔다. 묶음 응답에 `Content-Security-Policy: frame-ancestors 'self'`를 붙여 다른 사이트가 얹지 못하게 한다 | **받아들인 위험(사용자 결정, 2026-11-24).** 묶음을 다른 도메인으로 격리하지 않는다 |
 | 7. 올리는 zip이 위험할 수 있다(경로 탈출, 심볼릭 링크, 압축 폭탄, 파일 수 폭증) | 단위 테스트로 각 경우를 거절하는지 확인. 압축을 풀기 전에 목록의 합계 크기와 수를 검사하고, 풀면서도 실제 바이트를 센다 | 미확인 |
 | 8. 휴대폰이 화면을 끄거나 브라우저를 뒤로 보내면 연결이 끊긴다(특히 iOS Safari) | 다시 보일 때 연결을 확인하고 상태를 통째로 다시 받는다. 배포 뒤 실기기 확인 목록(001 notes 위험 4)에 "화면을 껐다 켜면 교수 위치로 돌아온다"를 더한다 | 미확인 |
