@@ -69,7 +69,10 @@ def test_owner_gets_the_deck_files(world):
 
 
 def test_entered_student_gets_the_deck_files(world):
-    prof, cid, _, deck_id, token = classroom_with_deck(world)
+    # 비공개 묶음은 수업 중에만 받는다(AC50, test_private_deck_files.py). 여기서는 공개한 묶음으로 본다
+    prof, cid, sid, deck_id, token = classroom_with_deck(world)
+    put = prof.put(f"/api/classrooms/{cid}/sessions/{sid}/deck/visibility", json={"public": True}, headers=ORIGIN)
+    assert put.status_code == 200
     enroll(prof, cid, "kim@x.kr")
     student = entered_student(world, token, "kim@x.kr")
     assert student.get(f"/decks/{deck_id}/index.html").status_code == 200

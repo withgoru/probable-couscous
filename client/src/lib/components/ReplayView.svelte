@@ -54,7 +54,7 @@
 	const atStart = $derived(settled && !prev);
 	const atEnd = $derived(settled && !next);
 	const notShownYet = $derived(settled && !!nextRaw && !next);
-	const canMove = $derived(!!deck?.available && settled);
+	const canMove = $derived(!!deck?.available && deck.public && settled);
 
 	$effect(() => {
 		if (mainDeck.position && mainDeck.clicksTotal !== null) seenClicks.set(mainDeck.position.slide, mainDeck.clicksTotal);
@@ -150,6 +150,9 @@
 			<p class="rounded-md bg-foreground p-4 text-background">이 회차는 슬라이드 없이 진행했습니다.</p>
 		{:else if !deck.available}
 			<p class="rounded-md bg-foreground p-4 text-background">슬라이드를 열 수 없습니다. 자료는 계속 볼 수 있습니다.</p>
+		{:else if !deck.public}
+			<!-- 비공개 묶음은 서버가 학생에게 내주지 않는다(AC50) -->
+			<p class="rounded-md bg-foreground p-4 text-background">이 회차의 슬라이드는 공개되지 않았습니다.</p>
 		{:else}
 			{#key deck.id}
 				<div class="-mx-6 aspect-video overflow-hidden bg-foreground">
@@ -158,7 +161,7 @@
 			{/key}
 		{/if}
 		<h1 bind:this={heading} tabindex="-1" class="text-lg leading-tight font-bold break-all outline-none">{replayState.session.title} 다시 보기</h1>
-		{#if deck?.available}
+		{#if deck?.available && deck.public}
 			<div class="flex flex-wrap items-center gap-2">
 				<button
 					type="button"

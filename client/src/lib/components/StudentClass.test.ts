@@ -94,6 +94,7 @@ beforeEach(() => {
 	api.fetchClassLive.mockReset();
 	api.fetchClassLive.mockImplementation(async (_c: number, sid: number) => ({
 		...STATE,
+		deck: { ...STATE.deck!, public: true }, // 다시 보기에서 슬라이드를 보는 공개 묶음
 		session: { ...STATE.session, id: sid, title: sid === 5 ? '3주차 1회차' : '2주차 2회차', status: 'ended' }
 	}));
 });

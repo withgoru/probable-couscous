@@ -29,7 +29,7 @@ import ReplayView from './ReplayView.svelte';
 
 const ENDED: LiveState = {
 	session: { id: 4, title: '2주차 2회차', status: 'ended', version: 9 },
-	deck: { id: 8, slide_count: 4, available: true, public: false },
+	deck: { id: 8, slide_count: 4, available: true, public: true },
 	current: { slide: 2, click: 1 },
 	limit: { slide: 3, click: 0 },
 	items: [
@@ -133,6 +133,16 @@ describe('지난 회차 다시 보기 (AC39)', () => {
 		api.fetchClassLive.mockResolvedValue({ ...structuredClone(ENDED), deck: { id: 8, slide_count: 4, available: false, public: false } });
 		mount();
 		expect(await screen.findByText('슬라이드를 열 수 없습니다. 자료는 계속 볼 수 있습니다.')).toBeTruthy();
+	});
+
+	it('비공개 묶음이면 슬라이드 대신 공개되지 않았다고 알리고 자료만 보인다 (AC39, AC50)', async () => {
+		// 서버가 비공개 묶음 파일을 학생에게 내주지 않으므로 iframe을 얹지 않는다. 다시 보기 전체 정리는 T037
+		api.fetchClassLive.mockResolvedValue({ ...structuredClone(ENDED), deck: { id: 8, slide_count: 4, available: true, public: false } });
+		mount();
+		expect(await screen.findByText('이 회차의 슬라이드는 공개되지 않았습니다.')).toBeTruthy();
+		expect(screen.queryByTitle('다시 보는 슬라이드')).toBeNull();
+		expect(screen.queryByRole('button', { name: '다음' })).toBeNull();
+		expect(screen.getByRole('list', { name: '자료' })).toBeTruthy();
 	});
 
 	it('불러오지 못하면 이유와 할 일을 보인다', async () => {
