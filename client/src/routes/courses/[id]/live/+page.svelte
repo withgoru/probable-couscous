@@ -4,6 +4,7 @@
 	import { connectClass, type ClassLive, type ClassSnapshot, type GotoFailure } from '#lib/classLive.js';
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
 	import Icon from '#lib/components/Icon.svelte';
+	import SendPanel from '#lib/components/SendPanel.svelte';
 	import { connectDeck, type DeckBridge, type DeckSnapshot, type Position } from '#lib/deckBridge.js';
 	import { nextPosition, prevPosition } from '#lib/slides.js';
 	import type { PageProps } from './$types';
@@ -225,7 +226,7 @@
 		</div>
 	</header>
 
-	<main class="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6">
+	<main class="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6">
 		{#if snapshot?.loadError && !liveState}
 			<ErrorNotice title={snapshot.loadError} hint="잠시 뒤 자동으로 다시 불러옵니다." />
 		{:else if !snapshot || (!liveState && !snapshot.loaded)}
@@ -249,6 +250,8 @@
 					</div>
 				{/if}
 			</div>
+			<!-- 왼쪽은 슬라이드, 오른쪽은 메시지·자료 보내기(AC13, AC31, 목업 Main) -->
+			<div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
 			<section class="flex flex-col gap-4" aria-label="슬라이드">
 				{#if !deck}
 					<p class="rounded-md bg-foreground p-6 text-background">
@@ -256,7 +259,10 @@
 					</p>
 					{@render presenceLine()}
 				{:else if !deck.available}
-					<ErrorNotice title="슬라이드를 열 수 없습니다. 묶음을 다시 올려 주세요." hint="관리 페이지에서 묶음을 다시 올릴 수 있습니다." />
+					<ErrorNotice
+						title="슬라이드를 열 수 없습니다. 메시지·자료 보내기는 계속 쓸 수 있습니다."
+						hint="노트북의 원본으로 발표를 이어 가세요. 묶음은 관리 페이지에서 다시 올릴 수 있습니다."
+					/>
 					{@render presenceLine()}
 				{:else}
 					{#key deck.id}
@@ -321,6 +327,17 @@
 					</div>
 				{/if}
 			</section>
+			<!-- 회차가 바뀌면 보내기 칸(쓰던 글, 열쇠, 방금 보낸 항목)을 새로 시작한다 -->
+			{#key liveState.session.id}
+				<SendPanel
+					classroomId={data.classroom.id}
+					sessionId={liveState.session.id}
+					items={liveState.items}
+					{offline}
+					onChanged={() => classLive?.reload()}
+				/>
+			{/key}
+			</div>
 		{/if}
 	</main>
 {/if}

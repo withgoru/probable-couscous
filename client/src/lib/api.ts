@@ -444,3 +444,41 @@ export type DeckNotes = { deck_id: number; slide_count: number; slides: { no: nu
 export function fetchDeckNotes(classroomId: number, sessionId: number, fetchFn: FetchFn = fetch): Promise<DeckNotes> {
 	return getJson<DeckNotes>(fetchFn, `/api/classrooms/${classroomId}/sessions/${sessionId}/deck/notes`);
 }
+
+// --- 메시지·자료 보내기(002 AC31~AC35) ---------------------------------------------------------
+
+export type SentItem = { id: number; body: string | null; url: string | null; created_at: string; retracted_at: string | null };
+export type NewItem = { body: string | null; url: string | null; client_key: string };
+
+/** 진행 중인 회차에 글·링크를 보낸다. 같은 client_key로 다시 보내면 처음 저장한 항목을 돌려준다(두 번 저장되지 않음). */
+export async function sendItem(
+	classroomId: number,
+	sessionId: number,
+	input: NewItem,
+	fetchFn: FetchFn = fetch
+): Promise<SentItem> {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/sessions/${sessionId}/items`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+		body: JSON.stringify(input)
+	});
+	if (!res.ok) throw await failure(res);
+	return ((await res.json()) as { item: SentItem }).item;
+}
+
+/** 보낸 항목 거두기(AC35). 학생 화면에서 사라지고 되살리지 않는다. */
+export async function retractItem(
+	classroomId: number,
+	sessionId: number,
+	itemId: number,
+	fetchFn: FetchFn = fetch
+): Promise<SentItem> {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/sessions/${sessionId}/items/${itemId}/retract`, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { Accept: 'application/json' }
+	});
+	if (!res.ok) throw await failure(res);
+	return ((await res.json()) as { item: SentItem }).item;
+}
