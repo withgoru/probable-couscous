@@ -43,8 +43,10 @@
 	const clicksTotal = $derived(settled ? mainDeck.clicksTotal : null);
 	const next = $derived(current ? nextPosition(current, clicksTotal, total) : null);
 	const prev = $derived(current ? prevPosition(current, seenClicks) : null);
+	// 연결이 끊기면 넘겨도 반영되지 않으니 흐린다(누른 척하지 않는다, 오류 동작 "교수 연결이 끊김")
+	const offline = $derived(snapshot?.status === 'reconnecting');
 	// 기다리는 동안은 흐리게만 하고(초점을 잃지 않게) 처음과 끝에서만 누를 수 없게 한다
-	const busy = $derived(moving || !settled);
+	const busy = $derived(moving || !settled || offline);
 	const atStart = $derived(settled && !prev);
 	const atEnd = $derived(settled && !next);
 	const note = $derived(current && notes ? (notes.slides.find((s) => s.no === current.slide)?.note ?? '') : null);
@@ -59,7 +61,12 @@
 		const minutes = Math.max(0, Math.floor((now - new Date(started).getTime()) / 60_000));
 		return minutes >= 60 ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분` : `${minutes}분`;
 	});
-	const online = $derived(snapshot?.presence ? snapshot.presence.follow + snapshot.presence.browse : null);
+	const presence = $derived(snapshot?.presence ?? null);
+	const online = $derived(presence ? presence.follow + presence.browse : null);
+	// 끊긴 동안 현황은 마지막으로 받은 숫자다. 지금 숫자인 척하지 않는다
+	const stale = $derived(offline ? ' (연결이 끊기기 전)' : '');
+	const describe = (reason: string | false) =>
+		[offline ? 'offline-notice' : null, reason || null].filter(Boolean).join(' ') || undefined;
 	const heading = $derived(liveState ? `${liveState.session.title} · 수업 중` : '수업 화면');
 
 	async function move(target: Position | null) {
@@ -69,7 +76,9 @@
 		try {
 			await classLive.goto(target); // 서버가 기록한 뒤 발행한 위치로 슬라이드가 움직인다
 		} catch (e) {
-			moveError = (e as GotoFailure)?.message ?? '넘기지 못했습니다. 다시 눌러 주세요.';
+			const failure = e as GotoFailure;
+			// 끊겨서 실패했으면 끊김 안내가 이미 보인다. 다시 붙은 뒤에 남지 않게 따로 적지 않는다
+			if (failure?.reason !== 'offline') moveError = failure?.message ?? '넘기지 못했습니다. 다시 눌러 주세요.';
 		} finally {
 			moving = false;
 		}
@@ -182,6 +191,15 @@
 	}
 </script>
 
+{#snippet presenceLine()}
+	{#if presence}
+		<!-- 숫자만 보인다. 누가 어느 쪽인지는 보이지 않는다(AC15, C7) -->
+		<p class="flex items-center gap-2 text-sm">
+			<Icon name="group" />따라가는 중 {presence.follow}명 · 직접 넘겨 보는 중 {presence.browse}명{stale}
+		</p>
+	{/if}
+{/snippet}
+
 <svelte:head><title>{heading} · 강의 상호작용 도구</title></svelte:head>
 <svelte:window onkeydown={onKey} />
 
@@ -198,7 +216,7 @@
 		</div>
 		<div class="flex flex-wrap items-center gap-3 text-sm">
 			{#if elapsed}<span>경과 {elapsed}</span>{/if}
-			{#if online !== null}<span class="flex items-center gap-1"><Icon name="group" />접속 {online}명</span>{/if}
+			{#if online !== null}<span class="flex items-center gap-1"><Icon name="group" />접속 {online}명{stale}</span>{/if}
 			<button type="button" class="btn btn-outline" onclick={openProjector}>
 				<Icon name="presentation" />프로젝터 화면 열기
 			</button>
@@ -219,13 +237,27 @@
 			<p>수업이 끝났습니다.</p>
 			<a class="btn btn-outline self-start" href="/courses/{data.classroom.id}/admin">관리 페이지로</a>
 		{:else}
+			<!-- 자리는 늘 두고 글만 넣는다. 처음부터 있는 알림 자리여야 화면 낭독기가 바뀐 글을 읽는다 -->
+			<div role="status" data-connection-notice>
+				{#if offline}
+					<div class="alert alert-warning">
+						<Icon name="warning-circle" />
+						<div class="flex flex-col gap-0.5">
+							<div id="offline-notice" class="alert-title">연결이 끊겼습니다. 다시 연결하는 중…</div>
+							<div class="alert-description">다시 연결되면 저장된 위치에서 이어집니다. 학생과 프로젝터는 마지막 슬라이드에 머뭅니다.</div>
+						</div>
+					</div>
+				{/if}
+			</div>
 			<section class="flex flex-col gap-4" aria-label="슬라이드">
 				{#if !deck}
 					<p class="rounded-md bg-foreground p-6 text-background">
 						올린 슬라이드가 없습니다. 메시지·자료 보내기만 쓸 수 있습니다.
 					</p>
+					{@render presenceLine()}
 				{:else if !deck.available}
 					<ErrorNotice title="슬라이드를 열 수 없습니다. 묶음을 다시 올려 주세요." hint="관리 페이지에서 묶음을 다시 올릴 수 있습니다." />
+					{@render presenceLine()}
 				{:else}
 					{#key deck.id}
 						<div class="aspect-video w-full overflow-hidden rounded-md bg-foreground">
@@ -238,7 +270,7 @@
 							class="btn btn-outline aria-disabled:opacity-50"
 							disabled={atStart}
 							aria-disabled={busy}
-							aria-describedby={atStart ? 'at-start' : undefined}
+							aria-describedby={describe(atStart && 'at-start')}
 							onclick={() => move(prev)}>이전</button
 						>
 						<button
@@ -246,7 +278,7 @@
 							class="btn btn-default aria-disabled:opacity-50"
 							disabled={atEnd}
 							aria-disabled={busy}
-							aria-describedby={atEnd ? 'at-end' : undefined}
+							aria-describedby={describe(atEnd && 'at-end')}
 							onclick={() => move(next)}>다음</button
 						>
 						<span class="text-sm text-muted-foreground" aria-live="polite">
@@ -255,6 +287,7 @@
 						{#if atStart}<span id="at-start" class="text-sm text-muted-foreground">첫 슬라이드입니다.</span>{/if}
 						{#if atEnd}<span id="at-end" class="text-sm text-muted-foreground">마지막 슬라이드입니다.</span>{/if}
 					</div>
+					{@render presenceLine()}
 					{#if moveError}<ErrorNotice title={moveError} />{/if}
 					{#if countMismatch}
 						<ErrorNotice title={countMismatch} hint="슬라이드 템플릿으로 다시 빌드해 올려 주세요." />

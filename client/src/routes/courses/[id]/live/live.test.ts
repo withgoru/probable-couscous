@@ -427,6 +427,114 @@ describe('넘기기 (AC13, AC14, AC17)', () => {
 	});
 });
 
+describe('동기화 현황 (AC15, C7)', () => {
+	it('슬라이드 아래에 따라가는 중과 직접 넘겨 보는 중이 숫자로만 보인다', async () => {
+		await open();
+		const line = screen.getByText('따라가는 중 30명 · 직접 넘겨 보는 중 4명');
+		expect(line.closest('[aria-label="슬라이드"]')).toBeTruthy();
+		// 이전·다음 바로 아래, 다음 슬라이드 카드보다 위(목업 Main)
+		const next = screen.getByRole('button', { name: '다음' });
+		const card = screen.getByRole('heading', { name: '다음 슬라이드' });
+		expect(next.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(line.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it('학생이 들어오거나 바꾸면 숫자가 바뀐다', async () => {
+		await open();
+		await server(snapshot({ presence: { follow: 31, browse: 3 } }));
+		expect(screen.getByText('따라가는 중 31명 · 직접 넘겨 보는 중 3명')).toBeTruthy();
+		expect(screen.getByRole('banner').textContent).toContain('접속 34명');
+	});
+
+	it('현황을 아직 받지 못했으면 숫자를 지어내지 않는다', async () => {
+		await open(snapshot({ presence: null }));
+		expect(screen.queryByText(/따라가는 중 \d+명/)).toBeNull();
+	});
+
+	it('슬라이드가 없거나 열리지 않아도 현황은 보인다', async () => {
+		await open(snapshot({ state: { ...STATE, deck: null } }));
+		expect(screen.getByText('따라가는 중 30명 · 직접 넘겨 보는 중 4명').closest('[aria-label="슬라이드"]')).toBeTruthy();
+		cleanup();
+		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false } } }));
+		expect(screen.getByText('따라가는 중 30명 · 직접 넘겨 보는 중 4명')).toBeTruthy();
+	});
+});
+
+describe('연결 끊김 (C12)', () => {
+	const OFFLINE = '연결이 끊겼습니다. 다시 연결하는 중…';
+
+	it('끊기면 안내가 보이고 이전·다음이 흐려지며 누르거나 키를 눌러도 보내지 않는다', async () => {
+		live.goto.mockResolvedValue(4);
+		await open();
+		await server(snapshot({ status: 'reconnecting' }));
+		const notice = screen.getByText(OFFLINE);
+		expect(notice.closest('[role="status"]')).toBeTruthy();
+		for (const name of ['이전', '다음']) {
+			const button = screen.getByRole('button', { name }) as HTMLButtonElement;
+			expect(button.getAttribute('aria-disabled')).toBe('true');
+			expect(button.getAttribute('aria-describedby')).toContain('offline-notice');
+		}
+		await fireEvent.click(screen.getByRole('button', { name: '다음' }));
+		await fireEvent.keyDown(window, { key: 'ArrowRight' });
+		expect(live.goto).not.toHaveBeenCalled();
+	});
+
+	it('안내 자리는 끊기기 전부터 있어서 화면 낭독기가 끊김을 읽는다', async () => {
+		await open();
+		const region = document.querySelector('[data-connection-notice]') as HTMLElement;
+		expect(region.getAttribute('role')).toBe('status');
+		expect(region.textContent?.trim()).toBe('');
+		await server(snapshot({ status: 'reconnecting' }));
+		expect(document.querySelector('[data-connection-notice]')).toBe(region); // 같은 자리에 글만 들어온다
+		expect(region.textContent).toContain(OFFLINE);
+	});
+
+	it('끊긴 동안의 현황 숫자는 끊기기 전 것이라고 밝힌다', async () => {
+		await open();
+		await server(snapshot({ status: 'reconnecting' }));
+		expect(screen.getByText('따라가는 중 30명 · 직접 넘겨 보는 중 4명 (연결이 끊기기 전)')).toBeTruthy();
+		expect(screen.getByRole('banner').textContent).toContain('접속 34명 (연결이 끊기기 전)');
+		await server(snapshot({ status: 'live', presence: { follow: 10, browse: 24 } }));
+		expect(screen.getByText('따라가는 중 10명 · 직접 넘겨 보는 중 24명')).toBeTruthy();
+	});
+
+	it('넘기는 중에 끊겨 실패하면 오류를 따로 남기지 않는다(끊김 안내가 대신하고, 다시 붙으면 사라진다)', async () => {
+		live.goto.mockRejectedValue({ reason: 'offline', message: '연결이 끊겼습니다. 다시 연결되면 넘겨 주세요.' });
+		await open();
+		await fireEvent.click(screen.getByRole('button', { name: '다음' }));
+		await server(snapshot({ status: 'reconnecting' }));
+		await server(snapshot({ status: 'live' }));
+		expect(screen.queryByText('연결이 끊겼습니다. 다시 연결되면 넘겨 주세요.')).toBeNull();
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
+	it('끊겨도 마지막 슬라이드는 그대로 둔다', async () => {
+		await open();
+		await server(snapshot({ status: 'reconnecting' }));
+		expect(screen.getByTitle('현재 슬라이드')).toBeTruthy();
+		expect(main().stop).not.toHaveBeenCalled();
+	});
+
+	it('다시 붙으면 안내가 사라지고 저장된 위치에서 이어진다', async () => {
+		live.goto.mockResolvedValue(6);
+		await open();
+		await server(snapshot({ status: 'reconnecting' }));
+		await server(snapshot({ status: 'live', state: { ...STATE, current: { slide: 3, click: 0 }, session: { ...STATE.session, version: 5 } } }));
+		expect(screen.queryByText(OFFLINE)).toBeNull();
+		expect(main().goto).toHaveBeenLastCalledWith({ slide: 3, click: 0 });
+		await slides(main(), { position: { slide: 3, click: 0 }, clicksTotal: 0 });
+		expect(screen.getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).toBe('false');
+		await fireEvent.click(screen.getByRole('button', { name: '다음' }));
+		expect(live.goto).toHaveBeenCalledWith({ slide: 4, click: 0 });
+	});
+
+	it('슬라이드가 없는 수업에서도 끊기면 알린다', async () => {
+		await open(snapshot({ state: { ...STATE, deck: null } }));
+		await server(snapshot({ status: 'reconnecting', state: { ...STATE, deck: null } }));
+		expect(screen.getByText(OFFLINE)).toBeTruthy();
+	});
+});
+
 describe('수업이 없거나 끝났을 때', () => {
 	it('불러오는 동안에는 그렇게 알린다', async () => {
 		render(LivePage, { params: { id: '7' }, data: { me: null, classroom: CLASSROOM, notice: null } });

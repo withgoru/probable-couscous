@@ -54,6 +54,8 @@ test('넘기면 다른 탭의 교수 수업 화면이 따라오고, 다시 열�
 	// 메뉴바가 없고 위쪽 줄이 있다(AC12)
 	await expect(first.getByRole('button', { name: '@kim' })).toHaveCount(0);
 	await expect(first.getByRole('button', { name: '프로젝터 화면 열기' })).toBeVisible();
+	// 동기화 현황(AC15): 아직 학생이 없으니 0명이다
+	await expect(first.getByText('따라가는 중 0명 · 직접 넘겨 보는 중 0명')).toBeVisible();
 
 	// 1번 슬라이드는 단계가 없다: 다음은 2번 슬라이드 첫 단계
 	await expect.poll(() => slideOf(first)).toMatch(/^#\/1/);
