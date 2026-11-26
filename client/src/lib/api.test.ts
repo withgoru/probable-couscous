@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, archiveClassroom, createSession, deleteSession, endSession, fetchDeckNotes, retractItem, sendItem, removeDeck, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
+import { ApiError, archiveClassroom, createSession, deleteSession, endSession, fetchClassLive, fetchDeckNotes, retractItem, sendItem, removeDeck, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -488,5 +488,13 @@ describe('수업 종료 API (002 AC37)', () => {
 		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
 		expect(url).toBe('/api/classrooms/7/sessions/3/end');
 		expect(init.method).toBe('POST');
+	});
+});
+
+describe('회차 상태 API (002 AC39)', () => {
+	it('그 회차의 상태를 받는다', async () => {
+		const fetch = vi.fn(() => json(200, { session: { id: 4 } }));
+		expect((await fetchClassLive(7, 4, fetch)).session.id).toBe(4);
+		expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('/api/class/7/sessions/4/live');
 	});
 });
