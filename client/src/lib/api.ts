@@ -429,6 +429,23 @@ export async function removeDeck(classroomId: number, sessionId: number, fetchFn
 	if (!res.ok) throw await failure(res);
 }
 
+/** 학생에게 공개·비공개(AC47). 회차 상태와 관계없이 바꾼다. 바뀐 묶음을 돌려준다. */
+export async function setDeckVisibility(
+	classroomId: number,
+	sessionId: number,
+	isPublic: boolean,
+	fetchFn: FetchFn = fetch
+): Promise<SessionDeck> {
+	const res = await fetchFn(`/api/classrooms/${classroomId}/sessions/${sessionId}/deck/visibility`, {
+		method: 'PUT',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+		body: JSON.stringify({ public: isPublic })
+	});
+	if (!res.ok) throw await failure(res);
+	return ((await res.json()) as { deck: SessionDeck }).deck;
+}
+
 export type StartedSession = ClassSession & { version: number };
 
 async function postSession(fetchFn: FetchFn, url: string): Promise<StartedSession> {

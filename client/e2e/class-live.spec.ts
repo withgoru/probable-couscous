@@ -122,13 +122,14 @@ test('메시지·자료를 보내고 거둔다 (AC31, AC32, AC35, AC36)', async 
 	await expect(panel.getByText('보낸 항목은 수업이 끝난 뒤 공개할 목록으로 정리됩니다.')).toBeVisible();
 });
 
-test('수업 종료를 확인하면 관리 페이지로 돌아가고 회차가 종료다 (AC37)', async ({ page }) => {
+test('수업 종료를 확인하면 관리 페이지로 돌아가고 회차가 종료다. 끝난 뒤에 슬라이드를 공개한다 (AC37, AC47)', async ({ page }) => {
 	const room = await liveClass();
 	await openLive(page, room.id);
 	await page.getByRole('button', { name: '수업 종료' }).click();
 	const dialog = page.getByRole('alertdialog');
 	await expect(dialog).toContainText('수업을 끝낼까요?');
-	await expect(dialog).toContainText('학생은 이번 수업에서 본 슬라이드와 받은 자료를 계속 볼 수 있습니다.');
+	// 새 묶음은 비공개다: 학생은 받은 자료만 계속 본다
+	await expect(dialog).toContainText('학생은 받은 자료를 계속 볼 수 있습니다. 슬라이드는 공개해야 볼 수 있습니다.');
 	await expectNoAxeViolations(page, '수업 종료 확인 창');
 
 	// 취소하면 그대로다
@@ -144,6 +145,20 @@ test('수업 종료를 확인하면 관리 페이지로 돌아가고 회차가 �
 	await expect(page.getByRole('button', { name: '이어서 수업하기' })).toBeVisible();
 	const state = await (await room.api.get(`/api/class/${room.id}/sessions/${room.sessionId}/live`)).json();
 	expect(state.session.status).toBe('ended');
+
+	// 끝난 회차도 공개할 수 있다(AC47): 스위치를 켜면 상태 글이 바뀌고 서버에 남는다
+	const toggle = page.getByRole('switch', { name: '학생에게 공개' });
+	await expect(toggle).toHaveAttribute('aria-checked', 'false');
+	await expect(page.getByText('비공개 · 학생은 수업 중 교수 화면을 따라갈 때만 봅니다.')).toBeVisible();
+	await toggle.click();
+	await expect(page.getByText('공개 · 학생이 언제든 처음부터 끝까지 볼 수 있습니다.')).toBeVisible();
+	await expect(toggle).toHaveAttribute('aria-checked', 'true');
+	await expect
+		.poll(async () => (await (await room.api.get(`/api/class/${room.id}/sessions/${room.sessionId}/live`)).json()).deck.public)
+		.toBe(true);
+	await page.reload();
+	await expect(page.getByRole('switch', { name: '학생에게 공개' })).toHaveAttribute('aria-checked', 'true'); // 새로 고쳐도 그대로
+	await expectNoAxeViolations(page, '슬라이드를 공개한 관리 페이지');
 });
 
 /** 프로젝터 화면의 슬라이드 iframe 주소. */

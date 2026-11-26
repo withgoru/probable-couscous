@@ -383,7 +383,9 @@
 {#if endingSessionId !== null}
 	<ConfirmDialog
 		title="수업을 끝낼까요?"
-		description="학생은 이번 수업에서 본 슬라이드와 받은 자료를 계속 볼 수 있습니다."
+		description={deck?.public
+			? '학생은 슬라이드와 받은 자료를 계속 볼 수 있습니다.'
+			: '학생은 받은 자료를 계속 볼 수 있습니다. 슬라이드는 공개해야 볼 수 있습니다.'}
 		confirmLabel="수업 종료"
 		busyLabel="끝내는 중…"
 		onConfirm={endClass}

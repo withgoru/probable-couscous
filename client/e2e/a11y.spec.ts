@@ -163,6 +163,14 @@ test.describe('교수 화면 (노트북)', () => {
 		await expect(materials.getByText('업로드됨')).toBeVisible();
 		await expect(materials.getByText('슬라이드 4장')).toBeVisible();
 		await expectNoAxeViolations(page, '묶음을 올린 관리 페이지');
+		// 학생에게 공개(AC47): 키보드만으로 켠다
+		const publicSwitch = page.getByRole('switch', { name: '학생에게 공개' });
+		await publicSwitch.focus();
+		issues.push(...(await checkFocused(page))); // 포커스 링과 눌리는 범위(44px)
+		await page.keyboard.press('Space');
+		await expect(publicSwitch).toHaveAttribute('aria-checked', 'true');
+		await expect(materials.getByText('공개 · 학생이 언제든 처음부터 끝까지 볼 수 있습니다.')).toBeVisible();
+		await expectNoAxeViolations(page, '슬라이드를 공개한 관리 페이지');
 		if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/session-picker.png`, fullPage: true });
 		await picker.focus();
 		await page.keyboard.press('Enter');

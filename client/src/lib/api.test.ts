@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, archiveClassroom, createSession, deleteSession, endSession, fetchClassLive, fetchDeckNotes, retractItem, sendItem, removeDeck, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
+import { ApiError, archiveClassroom, createSession, deleteSession, endSession, fetchClassLive, fetchDeckNotes, retractItem, sendItem, removeDeck, setDeckVisibility, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -505,5 +505,22 @@ describe('회차 상태 API (002 AC39)', () => {
 		const closed = { ...body, deck: { ...deck, public: false } };
 		expect((await fetchClassLive(7, 4, vi.fn(() => json(200, closed)))).limit).toEqual({ slide: 2, click: 1 });
 		expect((await fetchClassLive(7, 4, vi.fn(() => json(200, { ...body, deck: null })))).limit).toEqual({ slide: 1, click: null });
+	});
+});
+
+describe('묶음 공개·비공개 API (002 AC47)', () => {
+	it('참·거짓을 보내고 바뀐 묶음을 돌려준다', async () => {
+		const deck = { id: 9, original_name: 'a.zip', slide_count: 4, size_bytes: 1, uploaded_at: 'x', available: true, public: true };
+		const fetch = vi.fn(() => json(200, { deck }));
+		expect(await setDeckVisibility(7, 3, true, fetch)).toEqual(deck);
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/sessions/3/deck/visibility');
+		expect(init.method).toBe('PUT');
+		expect(JSON.parse(init.body as string)).toEqual({ public: true });
+	});
+
+	it('거절하면 서버 안내로 실패한다', async () => {
+		const fetch = vi.fn(() => json(404, { detail: '이 회차에 올린 슬라이드가 없습니다.' }));
+		await expect(setDeckVisibility(7, 3, true, fetch)).rejects.toThrow('이 회차에 올린 슬라이드가 없습니다.');
 	});
 });

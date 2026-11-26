@@ -11,7 +11,7 @@ export type FocusIssue = { element: string; problem: string };
 /**
  * 지금 키보드 포커스를 받은 요소를 점검한다(AC50, C14).
  * - 포커스 링: 불투명 2px 이상(링 색 #0a2463의 box-shadow 또는 outline)
- * - 크기: 버튼·입력·버튼 모양 링크는 높이 44px 이상. 체크 상자는 눌리는 범위(label)가 44px 이상
+ * - 크기: 버튼·입력·버튼 모양 링크는 높이 44px 이상. 체크 상자와 스위치는 눌리는 범위(label)가 44px 이상
  */
 export async function checkFocused(page: Page): Promise<FocusIssue[]> {
 	return page.evaluate(() => {
@@ -42,7 +42,8 @@ export async function checkFocused(page: Page): Promise<FocusIssue[]> {
 		const type = (el.getAttribute('type') || '').toLowerCase();
 		const isTarget = tag === 'button' || tag === 'input' || tag === 'select' || tag === 'textarea' || el.classList.contains('btn') || el.getAttribute('role') === 'tab' || el.getAttribute('role') === 'menuitem';
 		if (isTarget) {
-			const box = (type === 'checkbox' || type === 'radio' ? (el.closest('label') ?? el) : el).getBoundingClientRect();
+			const labelled = type === 'checkbox' || type === 'radio' || el.getAttribute('role') === 'switch';
+			const box = (labelled ? (el.closest('label') ?? el) : el).getBoundingClientRect();
 			if (box.height < 44 - 0.5) issues.push({ element, problem: `높이 ${box.height.toFixed(1)}px (44px 미만)` });
 		}
 		return issues;

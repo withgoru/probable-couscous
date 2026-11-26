@@ -480,17 +480,35 @@ describe('메시지·자료 보내기 탭 (AC31, C12)', () => {
 });
 
 describe('수업 종료 (AC37)', () => {
-	const ASK = '수업을 끝낼까요? 학생은 이번 수업에서 본 슬라이드와 받은 자료를 계속 볼 수 있습니다.';
+	// AC37 문구: 제목 "수업을 끝낼까요?" + 설명. 설명은 묶음의 공개 여부에 따라 다르다(2026-11-26)
+	const PUBLIC = '학생은 슬라이드와 받은 자료를 계속 볼 수 있습니다.';
+	const PRIVATE = '학생은 받은 자료를 계속 볼 수 있습니다. 슬라이드는 공개해야 볼 수 있습니다.';
 
-	it('누르면 서버를 부르기 전에 확인 문구가 나온다', async () => {
-		await open();
+	async function ask() {
 		await fireEvent.click(screen.getByRole('button', { name: '수업 종료' }));
-		const dialog = await screen.findByRole('alertdialog');
-		// AC37 문구: 제목 "수업을 끝낼까요?" + 설명
-		const [question, detail] = ASK.split('? ');
-		expect(within(dialog).getByRole('heading', { name: `${question}?` })).toBeTruthy();
-		expect(dialog.textContent).toContain(detail);
+		return screen.findByRole('alertdialog');
+	}
+
+	it('누르면 서버를 부르기 전에 확인 문구가 나온다(비공개 묶음)', async () => {
+		await open();
+		const dialog = await ask();
+		expect(within(dialog).getByRole('heading', { name: '수업을 끝낼까요?' })).toBeTruthy();
+		expect(dialog.textContent).toContain(PRIVATE);
+		expect(dialog.textContent).not.toContain(PUBLIC);
 		expect(api.endSession).not.toHaveBeenCalled();
+	});
+
+	it('공개 묶음이면 슬라이드도 계속 볼 수 있다고 알린다', async () => {
+		await open(snapshot({ state: { ...STATE, deck: { ...STATE.deck!, public: true } } }));
+		const dialog = await ask();
+		expect(dialog.textContent).toContain(PUBLIC);
+		expect(dialog.textContent).not.toContain('공개해야');
+	});
+
+	it('묶음 없이 진행한 수업은 받은 자료만 계속 볼 수 있다고 알린다', async () => {
+		await open(snapshot({ state: { ...STATE, deck: null } }));
+		const dialog = await ask();
+		expect(dialog.textContent).toContain(PRIVATE);
 	});
 
 	it('확인하면 회차를 끝내고 관리 페이지로 돌아간다', async () => {
