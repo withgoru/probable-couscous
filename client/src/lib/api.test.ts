@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, archiveClassroom, createSession, deleteSession, fetchDeckNotes, retractItem, sendItem, removeDeck, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
+import { ApiError, archiveClassroom, createSession, deleteSession, endSession, fetchDeckNotes, retractItem, sendItem, removeDeck, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -477,6 +477,16 @@ describe('보내기·거두기 API (002 AC31, AC35)', () => {
 		expect((await retractItem(7, 3, 4, fetch)).retracted_at).toBe('y');
 		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
 		expect(url).toBe('/api/classrooms/7/sessions/3/items/4/retract');
+		expect(init.method).toBe('POST');
+	});
+});
+
+describe('수업 종료 API (002 AC37)', () => {
+	it('종료 주소로 POST하고 끝난 회차를 돌려준다', async () => {
+		const fetch = vi.fn(() => json(200, { id: 3, status: 'ended', version: 7 }));
+		expect((await endSession(7, 3, fetch)).status).toBe('ended');
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/sessions/3/end');
 		expect(init.method).toBe('POST');
 	});
 });

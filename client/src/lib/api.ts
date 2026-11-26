@@ -482,3 +482,8 @@ export async function retractItem(
 	if (!res.ok) throw await failure(res);
 	return ((await res.json()) as { item: SentItem }).item;
 }
+
+/** 수업 종료(AC37). 회차가 '종료'가 된다. 이미 끝났으면 그대로 돌려준다. */
+export function endSession(classroomId: number, sessionId: number, fetchFn: FetchFn = fetch): Promise<StartedSession> {
+	return postSession(fetchFn, `/api/classrooms/${classroomId}/sessions/${sessionId}/end`);
+}

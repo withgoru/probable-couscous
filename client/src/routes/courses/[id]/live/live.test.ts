@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ClassSnapshot, LiveState } from '#lib/classLive.js';
 import type { DeckSnapshot, Position } from '#lib/deckBridge.js';
@@ -46,11 +46,14 @@ vi.mock('#lib/deckBridge.js', () => ({
 		};
 	}
 }));
-const api = vi.hoisted(() => ({ fetchDeckNotes: vi.fn(), sendItem: vi.fn() }));
+const nav = vi.hoisted(() => ({ goto: vi.fn(() => Promise.resolve()) }));
+vi.mock('$app/navigation', () => nav);
+const api = vi.hoisted(() => ({ fetchDeckNotes: vi.fn(), sendItem: vi.fn(), endSession: vi.fn() }));
 vi.mock('#lib/api.js', async (original) => ({
 	...(await original<object>()),
 	fetchDeckNotes: api.fetchDeckNotes,
-	sendItem: api.sendItem
+	sendItem: api.sendItem,
+	endSession: api.endSession
 }));
 
 import LivePage from './+page.svelte';
@@ -109,6 +112,8 @@ beforeEach(() => {
 	live.stop.mockReset();
 	live.reload.mockReset();
 	api.sendItem.mockReset();
+	api.endSession.mockReset();
+	nav.goto.mockClear();
 	api.fetchDeckNotes.mockReset();
 	api.fetchDeckNotes.mockResolvedValue(NOTES);
 	vi.setSystemTime(new Date('2026-03-04T05:12:30+00:00'));
@@ -472,6 +477,115 @@ describe('메시지·자료 보내기 탭 (AC31, C12)', () => {
 		await fireEvent.click(screen.getByRole('button', { name: '학생에게 보내기' }));
 		await waitFor(() => expect(live.reload).toHaveBeenCalled());
 		expect(api.sendItem.mock.calls[0].slice(0, 2)).toEqual([7, 5]);
+	});
+});
+
+describe('수업 종료 (AC37)', () => {
+	const ASK = '수업을 끝낼까요? 학생은 이번 수업에서 본 슬라이드와 받은 자료를 계속 볼 수 있습니다.';
+
+	it('누르면 서버를 부르기 전에 확인 문구가 나온다', async () => {
+		await open();
+		await fireEvent.click(screen.getByRole('button', { name: '수업 종료' }));
+		const dialog = await screen.findByRole('alertdialog');
+		// AC37 문구: 제목 "수업을 끝낼까요?" + 설명
+		const [question, detail] = ASK.split('? ');
+		expect(within(dialog).getByRole('heading', { name: `${question}?` })).toBeTruthy();
+		expect(dialog.textContent).toContain(detail);
+		expect(api.endSession).not.toHaveBeenCalled();
+	});
+
+	it('확인하면 회차를 끝내고 관리 페이지로 돌아간다', async () => {
+		api.endSession.mockResolvedValue({ id: 5, status: 'ended', version: 7 });
+		await open();
+		await fireEvent.click(screen.getByRole('button', { name: '수업 종료' }));
+		await fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '수업 종료' }));
+		await waitFor(() => expect(nav.goto).toHaveBeenCalledWith('/courses/7/admin'));
+		expect(api.endSession).toHaveBeenCalledWith(7, 5);
+	});
+
+	it('취소하면 그대로다', async () => {
+		await open();
+		await fireEvent.click(screen.getByRole('button', { name: '수업 종료' }));
+		await fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '취소' }));
+		await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+		expect(api.endSession).not.toHaveBeenCalled();
+		expect(nav.goto).not.toHaveBeenCalled();
+		expect(screen.getByTitle('현재 슬라이드')).toBeTruthy();
+	});
+
+	it('끝내지 못하면 확인 창 안에 이유와 할 일을 보이고 수업 화면에 머문다', async () => {
+		api.endSession.mockRejectedValue(new TypeError('Failed to fetch'));
+		await open();
+		await fireEvent.click(screen.getByRole('button', { name: '수업 종료' }));
+		const dialog = await screen.findByRole('alertdialog');
+		await fireEvent.click(within(dialog).getByRole('button', { name: '수업 종료' }));
+		const alert = await within(dialog).findByRole('alert');
+		expect(alert.textContent).toContain('수업을 끝내지 못했습니다.');
+		expect(alert.textContent).toContain('네트워크 연결을 확인하고 다시 시도해 주세요.');
+		expect(nav.goto).not.toHaveBeenCalled();
+	});
+
+	it('서버가 거절하면 그 안내를 보인다', async () => {
+		const { ApiError } = await import('#lib/api.js');
+		api.endSession.mockRejectedValue(new ApiError(409, '아직 시작하지 않은 회차입니다.'));
+		await open();
+		await fireEvent.click(screen.getByRole('button', { name: '수업 종료' }));
+		const dialog = await screen.findByRole('alertdialog');
+		await fireEvent.click(within(dialog).getByRole('button', { name: '수업 종료' }));
+		expect((await within(dialog).findByRole('alert')).textContent).toContain('아직 시작하지 않은 회차입니다.');
+	});
+
+	it('취소하면 초점이 수업 종료 버튼으로 돌아가고 다시 열 수 있다', async () => {
+		await open();
+		const button = screen.getByRole('button', { name: '수업 종료' });
+		await fireEvent.click(button);
+		await fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '취소' }));
+		await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+		await waitFor(() => expect(document.activeElement).toBe(button));
+		await fireEvent.click(button);
+		expect(await screen.findByRole('alertdialog')).toBeTruthy();
+	});
+
+	it('확인 창이 열린 동안에는 화살표로 슬라이드를 넘기지 않는다(발표용 리모컨)', async () => {
+		live.goto.mockResolvedValue(4);
+		await open();
+		await fireEvent.click(screen.getByRole('button', { name: '수업 종료' }));
+		await screen.findByRole('alertdialog');
+		await fireEvent.keyDown(window, { key: 'ArrowRight' });
+		await fireEvent.keyDown(window, { key: 'ArrowLeft' });
+		expect(live.goto).not.toHaveBeenCalled();
+	});
+
+	it('확인 창을 연 뒤 다른 탭에서 회차가 바뀌어도 연 때의 회차를 끝낸다', async () => {
+		api.endSession.mockResolvedValue({ id: 5, status: 'ended', version: 7 });
+		await open();
+		await fireEvent.click(screen.getByRole('button', { name: '수업 종료' }));
+		const dialog = await screen.findByRole('alertdialog');
+		// 다른 탭에서 5번을 끝내고 6번을 시작했다
+		await server(snapshot({ liveSessionId: 6, state: { ...STATE, session: { ...STATE.session, id: 6, title: '다른 회차' } } }));
+		await fireEvent.click(within(dialog).getByRole('button', { name: '수업 종료' }));
+		await waitFor(() => expect(api.endSession).toHaveBeenCalled());
+		expect(api.endSession).toHaveBeenCalledWith(7, 5);
+		await waitFor(() => expect(nav.goto).toHaveBeenCalledWith('/courses/7/admin'));
+	});
+
+	it('끝내는 중에 화면을 떠났으면 다 끝난 뒤에 관리 페이지로 끌고 가지 않는다', async () => {
+		let finish: (v: unknown) => void = () => {};
+		api.endSession.mockReturnValue(new Promise((r) => (finish = r)));
+		await open();
+		await fireEvent.click(screen.getByRole('button', { name: '수업 종료' }));
+		await fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '수업 종료' }));
+		cleanup();
+		await act(() => finish({ id: 5, status: 'ended', version: 7 }));
+		expect(nav.goto).not.toHaveBeenCalled();
+	});
+
+	it('진행 중인 수업이 없으면 수업 종료 버튼이 없다', async () => {
+		await open(snapshot({ state: null, liveSessionId: null }));
+		expect(screen.queryByRole('button', { name: '수업 종료' })).toBeNull();
+		cleanup();
+		await open(snapshot({ state: { ...STATE, session: { ...STATE.session, status: 'ended' } }, liveSessionId: null }));
+		expect(screen.queryByRole('button', { name: '수업 종료' })).toBeNull();
 	});
 });
 

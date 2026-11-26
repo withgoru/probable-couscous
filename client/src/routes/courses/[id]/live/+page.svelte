@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
-	import { fetchDeckNotes, type DeckNotes } from '#lib/api.js';
+	import { onMount, tick, untrack } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { ApiError, endSession, fetchDeckNotes, type DeckNotes } from '#lib/api.js';
 	import { connectClass, type ClassLive, type ClassSnapshot, type GotoFailure } from '#lib/classLive.js';
+	import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import SendPanel from '#lib/components/SendPanel.svelte';
@@ -97,6 +99,8 @@
 	}
 
 	function onKey(event: KeyboardEvent) {
+		// 확인 창이 열린 동안에는 넘기지 않는다(발표용 리모컨은 화살표 키를 보낸다)
+		if (endingSessionId !== null) return;
 		if (!showSlides || event.repeat || event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
 		if (event.key === ' ' && (event.shiftKey || pressable(event.target))) return;
 		if (event.key === 'ArrowRight' || event.key === ' ') {
@@ -180,12 +184,38 @@
 		const unsubscribe = classLive.subscribe((s) => (snapshot = s));
 		const clock = setInterval(() => (now = Date.now()), 15_000);
 		return () => {
+			alive = false;
 			clearInterval(clock);
 			unsubscribe();
 			classLive?.stop();
 			classLive = null;
 		};
 	});
+
+	// 수업 종료(AC37): 확인한 뒤 회차를 끝내고 관리 페이지로 돌아간다.
+	// 끝낼 회차는 확인 창을 연 때 정한다. 그 사이 다른 탭에서 회차가 바뀌어도 다른 회차를 끝내지 않는다
+	let endingSessionId = $state<number | null>(null);
+	let endButton = $state<HTMLButtonElement | null>(null);
+	let alive = true; // 화면을 떠난 뒤 끝난 요청이 관리 페이지로 끌고 가지 않게
+
+	async function endClass() {
+		if (!data.classroom || endingSessionId === null) return null;
+		try {
+			await endSession(data.classroom.id, endingSessionId);
+		} catch (e) {
+			return e instanceof ApiError
+				? { title: e.message }
+				: { title: '수업을 끝내지 못했습니다.', hint: '네트워크 연결을 확인하고 다시 시도해 주세요.' };
+		}
+		if (alive) await goto(`/courses/${data.classroom.id}/admin`);
+		return null;
+	}
+
+	async function cancelEnd() {
+		endingSessionId = null;
+		await tick();
+		endButton?.focus(); // 확인 창을 연 버튼으로 초점을 돌려준다
+	}
 
 	function openProjector() {
 		if (data.classroom) window.open(`/courses/${data.classroom.id}/projector`, 'classroom-projector');
@@ -221,8 +251,16 @@
 			<button type="button" class="btn btn-outline" onclick={openProjector}>
 				<Icon name="presentation" />프로젝터 화면 열기
 			</button>
-			<!-- 확인 창은 T021에서 붙인다 -->
-			<button type="button" class="btn btn-outline text-destructive-strong">수업 종료</button>
+			{#if liveState?.session.status === 'live'}
+				<button
+					type="button"
+					class="btn btn-outline text-destructive-strong"
+					bind:this={endButton}
+					onclick={() => (endingSessionId = liveState?.session.id ?? null)}
+				>
+					수업 종료
+				</button>
+			{/if}
 		</div>
 	</header>
 
@@ -340,4 +378,16 @@
 			</div>
 		{/if}
 	</main>
+{/if}
+
+{#if endingSessionId !== null}
+	<ConfirmDialog
+		title="수업을 끝낼까요?"
+		description="학생은 이번 수업에서 본 슬라이드와 받은 자료를 계속 볼 수 있습니다."
+		confirmLabel="수업 종료"
+		busyLabel="끝내는 중…"
+		onConfirm={endClass}
+		onDone={() => (endingSessionId = null)}
+		onCancel={cancelEnd}
+	/>
 {/if}
