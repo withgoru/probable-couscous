@@ -39,11 +39,12 @@ vi.mock('#lib/deckBridge.js', () => ({
 		};
 	}
 }));
-const api = vi.hoisted(() => ({ fetchClassSessions: vi.fn(), fetchDeckNotes: vi.fn() }));
+const api = vi.hoisted(() => ({ fetchClassSessions: vi.fn(), fetchDeckNotes: vi.fn(), fetchClassLive: vi.fn() }));
 vi.mock('#lib/api.js', async (original) => ({
 	...(await original<object>()),
 	fetchClassSessions: api.fetchClassSessions,
-	fetchDeckNotes: api.fetchDeckNotes
+	fetchDeckNotes: api.fetchDeckNotes,
+	fetchClassLive: api.fetchClassLive
 }));
 
 import StudentClass from './StudentClass.svelte';
@@ -91,6 +92,11 @@ beforeEach(() => {
 	api.fetchClassSessions.mockReset();
 	api.fetchClassSessions.mockResolvedValue({ items: PAST, live_session_id: null });
 	api.fetchDeckNotes.mockReset();
+	api.fetchClassLive.mockReset();
+	api.fetchClassLive.mockImplementation(async (_c: number, sid: number) => ({
+		...STATE,
+		session: { ...STATE.session, id: sid, title: sid === 5 ? '3주차 1회차' : '2주차 2회차', status: 'ended' }
+	}));
 });
 afterEach(cleanup);
 
@@ -164,6 +170,7 @@ describe('수업이 없을 때 (AC23)', () => {
 		await server(snapshot({ state: null, liveSessionId: null }));
 		await server(snapshot());
 		await server(snapshot({ state: null, liveSessionId: null }));
+		await act(async () => (await screen.findByRole('button', { name: '지난 회차 목록으로' })).click()); // 끝난 회차 다시 보기에서 나온다
 		await screen.findByText('2주차 2회차');
 		await act(() => oldAnswer({ items: [], live_session_id: null }));
 		expect(screen.getByText('2주차 2회차')).toBeTruthy();
@@ -567,5 +574,122 @@ describe('교수 화면으로 다시 따라간다 (AC28)', () => {
 		expect(line).toBeTruthy();
 		await act(() => button('다음').click());
 		expect(line.textContent).toContain('직접 넘겨 보는 중');
+	});
+});
+
+// --- T026: 수업 끝남과 지난 회차 다시 보기(AC38, AC39) --------------------------------------------
+
+describe('수업이 끝나면 (AC38)', () => {
+	it('새로 고치지 않고 "수업이 끝났습니다."와 같은 회차의 다시 보기로 바뀐다', async () => {
+		mount();
+		await server(snapshot());
+		await server(snapshot({ state: null, liveSessionId: null })); // 교수가 끝냈다
+		expect(await screen.findByText('수업이 끝났습니다.', { selector: ':not([data-class-status])' })).toBeTruthy();
+		expect(await screen.findByRole('heading', { level: 1, name: '3주차 1회차 다시 보기' })).toBeTruthy();
+		expect(api.fetchClassLive).toHaveBeenCalledWith(7, 5);
+		expect(screen.queryByText(WAITING)).toBeNull();
+	});
+
+	it('다시 보기에서 목록으로 가면 대기 화면과 지난 회차가 보인다', async () => {
+		mount();
+		await server(snapshot());
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await act(async () => (await screen.findByRole('button', { name: '지난 회차 목록으로' })).click());
+		expect(screen.getByText(WAITING)).toBeTruthy();
+	});
+
+	it('다시 보는 중에 새 수업이 시작되면 수업 화면으로 간다', async () => {
+		mount();
+		await server(snapshot());
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByText('수업이 끝났습니다.', { selector: ':not([data-class-status])' });
+		await server(snapshot({ state: { ...STATE, session: { ...STATE.session, id: 6, title: '3주차 2회차' } }, liveSessionId: 6 }));
+		expect(screen.getByTitle('수업 슬라이드')).toBeTruthy();
+		expect(screen.queryByText('수업이 끝났습니다.')).toBeNull();
+	});
+});
+
+describe('지난 회차 (AC39)', () => {
+	it('끝난 회차마다 다시 보기가 있고, 누르면 그 회차를 처음부터 다시 본다', async () => {
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '지난 회차' });
+		await act(() => within(list).getByRole('button', { name: '2주차 2회차 다시 보기' }).click());
+		expect(await screen.findByRole('heading', { level: 1, name: '2주차 2회차 다시 보기' })).toBeTruthy();
+		expect(api.fetchClassLive).toHaveBeenCalledWith(7, 4);
+		expect(screen.queryByText('수업이 끝났습니다.')).toBeNull(); // 일부러 연 것이라 끝났다는 안내는 없다
+	});
+});
+
+describe('다시 보기의 초점', () => {
+	it('목록으로 돌아가면 대기 화면 제목으로 초점이 간다', async () => {
+		mount();
+		await server(snapshot());
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await act(async () => (await screen.findByRole('button', { name: '지난 회차 목록으로' })).click());
+		await waitFor(() => expect(document.activeElement?.tagName).toBe('H1'));
+		expect(document.activeElement?.textContent).not.toContain('다시 보기');
+	});
+});
+
+describe('끝남과 시작을 화면 낭독기에 알린다', () => {
+	const status = () => document.querySelector('[data-class-status]') as HTMLElement;
+	it('끝나면 늘 있는 알림 자리가 알리고, 다음 수업이 시작되면 다시 알린다', async () => {
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await server(snapshot());
+		expect(status().textContent).toBe('수업이 시작되었습니다.');
+		await server(snapshot({ state: null, liveSessionId: null }));
+		expect(status().textContent).toBe('수업이 끝났습니다.');
+		await server(snapshot({ state: { ...STATE, session: { ...STATE.session, id: 6 } }, liveSessionId: 6 }));
+		expect(status().textContent).toBe('수업이 시작되었습니다.');
+	});
+});
+
+describe('수업이 끝날 때의 초점', () => {
+	it('초점이 수업 화면 안에 있었으면 다시 보기 제목으로 옮긴다', async () => {
+		mount();
+		await server(snapshot());
+		screen.getByRole('button', { name: '다음' }).focus();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const heading = await screen.findByRole('heading', { level: 1, name: '3주차 1회차 다시 보기' });
+		await waitFor(() => expect(document.activeElement).toBe(heading));
+	});
+
+	it('학생이 초점을 수업 화면 밖으로 옮긴 뒤에 끝나면 옮기지 않는다', async () => {
+		mount();
+		await server(snapshot());
+		const next = screen.getByRole('button', { name: '다음' });
+		next.focus();
+		await act(() => next.blur());
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('heading', { level: 1, name: '3주차 1회차 다시 보기' });
+		await act(() => Promise.resolve());
+		expect(document.activeElement).toBe(document.body);
+	});
+
+	it('수업 화면 밖에 있었으면 옮기지 않는다', async () => {
+		mount();
+		await server(snapshot());
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('heading', { level: 1, name: '3주차 1회차 다시 보기' });
+		await act(() => Promise.resolve());
+		expect(document.activeElement).toBe(document.body);
+	});
+});
+
+describe('다시 보기의 시작 위치', () => {
+	const replayDeck = () => decks.all.at(-1)!;
+	it('끝나서 이어 보면 교수의 마지막 위치에서, 목록에서 열면 처음부터다', async () => {
+		mount();
+		await server(snapshot());
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByTitle('다시 보는 슬라이드');
+		expect(replayDeck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 1 });
+		await act(async () => (await screen.findByRole('button', { name: '지난 회차 목록으로' })).click());
+		const list = await screen.findByRole('list', { name: '지난 회차' });
+		await act(() => within(list).getByRole('button', { name: '2주차 2회차 다시 보기' }).click());
+		await screen.findByTitle('다시 보는 슬라이드');
+		expect(replayDeck().goto).toHaveBeenLastCalledWith({ slide: 1, click: 0 });
 	});
 });

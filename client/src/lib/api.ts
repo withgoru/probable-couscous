@@ -510,3 +510,12 @@ export function fetchClassSessions(
 ): Promise<{ items: ClassSessionSummary[]; live_session_id: number | null }> {
 	return getJson(fetchFn, `/api/class/${classroomId}/sessions`);
 }
+
+/** 회차 하나의 상태(class.view). 학생 다시 보기(AC39)가 쓴다. 학생에게는 거둔 항목이 없다. */
+export function fetchClassLive(
+	classroomId: number,
+	sessionId: number,
+	fetchFn: FetchFn = fetch
+): Promise<import('./classLive').LiveState> {
+	return getJson(fetchFn, `/api/class/${classroomId}/sessions/${sessionId}/live`);
+}

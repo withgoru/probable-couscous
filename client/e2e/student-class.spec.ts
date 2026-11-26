@@ -205,3 +205,66 @@ test('교수가 보낸 자료가 바로 나타나고 알림이 뜨며, 복사할
 	await expect(list.getByText('실습 코드 예시')).toBeVisible();
 	await professor.close();
 });
+
+// 002 T026: 수업이 끝나면 새로 고치지 않고 다시 보기로 바뀌고, 지난 회차를 처음부터 다시 볼 수 있다(AC38, AC39)
+test('수업이 끝나면 다시 보기로 바뀌고, 지난 회차를 처음부터 다시 본다 (AC38, AC39)', async ({ page }) => {
+	const choi = student('replay');
+	const room = await classroomWith([choi], `다시 보기 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '6주차' } })).json();
+	await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck?filename=deck.zip`, {
+		headers: { 'Content-Type': 'application/zip' },
+		data: readFileSync(DECK_ZIP)
+	});
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`);
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/items`, { data: { body: '과제 안내', client_key: 'r1' } });
+	// 교수가 2번 슬라이드의 단계 1까지 넘긴다
+	const professor = await page.context().browser()!.newContext();
+	const teacher = await professor.newPage();
+	await teacher.goto('/api/auth/github/login');
+	await teacher.waitForURL('**/courses');
+	await teacher.goto(`/courses/${room.id}/live`);
+	for (let i = 0; i < 2; i += 1) {
+		const next = teacher.getByRole('button', { name: '다음' });
+		await expect(next).toHaveAttribute('aria-disabled', 'false');
+		await next.click();
+	}
+	await expect
+		.poll(async () => (await (await room.api.get(`/api/class/${room.id}/sessions/${session.id}/live`)).json()).current)
+		.toEqual({ slide: 2, click: 1 });
+	await professor.close();
+
+	await requestCode(page, room.token, choi.email); // 수업 중에 들어오면 바로 수업 화면이다
+	await typeCode(page, await lastCode(choi.email));
+	await page.getByRole('button', { name: '확인하고 입장' }).click();
+	await expect(page.getByText('교수 화면 따라가는 중')).toBeVisible();
+	await noTransitions(page);
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/2\?clicks=1/);
+
+	await page.getByRole('button', { name: '이전' }).focus(); // 키보드 사용자가 수업 화면 안에 있다
+	// 교수가 끝낸다: 새로 고치지 않고 끝났다는 안내와 같은 회차의 다시 보기(AC38)
+	expect((await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/end`)).status()).toBe(200);
+	const endedNotice = page.locator('p:not([data-class-status])', { hasText: '수업이 끝났습니다.' });
+	await expect(endedNotice).toBeVisible();
+	await expect(page.locator('[data-class-status]')).toHaveText('수업이 끝났습니다.'); // 화면 낭독기에도
+	await expect(page.getByRole('heading', { level: 1, name: '6주차 다시 보기' })).toBeFocused(); // 사라진 화면에서 초점을 옮겨 받는다
+	const replayHash = () => page.frameLocator('iframe[title="다시 보는 슬라이드"]').locator('body').evaluate(() => location.hash);
+	await expect.poll(replayHash).toMatch(/^#\/2\?clicks=1/); // 보던 곳에서 이어 본다
+	await expect(page.getByRole('list', { name: '자료' })).toContainText('과제 안내');
+	await expect(page.getByRole('button', { name: '다음' })).toHaveAttribute('aria-disabled', 'true'); // 가장 멀리 간 곳
+	await expect(page.getByText('수업에서 보여 주지 않은 슬라이드입니다.')).toBeVisible();
+	await expectNoAxeViolations(page, '수업이 끝난 뒤 다시 보기');
+	await expectNoHorizontalScroll(page, '수업이 끝난 뒤 다시 보기');
+
+	// 목록으로 돌아가 같은 회차를 처음부터 다시 본다(AC39)
+	await page.getByRole('button', { name: '지난 회차 목록으로' }).click();
+	await expect(page.getByText('지금 진행 중인 수업이 없습니다. 수업이 시작되면 이 화면이 바뀝니다.')).toBeVisible();
+	await page.getByRole('button', { name: '6주차 다시 보기' }).click();
+	await expect(page.getByRole('heading', { level: 1, name: '6주차 다시 보기' })).toBeFocused();
+	await expect(endedNotice).toHaveCount(0);
+	await expect.poll(replayHash).toMatch(/^#\/1/);
+	const next = page.getByRole('button', { name: '다음' });
+	await expect(next).toHaveAttribute('aria-disabled', 'false');
+	await next.click();
+	await expect.poll(replayHash).toMatch(/^#\/2/);
+	await expectNoAxeViolations(page, '지난 회차 다시 보기');
+});

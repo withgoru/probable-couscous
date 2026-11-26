@@ -5,6 +5,7 @@
 	import { connectClass, type ClassLive, type ClassSnapshot } from '#lib/classLive.js';
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
 	import MaterialsPanel from '#lib/components/MaterialsPanel.svelte';
+	import ReplayView from '#lib/components/ReplayView.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import NicknameCard from '#lib/components/NicknameCard.svelte';
 	import { connectDeck, type DeckBridge, type DeckSnapshot, type Direction, type Position } from '#lib/deckBridge.js';
@@ -15,7 +16,8 @@
 	// 진행 중인 회차가 없으면 대기 화면과 지난 회차 목록, 있으면 수업 화면이다. 수업이 시작되면 연결이 상태를 다시 받아
 	// 새로 고치지 않아도 바뀐다. 발표자 노트는 받지도 보이지도 않는다(AC30).
 	// 따라가는 중에 학생이 넘기면(이전·다음, 슬라이드 밀기, ←·→) 따라가기가 풀리고 직접 넘겨 본다. 범위는 가장 멀리 간
-	// 위치까지다. '교수 화면으로'를 눌러야 다시 따라간다(AC26~AC28). 자료 탭의 알림·복사는 T025, 끝남·다시 보기는 T026
+	// 위치까지다. '교수 화면으로'를 눌러야 다시 따라간다(AC26~AC28). 자료 탭의 알림·복사는 T025.
+	// 수업이 끝나면 새로 고치지 않아도 같은 회차의 다시 보기로 바뀌고(AC38), 대기 화면의 지난 회차도 다시 볼 수 있다(AC39)
 	const EMPTY_DECK: DeckSnapshot = { ready: false, total: null, position: null, clicksTotal: null };
 	let { classroomId, title, nickname }: { classroomId: number; title: string; nickname: string } = $props();
 
@@ -39,6 +41,12 @@
 	const seenClicks = new SvelteMap<number, number>();
 	let nextButton = $state<HTMLButtonElement | null>(null);
 	let prevButton = $state<HTMLButtonElement | null>(null);
+	let waitingHeading = $state<HTMLElement | null>(null);
+	// 다시 보는 회차. 끝나서 이어 보면 보던 곳에서, 목록에서 열면 처음부터. 수업이 시작되면 비운다
+	let replay = $state<{ id: number; start: 'first' | 'last'; ended: boolean; takeFocus: boolean } | null>(null);
+	// 초점이 수업 화면 안에 있었는가. 수업이 끝나 그 화면이 사라지면 초점을 다시 보기 제목으로 옮긴다
+	let liveBox = $state<HTMLElement | null>(null);
+	let focusInLive = false;
 
 	const liveState = $derived(snapshot?.state?.session.status === 'live' ? snapshot.state : null);
 	const deck = $derived(liveState?.deck ?? null);
@@ -92,8 +100,13 @@
 	$effect(() => {
 		const id = liveState?.session.id ?? null;
 		if (id === sessionId) return;
+		const ended = sessionId;
 		sessionId = id;
 		untrack(() => {
+			// 보던 수업이 끝났다: 같은 회차를 보던 곳에서 이어 본다(AC38). 새 수업이 시작되면 그쪽이 먼저다
+			replay = id === null && ended !== null ? { id: ended, start: 'last', ended: true, takeFocus: focusInLive } : null;
+			focusInLive = false;
+			if (replay) announcement = '수업이 끝났습니다.'; // 늘 있는 알림 자리라 화면 낭독기가 읽는다
 			if (mode === 'browse') backToProfessor();
 			seenClicks.clear();
 		});
@@ -114,6 +127,22 @@
 		if (!moveFocus) return;
 		await tick();
 		(nextButton ?? prevButton)?.focus(); // 누른 버튼이 사라진다. 초점을 넘기기 버튼으로 옮긴다
+	}
+
+	function leftLive(event: FocusEvent) {
+		const to = event.relatedTarget as Node | null;
+		if (to && liveBox?.contains(to)) return;
+		// 화면이 사라져 초점을 잃은 것이면 기억해 둔다. 학생이 다른 곳을 눌러 나간 것이면 잊는다
+		const box = liveBox;
+		queueMicrotask(() => {
+			if (box?.isConnected) focusInLive = false;
+		});
+	}
+
+	async function closeReplay() {
+		replay = null;
+		await tick();
+		waitingHeading?.focus(); // 누른 버튼이 사라진다. 대기 화면의 제목으로 초점을 옮긴다
 	}
 
 	function setMode(next: 'follow' | 'browse') {
@@ -214,7 +243,7 @@
 <p role="status" data-class-status class="sr-only">{announcement}</p>
 
 {#if liveState}
-	<div class="flex flex-col gap-4">
+	<div class="flex flex-col gap-4" bind:this={liveBox} onfocusin={() => (focusInLive = true)} onfocusout={leftLive}>
 		<!-- 슬라이드(화면 폭, 16:9). 왼쪽 위에 아무것도 얹지 않는다 -->
 		{#if !deck}
 			<p class="rounded-md bg-foreground p-4 text-background">이번 수업은 슬라이드 없이 진행합니다. 자료를 확인하세요.</p>
@@ -282,13 +311,17 @@
 			<MaterialsPanel items={liveState.items} />
 		{/key}
 	</div>
+{:else if replay}
+	{#key replay.id}
+		<ReplayView {classroomId} sessionId={replay.id} start={replay.start} ended={replay.ended} takeFocus={replay.takeFocus} onBack={closeReplay} />
+	{/key}
 {:else}
 	<!-- 입장 완료와 대기(AC23, 001 AC28) -->
 	<div class="flex flex-col gap-1">
 		<span class="flex items-center gap-1.5 text-sm font-medium text-success-text">
 			<Icon name="check" class="size-4" />입장했습니다
 		</span>
-		<h1 tabindex="-1" class="text-2xl leading-tight font-bold break-all outline-none">{title}</h1>
+		<h1 bind:this={waitingHeading} tabindex="-1" class="text-2xl leading-tight font-bold break-all outline-none">{title}</h1>
 	</div>
 	<NicknameCard {nickname} />
 	{#if snapshot?.loadError && !snapshot.loaded}
@@ -309,8 +342,16 @@
 				<ul class="flex flex-col gap-2" aria-labelledby="past-heading">
 					{#each past as s (s.id)}
 						<li class="flex items-center justify-between gap-2 rounded-md border border-border p-3 text-sm">
-							<span class="font-medium">{s.title}</span>
-							{#if s.ended_at}<span class="text-muted-foreground">{dateTime(s.ended_at)}</span>{/if}
+							<span class="flex flex-col">
+								<span class="font-medium">{s.title}</span>
+								{#if s.ended_at}<span class="text-muted-foreground">{dateTime(s.ended_at)}</span>{/if}
+							</span>
+							<button
+								type="button"
+								class="btn btn-outline shrink-0"
+								aria-label="{s.title} 다시 보기"
+								onclick={() => (replay = { id: s.id, start: 'first', ended: false, takeFocus: true })}>다시 보기</button
+							>
 						</li>
 					{/each}
 				</ul>
