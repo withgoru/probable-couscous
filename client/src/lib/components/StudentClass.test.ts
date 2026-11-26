@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ClassSnapshot, LiveState } from '#lib/classLive.js';
 import type { DeckSnapshot } from '#lib/deckBridge.js';
 
-const live = vi.hoisted(() => ({ listener: null as ((s: unknown) => void) | null, stop: vi.fn(), options: null as unknown, id: 0 }));
+const live = vi.hoisted(() => ({ listener: null as ((s: unknown) => void) | null, stop: vi.fn(), setMode: vi.fn(), options: null as unknown, id: 0 }));
 vi.mock('#lib/classLive.js', () => ({
 	connectClass: (id: number, options: unknown) => {
 		live.id = id;
@@ -15,17 +15,17 @@ vi.mock('#lib/classLive.js', () => ({
 				return () => {};
 			},
 			goto: vi.fn(),
-			setMode: vi.fn(),
+			setMode: live.setMode,
 			reload: vi.fn(),
 			stop: live.stop
 		};
 	}
 }));
-type FakeDeck = { listener: ((s: DeckSnapshot) => void) | null; goto: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; setLimit: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
+type FakeDeck = { listener: ((s: DeckSnapshot) => void) | null; onIntent?: (d: 'next' | 'prev') => void; goto: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; setLimit: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
 const decks = vi.hoisted(() => ({ all: [] as FakeDeck[] }));
 vi.mock('#lib/deckBridge.js', () => ({
-	connectDeck: () => {
-		const deck: FakeDeck = { listener: null, goto: vi.fn(), setMode: vi.fn(), setLimit: vi.fn(), stop: vi.fn() };
+	connectDeck: (_frame: unknown, options: { onIntent?: (d: 'next' | 'prev') => void } = {}) => {
+		const deck: FakeDeck = { listener: null, onIntent: options.onIntent, goto: vi.fn(), setMode: vi.fn(), setLimit: vi.fn(), stop: vi.fn() };
 		decks.all.push(deck);
 		return {
 			subscribe: (fn: (s: DeckSnapshot) => void) => {
@@ -87,6 +87,7 @@ beforeEach(() => {
 	decks.all = [];
 	live.listener = null;
 	live.stop.mockReset();
+	live.setMode.mockReset();
 	api.fetchClassSessions.mockReset();
 	api.fetchClassSessions.mockResolvedValue({ items: PAST, live_session_id: null });
 	api.fetchDeckNotes.mockReset();
@@ -317,5 +318,246 @@ describe('지난 회차 목록을 다시 받는 때', () => {
 		await server(snapshot());
 		await server(snapshot({ state: null, liveSessionId: null }));
 		await waitFor(() => expect(api.fetchClassSessions).toHaveBeenCalledTimes(2));
+	});
+});
+
+// --- T024: 넘기면 따라가기 풀기와 다시 따라가기(AC26~AC28) ------------------------------------------
+
+/** 수업 화면을 열고 슬라이드가 그 위치를 그렸다고 알린다(단계 수 3개인 2번 슬라이드). */
+async function classAt(over: Partial<LiveState> = {}, clicksTotal = 3) {
+	mount();
+	const state = { ...STATE, ...over };
+	await server(snapshot({ state }));
+	await drawn(state.current, clicksTotal);
+	return state;
+}
+async function drawn(position: { slide: number; click: number }, clicksTotal: number) {
+	await act(() => deck().listener?.({ ready: true, total: 4, position: { ...position }, clicksTotal }));
+}
+const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
+const FOLLOWING = '교수 화면 따라가는 중';
+
+describe('넘기면 따라가기가 풀린다 (AC26)', () => {
+	it('따라가는 중에 다음을 누르면 풀리고 한 단계 움직인다', async () => {
+		await classAt();
+		expect(screen.getByText(FOLLOWING)).toBeTruthy();
+		await act(() => button('다음').click());
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 2 });
+		expect(screen.queryByText(FOLLOWING)).toBeNull();
+		expect(screen.getByText('직접 넘겨 보는 중 · 교수 화면은 2번 슬라이드입니다.')).toBeTruthy();
+		expect(button('교수 화면으로')).toBeTruthy();
+		expect(deck().setMode).toHaveBeenLastCalledWith('browse');
+		expect(live.setMode).toHaveBeenLastCalledWith('browse'); // 서버 현황(AC15)
+	});
+
+	it('이전을 눌러도 풀리고 앞 단계로 간다', async () => {
+		await classAt();
+		await act(() => button('이전').click());
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 0 });
+		expect(screen.getByText(/직접 넘겨 보는 중/)).toBeTruthy();
+	});
+
+	it('슬라이드를 밀거나 ←·→를 눌러 넘기려 하면(deck:intent) 같다', async () => {
+		await classAt();
+		await act(() => deck().onIntent?.('prev'));
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 0 });
+		expect(screen.getByText(/직접 넘겨 보는 중/)).toBeTruthy();
+	});
+
+	it('화면의 ←·→ 키도 같다(글 입력 칸에서는 아니다)', async () => {
+		await classAt();
+		const input = document.createElement('input');
+		document.body.append(input);
+		await act(() => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
+		expect(screen.getByText(FOLLOWING)).toBeTruthy();
+		await act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })));
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 2 });
+		expect(screen.getByText(/직접 넘겨 보는 중/)).toBeTruthy();
+		input.remove();
+	});
+
+	it('풀린 뒤에는 교수가 넘겨도 학생 슬라이드는 그대로이고 교수 위치 번호만 바뀐다', async () => {
+		await classAt();
+		await act(() => button('다음').click());
+		const calls = deck().goto.mock.calls.length;
+		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
+		expect(deck().goto.mock.calls.slice(calls).every((c) => c[0].slide === 2 && c[0].click === 2)).toBe(true);
+		expect(screen.getByText('직접 넘겨 보는 중 · 교수 화면은 3번 슬라이드입니다.')).toBeTruthy();
+		expect(deck().setLimit).toHaveBeenLastCalledWith({ slide: 3, click: 0 }); // 볼 수 있는 끝은 넓어진다
+	});
+
+	it('범위 밖으로 넘기려 하면 움직이지 않고 따라가기도 그대로다', async () => {
+		await classAt({ current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } }, 0);
+		const calls = deck().goto.mock.calls.length;
+		await act(() => deck().onIntent?.('next'));
+		await act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })));
+		expect(deck().goto.mock.calls.length).toBe(calls);
+		expect(screen.getByText(FOLLOWING)).toBeTruthy();
+		expect(live.setMode).not.toHaveBeenCalled();
+	});
+
+	it('←도 같고, 다른 요소가 이미 처리한 키는 넘기지 않는다', async () => {
+		await classAt();
+		const handled = new KeyboardEvent('keydown', { key: 'ArrowRight', cancelable: true });
+		handled.preventDefault();
+		await act(() => window.dispatchEvent(handled));
+		expect(screen.getByText(FOLLOWING)).toBeTruthy();
+		await act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' })));
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 0 });
+		expect(screen.getByText(/직접 넘겨 보는 중/)).toBeTruthy();
+	});
+
+	it('슬라이드가 아직 그리지 않았거나 열 수 없으면 넘기려 해도 아무 일도 없다', async () => {
+		await classAt();
+		// 교수가 (2,0)으로 돌아갔고 슬라이드는 아직 (2,1)이다: 단계 수를 모른 채 넘기면 단계를 건너뛴다
+		await server(snapshot({ state: { ...STATE, current: { slide: 2, click: 0 } } }));
+		await act(() => button('다음').click());
+		await act(() => deck().onIntent?.('next'));
+		expect(screen.getByText(FOLLOWING)).toBeTruthy();
+		cleanup();
+		decks.all = [];
+		mount();
+		await server(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false } } }));
+		await act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' })));
+		expect(screen.getByText(FOLLOWING)).toBeTruthy();
+		expect(live.setMode).not.toHaveBeenCalled();
+	});
+
+	it('직접 넘겨 보던 곳이 볼 수 있는 끝 밖이 되면 끝으로 당겨져 계속 넘길 수 있다', async () => {
+		await classAt({ current: { slide: 2, click: 1 }, furthest: { slide: 2, click: 1 }, limit: { slide: 2, click: null } });
+		await act(() => button('다음').click()); // (2,2)
+		await drawn({ slide: 2, click: 2 }, 3);
+		// 교수가 넘겨 끝이 가장 멀리 간 위치(2,1)로 바뀌었다
+		await server(snapshot({ state: { ...STATE, current: { slide: 2, click: 1 }, furthest: { slide: 2, click: 1 }, limit: { slide: 2, click: 1 } } }));
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 1 });
+		await drawn({ slide: 2, click: 1 }, 3);
+		expect(button('이전').getAttribute('aria-disabled')).toBe('false');
+	});
+
+	it('묶음이 바뀌면 예전 묶음의 단계 수를 버린다', async () => {
+		await classAt(); // 2번(단계 3개)
+		await server(snapshot({ state: { ...STATE, deck: { id: 10, slide_count: 4, available: true }, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
+		await act(() => decks.all[1].listener?.({ ready: true, total: 4, position: { slide: 3, click: 0 }, clicksTotal: 0 }));
+		await act(() => button('이전').click());
+		expect(decks.all[1].goto).toHaveBeenLastCalledWith({ slide: 2, click: 0 });
+	});
+
+	it('자료로 옮기거나 스크롤해도 따라가기는 그대로다(그런 동작에는 넘기기가 걸려 있지 않다)', async () => {
+		await classAt();
+		window.dispatchEvent(new Event('scroll'));
+		expect(screen.getByText(FOLLOWING)).toBeTruthy();
+	});
+
+	it('슬라이드가 따라오는 중에는 단계를 건너뛰지 않게 넘기지 않는다', async () => {
+		await classAt();
+		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
+		expect(button('다음').getAttribute('aria-disabled')).toBe('true');
+		await act(() => button('다음').click());
+		expect(screen.getByText(FOLLOWING)).toBeTruthy();
+	});
+});
+
+describe('가장 멀리 간 위치까지만 (AC27)', () => {
+	it('끝에 이르면 다음이 흐려지고 안내 문구가 다음과 이어진다', async () => {
+		await classAt({ current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } }, 0);
+		const reason = screen.getByText('교수님이 아직 보여 주지 않은 슬라이드입니다.');
+		expect(button('다음').getAttribute('aria-disabled')).toBe('true'); // 초점을 잃지 않게 흐리게만 한다
+		expect(button('다음').disabled).toBe(false);
+		expect(button('다음').getAttribute('aria-describedby')).toContain(reason.id);
+		const calls = deck().goto.mock.calls.length;
+		await act(() => button('다음').click());
+		expect(deck().goto.mock.calls.length).toBe(calls);
+	});
+
+	it('직접 넘기다 끝에 닿아도 그렇다', async () => {
+		await classAt({ current: { slide: 2, click: 3 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } });
+		await act(() => button('다음').click());
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 3, click: 0 });
+		await drawn({ slide: 3, click: 0 }, 2);
+		expect(button('다음').getAttribute('aria-disabled')).toBe('true');
+		expect(screen.getByText('교수님이 아직 보여 주지 않은 슬라이드입니다.')).toBeTruthy();
+	});
+
+	it('묶음의 마지막이면 다음이 흐려지지만 "아직 보여 주지 않은"이라고는 하지 않는다', async () => {
+		await classAt({ current: { slide: 4, click: 1 }, furthest: { slide: 4, click: 1 }, limit: { slide: 4, click: 1 } }, 1);
+		expect(button('다음').getAttribute('aria-disabled')).toBe('true');
+		expect(screen.queryByText('교수님이 아직 보여 주지 않은 슬라이드입니다.')).toBeNull();
+	});
+
+	it('처음이면 이전이 흐려진다', async () => {
+		await classAt({ current: { slide: 1, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } }, 0);
+		expect(button('이전').getAttribute('aria-disabled')).toBe('true');
+	});
+
+	it('끝의 단계를 모르면(묶음을 바꿈) 그 슬라이드의 단계는 모두 넘길 수 있다', async () => {
+		await classAt({ current: { slide: 2, click: 1 }, furthest: { slide: 2, click: 1 }, limit: { slide: 2, click: null } });
+		await act(() => button('다음').click()); // 가장 멀리 간 단계(1)를 넘어 2로
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 2 });
+		await drawn({ slide: 2, click: 2 }, 3);
+		await act(() => button('다음').click());
+		await drawn({ slide: 2, click: 3 }, 3);
+		expect(button('다음').getAttribute('aria-disabled')).toBe('true'); // 3번 슬라이드는 끝 밖
+	});
+});
+
+describe('교수 화면으로 다시 따라간다 (AC28)', () => {
+	it('누르면 교수의 현재 위치로 가고 다시 따라가는 중이 된다', async () => {
+		await classAt();
+		await act(() => button('이전').click());
+		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
+		await act(() => button('교수 화면으로').click());
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 3, click: 0 });
+		expect(screen.getByText(FOLLOWING)).toBeTruthy();
+		expect(screen.queryByRole('button', { name: '교수 화면으로' })).toBeNull();
+		expect(deck().setMode).toHaveBeenLastCalledWith('follow');
+		expect(live.setMode).toHaveBeenLastCalledWith('follow');
+		// 다시 따라가므로 교수가 넘기면 따라간다
+		await server(snapshot({ state: { ...STATE, current: { slide: 4, click: 0 }, furthest: { slide: 4, click: 0 }, limit: { slide: 4, click: 0 } } }));
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 4, click: 0 });
+	});
+
+	it('교수 화면으로를 누르면 초점이 넘기기 버튼으로 옮겨 간다(사라진 버튼에 남지 않게)', async () => {
+		await classAt();
+		await act(() => button('이전').click());
+		await drawn({ slide: 2, click: 0 }, 3);
+		button('교수 화면으로').focus();
+		await act(() => button('교수 화면으로').click());
+		await waitFor(() => expect(document.activeElement).toBe(button('다음')));
+	});
+
+	it('직접 넘기다 교수와 같은 위치에 닿아도 저절로 다시 따라가지 않는다', async () => {
+		await classAt();
+		await act(() => button('이전').click()); // (2,0)
+		await drawn({ slide: 2, click: 0 }, 3);
+		await act(() => button('다음').click()); // (2,1) = 교수 위치
+		await drawn({ slide: 2, click: 1 }, 3);
+		expect(screen.getByText(/직접 넘겨 보는 중/)).toBeTruthy();
+		expect(button('교수 화면으로')).toBeTruthy();
+	});
+
+	it('다른 회차의 수업이 시작되면 다시 따라가는 중에서 시작한다', async () => {
+		await classAt();
+		await act(() => button('다음').click());
+		await server(snapshot({ state: { ...STATE, session: { ...STATE.session, id: 6 }, current: { slide: 1, click: 0 } } }));
+		expect(screen.getByText(FOLLOWING)).toBeTruthy();
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 1, click: 0 });
+		expect(live.setMode).toHaveBeenLastCalledWith('follow');
+		expect(deck().setMode).toHaveBeenLastCalledWith('follow');
+	});
+
+	it('새 회차에서는 예전 회차에서 본 단계 수로 돌아가지 않는다', async () => {
+		await classAt(); // 2번 슬라이드(단계 3개)를 그렸다
+		await server(snapshot({ state: { ...STATE, session: { ...STATE.session, id: 6 }, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
+		await drawn({ slide: 3, click: 0 }, 0);
+		await act(() => button('이전').click());
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 0 });
+	});
+
+	it('따라가기 줄은 바뀔 때 화면 낭독기에도 읽힌다', async () => {
+		await classAt();
+		const line = screen.getByText(FOLLOWING).closest('[role="status"]') as HTMLElement;
+		expect(line).toBeTruthy();
+		await act(() => button('다음').click());
+		expect(line.textContent).toContain('직접 넘겨 보는 중');
 	});
 });

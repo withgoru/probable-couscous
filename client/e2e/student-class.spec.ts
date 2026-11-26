@@ -101,3 +101,66 @@ test('수업 중에 들어온 학생은 교수의 현재 위치에서 시작한�
 	await expect(page.getByText('교수 화면 따라가는 중')).toBeVisible();
 	await expect.poll(() => slideOf(page)).toMatch(/^#\/3/);
 });
+
+test('넘기면 따라가기가 풀리고, 가장 멀리 간 위치까지만 가며, 교수 화면으로 다시 따라간다 (AC26~AC28)', async ({ page }) => {
+	const park = student('browse');
+	const room = await classroomWith([park], `직접 넘겨 보기 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '5주차' } })).json();
+	await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck?filename=deck.zip`, {
+		headers: { 'Content-Type': 'application/zip' },
+		data: readFileSync(DECK_ZIP)
+	});
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`);
+	const professor = await page.context().browser()!.newContext();
+	const teacher = await professor.newPage();
+	await teacher.goto('/api/auth/github/login');
+	await teacher.waitForURL('**/courses');
+	await teacher.goto(`/courses/${room.id}/live`);
+	const teacherNext = teacher.getByRole('button', { name: '다음' });
+	async function professorNext() {
+		await expect(teacherNext).toHaveAttribute('aria-disabled', 'false');
+		await teacherNext.click();
+	}
+	await professorNext(); // 교수: 2번 슬라이드 0단계
+
+	await enterLive(page, room.token, park.email);
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/2$/);
+
+	// 교수님이 2번 슬라이드 0단계까지만 보였다: 다음은 흐리고 안내가 보인다(AC27)
+	await expect(page.getByRole('button', { name: '다음' })).toBeDisabled();
+	await expect(page.getByText('교수님이 아직 보여 주지 않은 슬라이드입니다.')).toBeVisible();
+
+	// 이전을 누르면 따라가기가 풀리고 1번으로(AC26)
+	await page.getByRole('button', { name: '이전' }).click();
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/1/);
+	await expect(page.getByText('직접 넘겨 보는 중 · 교수 화면은 2번 슬라이드입니다.')).toBeVisible();
+
+	// 교수가 넘겨도 학생 슬라이드는 그대로, 교수 위치 번호만 바뀐다
+	await professorNext(); // 2번 1단계
+	await professorNext(); // 2번 2단계
+	await professorNext(); // 2번 3단계
+	await professorNext(); // 3번
+	await expect(page.getByText('직접 넘겨 보는 중 · 교수 화면은 3번 슬라이드입니다.')).toBeVisible();
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/1/);
+	await expectNoAxeViolations(page, '직접 넘겨 보는 학생 화면');
+
+	// '교수 화면으로'를 누르면 교수 위치로 가고 다시 따라간다(AC28)
+	await page.getByRole('button', { name: '교수 화면으로' }).click();
+	await expect(page.getByText('교수 화면 따라가는 중')).toBeVisible();
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/3/);
+	await professorNext(); // 4번
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/4/);
+
+	// 슬라이드 안에서 ←를 눌러도(애드온이 막고 방향만 알림) 따라가기가 풀리고 한 단계 움직인다
+	await page.frameLocator('iframe[title="수업 슬라이드"]').locator('body').press('ArrowLeft');
+	await expect(page.getByText('직접 넘겨 보는 중 · 교수 화면은 4번 슬라이드입니다.')).toBeVisible();
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/3/);
+	await professor.close();
+});
+
+async function enterLive(page: Page, token: string, email: string) {
+	await requestCode(page, token, email);
+	await typeCode(page, await lastCode(email));
+	await page.getByRole('button', { name: '확인하고 입장' }).click();
+	await expect(page.getByText('교수 화면 따라가는 중')).toBeVisible();
+}

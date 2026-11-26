@@ -49,17 +49,19 @@ export default defineRootSetup(() => {
   style.textContent = HIDE_CONTROLS
   document.head.appendChild(style)
 
-  // 부모가 지시한 이동이 진행 중인 수. 지시가 겹쳐도(교수가 빠르게 두 번 넘김) 앞의 것이 끝나며 뒤의 것을 막지 않게
-  // 참/거짓 하나가 아니라 수로 센다
-  let ordered = 0
+  // 부모가 지시해 진행 중인 이동의 목적지와 그 수. 지시가 겹쳐도(교수가 빠르게 두 번 넘김) 앞의 것이 끝나며
+  // 뒤의 것을 막지 않게 수로 센다. 그 사이 사용자가 밀거나 키를 눌러 생긴 다른 곳으로의 이동은 여전히 막는다
+  // (그대로 두면 볼 수 있는 끝을 넘을 수 있다)
+  const ordered = new Map<string, number>()
+  const keyOf = (p: Position) => `${p.slide}:${p.click}`
   let limit: Position | null = null
 
   const current = (): Position => ({ slide: nav.currentSlideNo.value, click: nav.clicks.value })
 
   nav.router.beforeEach((to) => {
-    if (ordered > 0)
-      return true
     const target = targetOf(to.path, to.query)
+    if (target && ordered.has(keyOf(target)))
+      return true
     const here = current()
     // 같은 자리로 가는 이동(Slidev가 처음 뜰 때 주소를 맞추는 것)은 넘기려 한 것이 아니다. 막기만 하고 알리지 않는다
     if (target && (target.slide !== here.slide || target.click !== here.click))
@@ -71,12 +73,17 @@ export default defineRootSetup(() => {
     let target = { slide: Math.max(1, Math.floor(position.slide)), click: Math.max(0, Math.floor(position.click)) }
     if (limit && before(limit, target))
       target = { ...limit }
-    ordered += 1
+    const key = keyOf(target)
+    ordered.set(key, (ordered.get(key) ?? 0) + 1)
     try {
       await nav.go(target.slide, target.click, true)
     }
     finally {
-      ordered -= 1
+      const left = (ordered.get(key) ?? 1) - 1
+      if (left > 0)
+        ordered.set(key, left)
+      else
+        ordered.delete(key)
     }
   }
 
