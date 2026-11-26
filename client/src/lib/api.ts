@@ -1,4 +1,4 @@
-import { withLimit, type LiveState, type ServerState } from './classLive';
+import type { LiveState } from './classLive';
 
 
 export type Me = { github_id: number; login: string };
@@ -539,5 +539,5 @@ export function fetchClassLive(
 	sessionId: number,
 	fetchFn: FetchFn = fetch
 ): Promise<LiveState> {
-	return getJson<ServerState>(fetchFn, `/api/class/${classroomId}/sessions/${sessionId}/live`).then(withLimit);
+	return getJson<LiveState>(fetchFn, `/api/class/${classroomId}/sessions/${sessionId}/live`);
 }

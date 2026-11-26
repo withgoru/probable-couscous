@@ -77,31 +77,28 @@ describe('슬라이드에서 오는 메시지', () => {
 });
 
 describe('슬라이드로 보내는 지시', () => {
-	it('준비되면 goto·limit·mode를 같은 출처로만 보낸다', () => {
+	it('준비되면 goto·mode를 같은 출처로만 보낸다(볼 수 있는 끝은 보내지 않는다)', () => {
 		const { deck, fromDeck, frame, sent } = setup();
 		fromDeck({ type: 'deck:ready', total: 4 });
 		deck.setMode('follow');
-		deck.setLimit({ slide: 3, click: 1 });
 		deck.goto({ slide: 2, click: 0 });
 		expect(sent()).toEqual([
 			{ type: 'deck:mode', mode: 'follow' },
-			{ type: 'deck:limit', limit: { slide: 3, click: 1 } },
 			{ type: 'deck:goto', slide: 2, click: 0 }
 		]);
 		expect(frame.postMessage.mock.calls.every((c) => c[1] === ORIGIN)).toBe(true);
+		expect(Object.keys(deck)).not.toContain('setLimit'); // 가장 멀리 간 위치가 없어졌다(2026-11-26)
 	});
 
 	it('준비 전의 지시는 마지막 것만 기억했다가 준비되면 보낸다', () => {
 		const { deck, fromDeck, sent } = setup();
 		deck.goto({ slide: 2, click: 0 });
 		deck.goto({ slide: 3, click: 1 });
-		deck.setLimit(null);
 		deck.setMode('present');
 		expect(sent()).toEqual([]);
 		fromDeck({ type: 'deck:ready', total: 4 });
 		expect(sent()).toEqual([
 			{ type: 'deck:mode', mode: 'present' },
-			{ type: 'deck:limit', limit: null },
 			{ type: 'deck:goto', slide: 3, click: 1 }
 		]);
 	});
@@ -109,13 +106,9 @@ describe('슬라이드로 보내는 지시', () => {
 	it('iframe이 다시 뜨면(새 deck:ready) 기억한 지시를 다시 보낸다', () => {
 		const { deck, fromDeck, sent } = setup();
 		fromDeck({ type: 'deck:ready', total: 4 });
-		deck.setLimit({ slide: 2, click: 0 });
 		deck.goto({ slide: 2, click: 0 });
 		fromDeck({ type: 'deck:ready', total: 4 });
-		expect(sent().slice(2)).toEqual([
-			{ type: 'deck:limit', limit: { slide: 2, click: 0 } },
-			{ type: 'deck:goto', slide: 2, click: 0 }
-		]);
+		expect(sent().slice(1)).toEqual([{ type: 'deck:goto', slide: 2, click: 0 }]);
 	});
 
 	it('iframe이 없으면 보내지 않고 실패하지도 않는다', () => {

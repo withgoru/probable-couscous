@@ -28,11 +28,11 @@ vi.mock('#lib/classLive.js', () => ({
 	}
 }));
 // 슬라이드 다리도 흉내 낸다. 첫 번째가 현재 슬라이드, 두 번째가 다음 슬라이드 미리보기다
-type FakeDeck = { listener: ((s: DeckSnapshot) => void) | null; onIntent?: (d: 'next' | 'prev') => void; goto: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; setLimit: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
+type FakeDeck = { listener: ((s: DeckSnapshot) => void) | null; onIntent?: (d: 'next' | 'prev') => void; goto: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
 const decks = vi.hoisted(() => ({ all: [] as FakeDeck[] }));
 vi.mock('#lib/deckBridge.js', () => ({
 	connectDeck: (_frame: unknown, options: { onIntent?: (d: 'next' | 'prev') => void } = {}) => {
-		const deck: FakeDeck = { listener: null, onIntent: options.onIntent, goto: vi.fn(), setMode: vi.fn(), setLimit: vi.fn(), stop: vi.fn() };
+		const deck: FakeDeck = { listener: null, onIntent: options.onIntent, goto: vi.fn(), setMode: vi.fn(), stop: vi.fn() };
 		decks.all.push(deck);
 		return {
 			subscribe: (fn: (s: DeckSnapshot) => void) => {
@@ -41,7 +41,6 @@ vi.mock('#lib/deckBridge.js', () => ({
 			},
 			goto: deck.goto,
 			setMode: deck.setMode,
-			setLimit: deck.setLimit,
 			stop: deck.stop
 		};
 	}
@@ -63,7 +62,6 @@ const STATE: LiveState = {
 	session: { id: 5, title: '3주차 1회차', status: 'live', version: 3, started_at: '2026-03-04T05:00:00+00:00' },
 	deck: { id: 9, slide_count: 4, available: true, public: false },
 	current: { slide: 2, click: 0 },
-	limit: { slide: 2, click: 0 },
 	items: []
 };
 const NOTES = {

@@ -3,11 +3,10 @@
  *
  * 슬라이드는 수업 화면(같은 출처의 부모 창) 안 iframe에서 돈다. 이 파일은 부모와 postMessage로만 대화하고,
  * 연결이나 인증은 하지 않는다. 부모가 지시한 이동만 하고, 그 밖의 이동(키보드, 스와이프, 주소 바꾸기)은
- * 막은 뒤 방향만 `deck:intent`로 알린다. 따라가기를 풀지, 범위 안인지는 부모가 판단한다(spec AC26).
+ * 막은 뒤 방향만 `deck:intent`로 알린다. 따라가기를 풀지, 넘겨 볼 수 있는지는 부모가 판단한다(spec AC26, AC27).
  *
  * 부모 → 슬라이드
- *   deck:goto   { slide, click }        그 위치로 이동(범위 밖이면 범위 끝으로)
- *   deck:limit  { slide, click } | null 볼 수 있는 마지막 위치(가장 멀리 간 위치). null이면 제한 없음
+ *   deck:goto   { slide, click }        그 위치로 이동
  *   deck:mode   { mode }                follow | browse | present (표시용. 이동 규칙은 같다)
  * 슬라이드 → 부모
  *   deck:ready  { total }               처음 그릴 준비가 됨
@@ -51,10 +50,9 @@ export default defineRootSetup(() => {
 
   // 부모가 지시해 진행 중인 이동의 목적지와 그 수. 지시가 겹쳐도(교수가 빠르게 두 번 넘김) 앞의 것이 끝나며
   // 뒤의 것을 막지 않게 수로 센다. 그 사이 사용자가 밀거나 키를 눌러 생긴 다른 곳으로의 이동은 여전히 막는다
-  // (그대로 두면 볼 수 있는 끝을 넘을 수 있다)
+  // (비공개 묶음을 따라가는 학생이 혼자 넘기지 않게)
   const ordered = new Map<string, number>()
   const keyOf = (p: Position) => `${p.slide}:${p.click}`
-  let limit: Position | null = null
 
   const current = (): Position => ({ slide: nav.currentSlideNo.value, click: nav.clicks.value })
 
@@ -70,9 +68,7 @@ export default defineRootSetup(() => {
   })
 
   async function goto(position: Position) {
-    let target = { slide: Math.max(1, Math.floor(position.slide)), click: Math.max(0, Math.floor(position.click)) }
-    if (limit && before(limit, target))
-      target = { ...limit }
+    const target = { slide: Math.max(1, Math.floor(position.slide)), click: Math.max(0, Math.floor(position.click)) }
     const key = keyOf(target)
     ordered.set(key, (ordered.get(key) ?? 0) + 1)
     try {
@@ -93,8 +89,6 @@ export default defineRootSetup(() => {
     const message = event.data ?? {}
     if (message.type === 'deck:goto')
       void goto({ slide: Number(message.slide), click: Number(message.click ?? 0) })
-    else if (message.type === 'deck:limit')
-      limit = message.limit ? { slide: Number(message.limit.slide), click: Number(message.limit.click) } : null
     else if (message.type === 'deck:mode')
       document.documentElement.dataset.classroomMode = String(message.mode)
   })

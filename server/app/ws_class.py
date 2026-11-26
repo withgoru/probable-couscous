@@ -7,7 +7,7 @@
 
 받는 것:
  - 교수 `goto{session_id, slide, click, req}`: 범위 검사 → DB 기록 → 보낸 화면에 `ack{req, version}` → 방에 `position`
-   발행(C13). 같은 위치면 `ack`만 한다. 가장 멀리 간 위치는 줄지 않는다.
+   발행(C13). 같은 위치면 `ack`만 한다.
  - 학생 `mode{follow|browse}`: 연결마다 메모리에 두고, 바뀌면 교수 화면에만 `presence{follow, browse}`(숫자만, C7).
  - 그 밖은 `error{req, reason, message}`로 답하고 연결은 그대로 둔다.
 

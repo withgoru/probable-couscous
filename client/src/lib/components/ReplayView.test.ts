@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LiveState } from '#lib/classLive.js';
 import type { DeckSnapshot } from '#lib/deckBridge.js';
 
-type FakeDeck = { listener: ((s: DeckSnapshot) => void) | null; onIntent?: (d: 'next' | 'prev') => void; goto: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; setLimit: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
+type FakeDeck = { listener: ((s: DeckSnapshot) => void) | null; onIntent?: (d: 'next' | 'prev') => void; goto: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
 const decks = vi.hoisted(() => ({ all: [] as FakeDeck[] }));
 vi.mock('#lib/deckBridge.js', () => ({
 	connectDeck: (_frame: unknown, options: { onIntent?: (d: 'next' | 'prev') => void } = {}) => {
-		const deck: FakeDeck = { listener: null, onIntent: options.onIntent, goto: vi.fn(), setMode: vi.fn(), setLimit: vi.fn(), stop: vi.fn() };
+		const deck: FakeDeck = { listener: null, onIntent: options.onIntent, goto: vi.fn(), setMode: vi.fn(), stop: vi.fn() };
 		decks.all.push(deck);
 		return {
 			subscribe: (fn: (s: DeckSnapshot) => void) => {
@@ -17,7 +17,6 @@ vi.mock('#lib/deckBridge.js', () => ({
 			},
 			goto: deck.goto,
 			setMode: deck.setMode,
-			setLimit: deck.setLimit,
 			stop: deck.stop
 		};
 	}
@@ -31,7 +30,6 @@ const ENDED: LiveState = {
 	session: { id: 4, title: '2주차 2회차', status: 'ended', version: 9 },
 	deck: { id: 8, slide_count: 4, available: true, public: true },
 	current: { slide: 2, click: 1 },
-	limit: { slide: 3, click: 0 },
 	items: [
 		{ id: 1, body: '첫 자료', url: null, created_at: '2026-02-26T05:01:00+00:00' },
 		{ id: 2, body: null, url: 'https://example.com/b', created_at: '2026-02-26T05:02:00+00:00' }
@@ -75,11 +73,10 @@ describe('지난 회차 다시 보기 (AC39)', () => {
 		mount();
 		await screen.findByTitle('다시 보는 슬라이드');
 		expect(deck().setMode).toHaveBeenCalledWith('browse');
-		expect(deck().setLimit).toHaveBeenLastCalledWith({ slide: 3, click: 0 });
 		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 1, click: 0 });
 	});
 
-	it('가장 멀리 간 위치까지만 넘기고, 끝에서 다음이 흐려지고 안내가 보인다', async () => {
+	it('공개 묶음은 끝까지 넘기고, 마지막에서 다음이 흐려진다(범위 안내 문구는 없다)', async () => {
 		mount();
 		await screen.findByTitle('다시 보는 슬라이드');
 		await drawn({ slide: 1, click: 0 }, 0);
@@ -89,9 +86,12 @@ describe('지난 회차 다시 보기 (AC39)', () => {
 		await act(() => button('다음').click());
 		await drawn({ slide: 2, click: 1 }, 1);
 		await act(() => button('다음').click());
-		await drawn({ slide: 3, click: 0 }, 2);
+		await drawn({ slide: 3, click: 0 }, 0);
+		await act(() => button('다음').click()); // 교수가 보여 준 곳(3번) 뒤로도 간다
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 4, click: 0 });
+		await drawn({ slide: 4, click: 0 }, 0);
 		expect(button('다음').getAttribute('aria-disabled')).toBe('true');
-		expect(screen.getByText('수업에서 보여 주지 않은 슬라이드입니다.')).toBeTruthy();
+		expect(screen.queryByText(/보여 주지 않은/)).toBeNull();
 		const calls = deck().goto.mock.calls.length;
 		await act(() => button('다음').click());
 		await act(() => deck().onIntent?.('next'));
@@ -107,14 +107,6 @@ describe('지난 회차 다시 보기 (AC39)', () => {
 		await drawn({ slide: 2, click: 0 }, 1);
 		await act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })));
 		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 1 });
-	});
-
-	it('묶음을 바꾼 회차는 가장 멀리 간 슬라이드의 단계 전부까지다 (AC41)', async () => {
-		api.fetchClassLive.mockResolvedValue({ ...structuredClone(ENDED), limit: { slide: 3, click: null } });
-		mount();
-		await screen.findByTitle('다시 보는 슬라이드');
-		expect(deck().setLimit.mock.calls.at(-1)?.[0]).toMatchObject({ slide: 3 });
-		expect(deck().setLimit.mock.calls.at(-1)?.[0].click).toBeGreaterThanOrEqual(999);
 	});
 
 	it('목록으로 돌아갈 수 있다', async () => {
@@ -169,15 +161,8 @@ describe('수업이 끝나 이어지는 다시 보기 (AC38)', () => {
 		expect(document.querySelectorAll('[role="status"]:not([data-copy-status]):not([data-arrival])')).toHaveLength(0);
 	});
 
-	it('보던 곳이 볼 수 있는 끝이나 묶음 밖이면 끝에서 이어 본다', async () => {
-		api.fetchClassLive.mockResolvedValue({ ...structuredClone(ENDED), current: { slide: 6, click: 2 }, limit: { slide: 4, click: null } });
-		mount({ start: 'last', ended: true });
-		await screen.findByTitle('다시 보는 슬라이드');
-		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 4, click: 0 });
-		cleanup();
-		decks.all = [];
-		// 끝이 묶음보다 뒤로 남아 있어도 묶음의 마지막 슬라이드에서
-		api.fetchClassLive.mockResolvedValue({ ...structuredClone(ENDED), current: { slide: 5, click: 0 }, limit: { slide: 6, click: null } });
+	it('보던 곳이 묶음 밖이면(끝난 뒤 더 짧은 묶음으로 바꿈) 마지막 슬라이드에서 이어 본다', async () => {
+		api.fetchClassLive.mockResolvedValue({ ...structuredClone(ENDED), current: { slide: 6, click: 2 } });
 		mount({ start: 'last', ended: true });
 		await screen.findByTitle('다시 보는 슬라이드');
 		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 4, click: 0 });
@@ -208,23 +193,19 @@ describe('초점', () => {
 });
 
 describe('넘기기 규칙 (변형 검사 뒤 추가)', () => {
-	it('볼 수 있는 끝을 위치보다 먼저 보낸다', async () => {
+	it('슬라이드에 볼 수 있는 끝을 보내지 않는다', async () => {
 		mount();
 		await screen.findByTitle('다시 보는 슬라이드');
-		await drawn({ slide: 1, click: 0 }, 0);
-		await act(() => button('다음').click());
-		const limitAt = deck().setLimit.mock.invocationCallOrder.at(-1)!;
-		const gotoAt = deck().goto.mock.invocationCallOrder.at(-1)!;
-		expect(limitAt).toBeLessThan(gotoAt);
+		expect(Object.keys(deck())).not.toContain('setLimit');
 	});
 
 	it('묶음의 마지막에서는 그냥 끝이다(안내 없음)', async () => {
-		api.fetchClassLive.mockResolvedValue({ ...structuredClone(ENDED), current: { slide: 4, click: 0 }, limit: { slide: 4, click: 0 } });
+		api.fetchClassLive.mockResolvedValue({ ...structuredClone(ENDED), current: { slide: 4, click: 0 } });
 		mount({ start: 'last' });
 		await screen.findByTitle('다시 보는 슬라이드');
 		await drawn({ slide: 4, click: 0 }, 0);
 		expect(button('다음').getAttribute('aria-disabled')).toBe('true');
-		expect(screen.queryByText('수업에서 보여 주지 않은 슬라이드입니다.')).toBeNull();
+		expect(screen.queryByText(/보여 주지 않은/)).toBeNull();
 		expect(button('다음').getAttribute('aria-describedby')).toBeNull();
 	});
 
