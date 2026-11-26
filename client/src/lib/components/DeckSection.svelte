@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { ApiError, removeDeck, uploadDeck, type ClassSession } from '#lib/api.js';
+	import { ApiError, removeDeck, setDeckVisibility, uploadDeck, type ClassSession } from '#lib/api.js';
 	import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import { dateTime } from '#lib/time.js';
 
-	// 선택한 회차의 '이 회차의 자료'(002 AC5~AC7): 슬라이드 묶음(zip) 올리기·바꾸기·지우기.
+	// 선택한 회차의 '이 회차의 자료'(002 AC5~AC7, AC47): 슬라이드 묶음(zip) 올리기·바꾸기·지우기, 학생에게 공개.
 	// 거절 문구는 서버가 정한 것을 그대로 보인다(크기 상한도 서버 설정을 따른다)
 	let {
 		classroomId,
@@ -26,6 +26,35 @@
 	let done = $state<string | null>(null);
 	let confirming = $state(false);
 	let fileInput = $state<HTMLInputElement | null>(null);
+
+	// 학생에게 공개(AC47). 누르는 즉시 바뀐 상태를 보이고, 실패하면 되돌린다. 회차 상태와 관계없이 바꾼다
+	let pendingPublic = $state<{ deckId: number; value: boolean } | null>(null);
+	let publicProblem = $state<{ title: string; hint?: string } | null>(null);
+	const isPublic = $derived(
+		deck ? (pendingPublic && pendingPublic.deckId === deck.id ? pendingPublic.value : deck.public) : false
+	);
+
+	async function togglePublic() {
+		// 저장하는 동안 다시 눌러도 한 번만 보낸다. 묶음을 올리는 동안에는 새 묶음을 공개하지 않게 받지 않는다
+		if (!deck || pendingPublic || uploading) return;
+		const target = { deckId: deck.id, value: !deck.public };
+		pendingPublic = target;
+		publicProblem = null;
+		let saved = false;
+		try {
+			await setDeckVisibility(classroomId, session.id, target.value);
+			saved = true;
+		} catch (e) {
+			publicProblem =
+				e instanceof ApiError
+					? { title: e.message }
+					: { title: '공개 여부를 바꾸지 못했습니다.', hint: '네트워크 연결을 확인하고 다시 눌러 주세요.' };
+			if (e instanceof ApiError && e.status === 404) saved = true; // 묶음이 이미 지워졌다: 구역을 다시 불러온다
+		}
+		// 다시 불러오기가 실패해도 저장은 끝났다. 바꾸지 못했다고 하지 않는다
+		if (saved) await Promise.resolve(onChanged()).catch(() => {});
+		pendingPublic = null; // 성공하면 다시 받은 묶음이, 실패하면 원래 값이 보인다
+	}
 
 	async function upload(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
@@ -83,6 +112,28 @@
 			{#if !deck.available}
 				<ErrorNotice title="슬라이드를 열 수 없습니다. 묶음을 다시 올려 주세요." />
 			{/if}
+			<div class="flex flex-col gap-1">
+				<!-- 글자를 눌러도 바뀌고, 누를 수 있는 높이가 44px 이상이다(AC45) -->
+				<label class="flex min-h-11 cursor-pointer items-center gap-3 self-start">
+					<button
+						type="button"
+						role="switch"
+						class="switch"
+						aria-checked={isPublic}
+						aria-labelledby="deck-public-label"
+						aria-describedby="deck-public-state"
+						disabled={uploading}
+						onclick={togglePublic}><span class="switch-thumb"></span></button
+					>
+					<span id="deck-public-label" class="text-sm font-medium">학생에게 공개</span>
+				</label>
+				<p id="deck-public-state" class="text-sm text-muted-foreground">
+					{isPublic
+						? '공개 · 학생이 언제든 처음부터 끝까지 볼 수 있습니다.'
+						: '비공개 · 학생은 수업 중 교수 화면을 따라갈 때만 봅니다.'}
+				</p>
+				{#if publicProblem}<ErrorNotice title={publicProblem.title} hint={publicProblem.hint} />{/if}
+			</div>
 		{:else}
 			<p class="text-sm text-muted-foreground">
 				슬라이드 템플릿으로 빌드한 폴더(dist)를 zip으로 묶어 올려 주세요. 슬라이드 없이도 수업을 시작할 수 있습니다.

@@ -2,11 +2,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const api = vi.hoisted(() => ({ uploadDeck: vi.fn(), removeDeck: vi.fn() }));
+const api = vi.hoisted(() => ({ uploadDeck: vi.fn(), removeDeck: vi.fn(), setDeckVisibility: vi.fn() }));
 vi.mock('#lib/api.js', async (original) => ({
 	...(await original<object>()),
 	uploadDeck: api.uploadDeck,
-	removeDeck: api.removeDeck
+	removeDeck: api.removeDeck,
+	setDeckVisibility: api.setDeckVisibility
 }));
 
 import { ApiError, type ClassSession, type SessionDeck } from '#lib/api.js';
@@ -45,6 +46,7 @@ async function choose(file: File) {
 beforeEach(() => {
 	api.uploadDeck.mockReset();
 	api.removeDeck.mockReset();
+	api.setDeckVisibility.mockReset();
 });
 afterEach(cleanup);
 
@@ -165,5 +167,140 @@ describe('진행 중인 회차 (AC7)', () => {
 		expect((screen.getByRole('button', { name: '슬라이드 지우기' }) as HTMLButtonElement).disabled).toBe(true);
 		const reason = screen.getByText('수업 중에는 슬라이드를 바꿀 수 없습니다.');
 		expect(input().getAttribute('aria-describedby')).toContain(reason.id);
+	});
+});
+
+describe('학생에게 공개 (AC47)', () => {
+	const PUBLIC = '공개 · 학생이 언제든 처음부터 끝까지 볼 수 있습니다.';
+	const PRIVATE = '비공개 · 학생은 수업 중 교수 화면을 따라갈 때만 봅니다.';
+	const toggle = () => screen.getByRole('switch', { name: '학생에게 공개' }) as HTMLButtonElement;
+
+	it('묶음이 있을 때만 스위치가 있고, 새 묶음은 꺼져 있으며 지금 상태를 글로 보인다', () => {
+		setup(session('scheduled'));
+		expect(toggle().getAttribute('aria-checked')).toBe('false');
+		const state = screen.getByText(PRIVATE);
+		expect(toggle().getAttribute('aria-describedby')).toContain(state.id);
+		cleanup();
+		setup(session('scheduled', null));
+		expect(screen.queryByRole('switch')).toBeNull();
+	});
+
+	it('켜져 있으면 공개 상태 글을 보인다', () => {
+		setup(session('ended', { ...DECK, public: true }));
+		expect(toggle().getAttribute('aria-checked')).toBe('true');
+		expect(screen.getByText(PUBLIC)).toBeTruthy();
+	});
+
+	it.each(['scheduled', 'live', 'ended'] as const)('%s 회차에서도 바꿀 수 있다', async (status) => {
+		api.setDeckVisibility.mockResolvedValue({ ...DECK, public: true });
+		const { onChanged } = setup(session(status));
+		expect(toggle().disabled).toBe(false);
+		await fireEvent.click(toggle());
+		expect(api.setDeckVisibility).toHaveBeenCalledWith(7, 3, true);
+		await waitFor(() => expect(onChanged).toHaveBeenCalled());
+	});
+
+	it('누르는 즉시 바뀐 상태를 보이고, 저장하는 동안 다시 눌러도 한 번만 보낸다', async () => {
+		let answer: (d: SessionDeck) => void = () => {};
+		api.setDeckVisibility.mockReturnValue(new Promise((r) => (answer = r)));
+		setup(session('scheduled'));
+		await fireEvent.click(toggle());
+		expect(toggle().getAttribute('aria-checked')).toBe('true');
+		expect(screen.getByText(PUBLIC)).toBeTruthy();
+		await fireEvent.click(toggle());
+		expect(api.setDeckVisibility).toHaveBeenCalledTimes(1);
+		answer({ ...DECK, public: true });
+	});
+
+	it('켜진 것을 끄면 비공개로 보낸다', async () => {
+		api.setDeckVisibility.mockResolvedValue({ ...DECK, public: false });
+		setup(session('ended', { ...DECK, public: true }));
+		await fireEvent.click(toggle());
+		expect(api.setDeckVisibility).toHaveBeenCalledWith(7, 3, false);
+	});
+
+	it('바꾸지 못하면 스위치를 되돌리고 이유와 할 일을 보인다', async () => {
+		api.setDeckVisibility.mockRejectedValue(new TypeError('Failed to fetch'));
+		const { onChanged } = setup(session('scheduled'));
+		await fireEvent.click(toggle());
+		const alert = await screen.findByRole('alert');
+		expect(alert.textContent).toContain('공개 여부를 바꾸지 못했습니다.');
+		expect(alert.textContent).toContain('네트워크 연결을 확인하고 다시 눌러 주세요.');
+		expect(toggle().getAttribute('aria-checked')).toBe('false');
+		expect(screen.getByText(PRIVATE)).toBeTruthy();
+		expect(onChanged).not.toHaveBeenCalled();
+	});
+
+	it('서버가 거절하면 그 안내를 보인다', async () => {
+		api.setDeckVisibility.mockRejectedValue(new ApiError(404, '이 회차에 올린 슬라이드가 없습니다.'));
+		setup(session('scheduled'));
+		await fireEvent.click(toggle());
+		expect((await screen.findByRole('alert')).textContent).toContain('이 회차에 올린 슬라이드가 없습니다.');
+		expect(toggle().getAttribute('aria-checked')).toBe('false');
+	});
+
+	it('다시 누르면 앞의 오류 안내가 사라진다', async () => {
+		api.setDeckVisibility.mockRejectedValueOnce(new TypeError('x')).mockResolvedValueOnce({ ...DECK, public: true });
+		setup(session('scheduled'));
+		await fireEvent.click(toggle());
+		await screen.findByRole('alert');
+		await fireEvent.click(toggle());
+		await waitFor(() => expect(screen.queryByText('공개 여부를 바꾸지 못했습니다.')).toBeNull());
+	});
+
+	it('글자를 눌러도 바뀌고, 누를 수 있는 높이가 44px 이상이다 (AC45)', async () => {
+		api.setDeckVisibility.mockResolvedValue({ ...DECK, public: true });
+		setup(session('scheduled'));
+		const row = toggle().closest('label') as HTMLElement;
+		expect(row.className).toMatch(/min-h-11/);
+		await fireEvent.click(within(row).getByText('학생에게 공개'));
+		expect(api.setDeckVisibility).toHaveBeenCalledWith(7, 3, true);
+	});
+
+	it('다른 묶음으로 바뀌면 그 묶음의 상태를 따른다', async () => {
+		const view = render(DeckSection, { classroomId: 7, session: session('ended', { ...DECK, public: true }), onChanged: vi.fn() });
+		expect(toggle().getAttribute('aria-checked')).toBe('true');
+		await view.rerender({ classroomId: 7, session: session('ended', { ...DECK, id: 10, public: false }), onChanged: vi.fn() });
+		expect(toggle().getAttribute('aria-checked')).toBe('false');
+	});
+});
+
+describe('학생에게 공개: 리뷰 뒤 추가', () => {
+	const toggle = () => screen.getByRole('switch', { name: '학생에게 공개' }) as HTMLButtonElement;
+
+	it('저장하는 동안 묶음이 바뀌면 새 묶음의 상태를 보인다', async () => {
+		api.setDeckVisibility.mockReturnValue(new Promise(() => {}));
+		const view = render(DeckSection, { classroomId: 7, session: session('scheduled'), onChanged: vi.fn() });
+		await fireEvent.click(toggle());
+		expect(toggle().getAttribute('aria-checked')).toBe('true');
+		await view.rerender({ classroomId: 7, session: session('scheduled', { ...DECK, id: 10 }), onChanged: vi.fn() });
+		expect(toggle().getAttribute('aria-checked')).toBe('false');
+	});
+
+	it('묶음을 올리는 동안에는 바꿀 수 없다(새 묶음은 비공개로 시작한다)', async () => {
+		api.uploadDeck.mockReturnValue(new Promise(() => {}));
+		setup(session('scheduled'));
+		await choose(new File(['x'], 'b.zip', { type: 'application/zip' }));
+		expect(toggle().disabled).toBe(true);
+		await fireEvent.click(toggle());
+		expect(api.setDeckVisibility).not.toHaveBeenCalled();
+	});
+
+	it('묶음이 이미 지워졌으면 안내하고 구역을 다시 불러온다', async () => {
+		api.setDeckVisibility.mockRejectedValue(new ApiError(404, '이 회차에 올린 슬라이드가 없습니다.'));
+		const { onChanged } = setup(session('scheduled'));
+		await fireEvent.click(toggle());
+		expect((await screen.findByRole('alert')).textContent).toContain('이 회차에 올린 슬라이드가 없습니다.');
+		await waitFor(() => expect(onChanged).toHaveBeenCalled());
+	});
+
+	it('바꾼 뒤 다시 불러오기가 실패해도 바꾸지 못했다고 하지 않는다', async () => {
+		api.setDeckVisibility.mockResolvedValue({ ...DECK, public: true });
+		const onChanged = vi.fn(() => Promise.reject(new Error('reload failed')));
+		render(DeckSection, { classroomId: 7, session: session('scheduled'), onChanged });
+		await fireEvent.click(toggle());
+		await waitFor(() => expect(onChanged).toHaveBeenCalled());
+		await Promise.resolve();
+		expect(screen.queryByText('공개 여부를 바꾸지 못했습니다.')).toBeNull();
 	});
 });
