@@ -145,3 +145,47 @@ test('수업 종료를 확인하면 관리 페이지로 돌아가고 회차가 �
 	const state = await (await room.api.get(`/api/class/${room.id}/sessions/${room.sessionId}/live`)).json();
 	expect(state.session.status).toBe('ended');
 });
+
+/** 프로젝터 화면의 슬라이드 iframe 주소. */
+async function projectorSlide(page: Page): Promise<string> {
+	return page.frameLocator('iframe[title="슬라이드"]').locator('body').evaluate(() => location.hash);
+}
+
+test('프로젝터는 교수가 넘기면 따라오고 직접 넘겨지지 않는다 (AC19~AC21)', async ({ browser }) => {
+	const room = await liveClass();
+	const context = await browser.newContext({ viewport: LAPTOP });
+	const teacher = await context.newPage();
+	await openLive(teacher, room.id);
+	const popup = context.waitForEvent('page');
+	await teacher.getByRole('button', { name: '프로젝터 화면 열기' }).click();
+	const projector = await popup;
+	await expect(projector).toHaveURL(new RegExp(`/courses/${room.id}/projector$`));
+	await noTransitions(projector);
+	await expect.poll(() => projectorSlide(projector)).toMatch(/^#\/1/);
+
+	// 슬라이드만 보인다: 이전·다음·노트·미리보기가 없고 메뉴바도 없다
+	await expect(projector.locator('iframe')).toHaveCount(1);
+	await expect(projector.getByRole('button', { name: '다음' })).toHaveCount(0);
+	await expect(projector.getByText('발표자 노트')).toHaveCount(0);
+	await expect(projector.getByRole('button', { name: '@kim' })).toHaveCount(0);
+
+	// 프로젝터에서 키를 눌러도 넘어가지 않는다
+	await projector.keyboard.press('ArrowRight');
+	await projector.keyboard.press('Space');
+	await projector.waitForTimeout(300);
+	await expect.poll(() => projectorSlide(projector)).toMatch(/^#\/1/);
+
+	// 교수가 넘기면 따라온다(단계까지)
+	await press(teacher, '다음');
+	await expect.poll(() => projectorSlide(projector)).toMatch(/^#\/2/);
+	await press(teacher, '다음');
+	await expect.poll(() => projectorSlide(projector)).toMatch(/^#\/2\?clicks=1/);
+	await expectNoAxeViolations(projector, '프로젝터 화면');
+	await context.close();
+});
+
+test('로그인하지 않은 브라우저에서 프로젝터 주소를 열면 교수 로그인 화면으로 간다 (AC22)', async ({ page }) => {
+	const room = await liveClass();
+	await page.goto(`/courses/${room.id}/projector`);
+	await expect(page).toHaveURL(/\/login$/);
+});
