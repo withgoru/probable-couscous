@@ -9,6 +9,7 @@ const live = vi.hoisted(() => ({
 	listener: null as ((s: unknown) => void) | null,
 	goto: vi.fn(),
 	stop: vi.fn(),
+	reload: vi.fn(),
 	options: null as unknown
 }));
 vi.mock('#lib/classLive.js', () => ({
@@ -21,7 +22,7 @@ vi.mock('#lib/classLive.js', () => ({
 			},
 			goto: live.goto,
 			setMode: vi.fn(),
-			reload: vi.fn(),
+			reload: live.reload,
 			stop: live.stop
 		};
 	}
@@ -45,8 +46,12 @@ vi.mock('#lib/deckBridge.js', () => ({
 		};
 	}
 }));
-const api = vi.hoisted(() => ({ fetchDeckNotes: vi.fn() }));
-vi.mock('#lib/api.js', async (original) => ({ ...(await original<object>()), fetchDeckNotes: api.fetchDeckNotes }));
+const api = vi.hoisted(() => ({ fetchDeckNotes: vi.fn(), sendItem: vi.fn() }));
+vi.mock('#lib/api.js', async (original) => ({
+	...(await original<object>()),
+	fetchDeckNotes: api.fetchDeckNotes,
+	sendItem: api.sendItem
+}));
 
 import LivePage from './+page.svelte';
 
@@ -102,6 +107,8 @@ beforeEach(() => {
 	live.listener = null;
 	live.goto.mockReset();
 	live.stop.mockReset();
+	live.reload.mockReset();
+	api.sendItem.mockReset();
 	api.fetchDeckNotes.mockReset();
 	api.fetchDeckNotes.mockResolvedValue(NOTES);
 	vi.setSystemTime(new Date('2026-03-04T05:12:30+00:00'));
@@ -231,7 +238,7 @@ describe('슬라이드, 다음 슬라이드, 노트 (AC13, AC16)', () => {
 
 	it('묶음이 열리지 않으면 슬라이드를 열 수 없다고 알린다', async () => {
 		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false } } }));
-		expect(screen.getByRole('alert').textContent).toContain('슬라이드를 열 수 없습니다. 묶음을 다시 올려 주세요.');
+		expect(screen.getByRole('alert').textContent).toContain('슬라이드를 열 수 없습니다. 메시지·자료 보내기는 계속 쓸 수 있습니다.'); // 오류 동작 문구
 		expect(screen.queryByTitle('현재 슬라이드')).toBeNull();
 	});
 });
@@ -424,6 +431,47 @@ describe('넘기기 (AC13, AC14, AC17)', () => {
 		await act(() => main().onIntent?.('next'));
 		expect(live.goto).toHaveBeenCalledWith({ slide: 2, click: 1 });
 		expect(preview().onIntent).toBeUndefined(); // 미리보기는 넘기지 않는다
+	});
+});
+
+describe('메시지·자료 보내기 탭 (AC31, C12)', () => {
+	it('회차가 바뀌면 보내기 칸을 새로 시작한다', async () => {
+		await open();
+		await fireEvent.input(screen.getByLabelText('글'), { target: { value: '1회차에 쓰던 글' } });
+		await server(snapshot({ state: { ...STATE, session: { ...STATE.session, id: 6 } } }));
+		expect((screen.getByLabelText('글') as HTMLTextAreaElement).value).toBe('');
+	});
+
+	it('오른쪽에 보내기 칸과 이 회차의 보낸 항목이 있다', async () => {
+		await open(snapshot({ state: { ...STATE, items: [{ id: 1, body: '과제', url: null, created_at: '2026-03-04T05:01:00+00:00', retracted_at: null }] } }));
+		const panel = screen.getByRole('region', { name: '메시지·자료 보내기' });
+		expect(panel.textContent).toContain('과제');
+		expect(screen.getByRole('button', { name: '학생에게 보내기' })).toBeTruthy();
+	});
+
+	it('슬라이드가 없거나 열리지 않아도 보내기는 쓸 수 있다', async () => {
+		await open(snapshot({ state: { ...STATE, deck: null } }));
+		expect(screen.getByRole('region', { name: '메시지·자료 보내기' })).toBeTruthy();
+		cleanup();
+		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false } } }));
+		expect(screen.getByRole('region', { name: '메시지·자료 보내기' })).toBeTruthy();
+	});
+
+	it('연결이 끊기면 보낼 글이 있어도 보내기가 흐려진다', async () => {
+		await open();
+		await fireEvent.input(screen.getByLabelText('글'), { target: { value: '보낼 글' } });
+		await server(snapshot({ status: 'reconnecting' }));
+		expect((screen.getByRole('button', { name: '학생에게 보내기' }) as HTMLButtonElement).disabled).toBe(false);
+		expect(screen.getByRole('button', { name: '학생에게 보내기' }).getAttribute('aria-disabled')).toBe('true');
+	});
+
+	it('이 회차에 보내고, 보낸 뒤 상태를 다시 받는다', async () => {
+		api.sendItem.mockResolvedValue({ id: 9, body: '공지', url: null, created_at: '2026-03-04T05:13:00+00:00', retracted_at: null });
+		await open();
+		await fireEvent.input(screen.getByLabelText('글'), { target: { value: '공지' } });
+		await fireEvent.click(screen.getByRole('button', { name: '학생에게 보내기' }));
+		await waitFor(() => expect(live.reload).toHaveBeenCalled());
+		expect(api.sendItem.mock.calls[0].slice(0, 2)).toEqual([7, 5]);
 	});
 });
 

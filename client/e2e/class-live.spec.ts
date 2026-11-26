@@ -93,3 +93,31 @@ test('처음에는 이전이 흐려지고, 끝까지 넘기면 다음이 흐려�
 	await expect(page.getByText('마지막 슬라이드입니다.')).toBeVisible();
 	await expect.poll(() => slideOf(page)).toMatch(/^#\/4\?clicks=1/);
 });
+
+test('메시지·자료를 보내고 거둔다 (AC31, AC32, AC35, AC36)', async ({ page }) => {
+	const room = await liveClass();
+	await openLive(page, room.id);
+	const panel = page.getByRole('region', { name: '메시지·자료 보내기' });
+	await expect(panel.getByText('아직 보낸 항목이 없습니다.')).toBeVisible();
+
+	// 링크 형식이 틀리면 보내지 않는다
+	await panel.getByLabel('링크(선택)').fill('example.com');
+	await panel.getByRole('button', { name: '학생에게 보내기' }).click();
+	await expect(panel.getByText('링크는 http:// 또는 https://로 시작해야 합니다.')).toBeVisible();
+
+	await panel.getByLabel('글').fill('과제는 금요일까지 올려 주세요.');
+	await panel.getByLabel('링크(선택)').fill('https://example.com/hw');
+	await panel.getByRole('button', { name: '학생에게 보내기' }).click();
+	const list = panel.getByRole('list', { name: '보낸 항목' });
+	await expect(list.getByRole('listitem').first()).toContainText('과제는 금요일까지 올려 주세요.');
+	await expect(panel.getByLabel('글')).toHaveValue('');
+	const state = await (await room.api.get(`/api/class/${room.id}/sessions/${room.sessionId}/live`)).json();
+	expect(state.items.map((i: { body: string }) => i.body)).toEqual(['과제는 금요일까지 올려 주세요.']);
+	await expectNoAxeViolations(page, '보내기 탭');
+	if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/class-live.png`, fullPage: true });
+
+	await panel.getByRole('button', { name: '거두기: 과제는 금요일까지 올려 주세요.' }).click();
+	await page.getByRole('alertdialog').getByRole('button', { name: '거두기' }).click();
+	await expect(list.getByText('거둔 항목 · 학생에게 보이지 않습니다.')).toBeVisible();
+	await expect(panel.getByText('보낸 항목은 수업이 끝난 뒤 공개할 목록으로 정리됩니다.')).toBeVisible();
+});

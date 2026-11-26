@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, archiveClassroom, createSession, deleteSession, fetchDeckNotes, removeDeck, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
+import { ApiError, archiveClassroom, createSession, deleteSession, fetchDeckNotes, retractItem, sendItem, removeDeck, resumeSession, startSession, uploadDeck, fetchSessions, renameSession, cloneClassroom, createClassroom, fetchClassroom, fetchClassrooms, fetchMe, fetchMySummary, fetchRoster, addStudent, importRoster, fetchInvite, regenerateInvite, logout, openInvite, submitJoinEmail, requestAccess, verifyCode, resendCode, notifyProfessor, fetchJoinState, enterClassroom, removeStudent, revokeStudentLogin } from './api';
 
 const json = (status: number, body: unknown) =>
 	Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -448,5 +448,35 @@ describe('발표자 노트 API (002 AC13, AC30)', () => {
 		const fetch = vi.fn(() => json(200, NOTES));
 		expect(await fetchDeckNotes(7, 3, fetch)).toEqual(NOTES);
 		expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('/api/classrooms/7/sessions/3/deck/notes');
+	});
+});
+
+describe('보내기·거두기 API (002 AC31, AC35)', () => {
+	const ITEM_SENT = { id: 4, body: '과제', url: null, created_at: 'x', retracted_at: null };
+
+	it('보내기는 글·링크·client_key를 보내고 저장된 항목을 돌려준다', async () => {
+		const fetch = vi.fn(() => json(201, { item: ITEM_SENT, version: 5 }));
+		expect(await sendItem(7, 3, { body: '과제', url: null, client_key: 'k1' }, fetch)).toEqual(ITEM_SENT);
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/sessions/3/items');
+		expect(init.method).toBe('POST');
+		expect(JSON.parse(init.body as string)).toEqual({ body: '과제', url: null, client_key: 'k1' });
+	});
+
+	it('칸 오류는 그 칸 이름과 안내를 담는다', async () => {
+		const err = await sendItem(7, 3, { body: null, url: 'x', client_key: 'k' }, () =>
+			json(422, { detail: { field: 'url', message: '링크는 http:// 또는 https://로 시작해야 합니다.' } })
+		).catch((e) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect(err.field).toBe('url');
+		expect(err.message).toBe('링크는 http:// 또는 https://로 시작해야 합니다.');
+	});
+
+	it('거두기는 그 항목 주소로 POST한다', async () => {
+		const fetch = vi.fn(() => json(200, { item: { ...ITEM_SENT, retracted_at: 'y' }, version: 6 }));
+		expect((await retractItem(7, 3, 4, fetch)).retracted_at).toBe('y');
+		const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('/api/classrooms/7/sessions/3/items/4/retract');
+		expect(init.method).toBe('POST');
 	});
 });
