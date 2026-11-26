@@ -121,3 +121,27 @@ test('메시지·자료를 보내고 거둔다 (AC31, AC32, AC35, AC36)', async 
 	await expect(list.getByText('거둔 항목 · 학생에게 보이지 않습니다.')).toBeVisible();
 	await expect(panel.getByText('보낸 항목은 수업이 끝난 뒤 공개할 목록으로 정리됩니다.')).toBeVisible();
 });
+
+test('수업 종료를 확인하면 관리 페이지로 돌아가고 회차가 종료다 (AC37)', async ({ page }) => {
+	const room = await liveClass();
+	await openLive(page, room.id);
+	await page.getByRole('button', { name: '수업 종료' }).click();
+	const dialog = page.getByRole('alertdialog');
+	await expect(dialog).toContainText('수업을 끝낼까요?');
+	await expect(dialog).toContainText('학생은 이번 수업에서 본 슬라이드와 받은 자료를 계속 볼 수 있습니다.');
+	await expectNoAxeViolations(page, '수업 종료 확인 창');
+
+	// 취소하면 그대로다
+	await dialog.getByRole('button', { name: '취소' }).click();
+	await expect(dialog).toHaveCount(0);
+	await expect(page).toHaveURL(new RegExp(`/courses/${room.id}/live$`));
+	await expect(page.getByRole('button', { name: '수업 종료' })).toBeFocused(); // 초점이 돌아온다
+
+	await page.getByRole('button', { name: '수업 종료' }).click();
+	await page.getByRole('alertdialog').getByRole('button', { name: '수업 종료' }).click();
+	await expect(page).toHaveURL(new RegExp(`/courses/${room.id}/admin$`));
+	await expect(page.getByRole('button', { name: /^회차 선택: 3주차 1회차 종료/ })).toBeVisible();
+	await expect(page.getByRole('button', { name: '이어서 수업하기' })).toBeVisible();
+	const state = await (await room.api.get(`/api/class/${room.id}/sessions/${room.sessionId}/live`)).json();
+	expect(state.session.status).toBe('ended');
+});
