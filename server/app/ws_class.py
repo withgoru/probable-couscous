@@ -108,7 +108,7 @@ def _goto(db: sqlite3.Connection, classroom_id: int, message: dict) -> tuple[int
         raise Refused("bad_message")
     with transaction(db):
         row = db.execute(
-            "SELECT s.status, s.current_slide, s.current_click, s.furthest_slide, s.furthest_click, s.version, "
+            "SELECT s.status, s.current_slide, s.current_click, s.version, "
             "       d.slide_count "
             "  FROM class_sessions s "
             "  LEFT JOIN decks d ON d.session_id = s.id AND d.classroom_id = s.classroom_id AND d.removed_at IS NULL "
@@ -123,18 +123,15 @@ def _goto(db: sqlite3.Connection, classroom_id: int, message: dict) -> tuple[int
         current = (slide, click)
         if current == (row["current_slide"], row["current_click"]):
             return row["version"], None
-        furthest = max(current, (row["furthest_slide"], row["furthest_click"]))  # 되돌아가도 줄지 않는다
         version = row["version"] + 1
         db.execute(
-            "UPDATE class_sessions SET current_slide = ?, current_click = ?, furthest_slide = ?, furthest_click = ?, "
-            "version = ? WHERE id = ? AND classroom_id = ?",
-            (*current, *furthest, version, session_id, classroom_id),
+            "UPDATE class_sessions SET current_slide = ?, current_click = ?, version = ? WHERE id = ? AND classroom_id = ?",
+            (*current, version, session_id, classroom_id),
         )
     position = {
         "type": "position",
         "session_id": session_id,
         "current": {"slide": current[0], "click": current[1]},
-        "furthest": {"slide": furthest[0], "click": furthest[1]},
         "version": version,
     }
     return version, position

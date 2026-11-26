@@ -36,7 +36,7 @@ def make_source(world):
     prof.post(f"/api/classrooms/{cid}/sessions/{ended}/start", headers=ORIGIN)
     prof.post(f"/api/classrooms/{cid}/sessions/{ended}/items", json={"body": "자료", "client_key": "a"}, headers=ORIGIN)
     with world.db() as db:
-        db.execute("UPDATE class_sessions SET current_slide = 3, furthest_slide = 4 WHERE id = ?", (ended,))
+        db.execute("UPDATE class_sessions SET current_slide = 3 WHERE id = ?", (ended,))
     prof.post(f"/api/classrooms/{cid}/sessions/{ended}/end", headers=ORIGIN)
     # 순서를 바꿔 둔다: 복제본도 같은 순서여야 한다
     with world.db() as db:
@@ -76,7 +76,7 @@ def test_sessions_are_copied_as_scheduled_with_the_same_titles_and_order(world):
     assert [s["sort_order"] for s in copied] == [s["sort_order"] for s in sessions(world, cid)]  # 순서 값도 같다
     for s in copied:
         assert s["status"] == "scheduled"
-        assert (s["current_slide"], s["current_click"], s["furthest_slide"], s["furthest_click"]) == (1, 0, 1, 0)
+        assert (s["current_slide"], s["current_click"]) == (1, 0)
         assert s["first_started_at"] is None and s["started_at"] is None and s["ended_at"] is None
         assert s["version"] == 0
         assert s["created_at"] == world.clock.now().isoformat()
@@ -233,3 +233,17 @@ def test_the_source_is_unchanged(world):
 def test_only_the_owner_clones(world, who):
     _prof, cid, _, _ = make_source(world)
     assert clone(world.client(who) if who else world.client(), cid).status_code in (401, 403)
+
+
+def test_copied_decks_start_private(world):
+    # AC42, AC47(T032): 원래 묶음이 공개여도 복제한 묶음은 비공개다
+    prof, cid, _, decks = make_source(world)
+    for sid in decks:
+        res = prof.put(f"/api/classrooms/{cid}/sessions/{sid}/deck/visibility", json={"public": True}, headers=ORIGIN)
+        assert res.status_code == 200, res.text
+    new = clone(prof, cid, name="웹", section_name="화목반").json()["id"]
+    with world.db() as db:
+        rows = db.execute("SELECT public FROM decks WHERE classroom_id = ? AND removed_at IS NULL", (new,)).fetchall()
+        source = db.execute("SELECT public FROM decks WHERE classroom_id = ? AND removed_at IS NULL", (cid,)).fetchall()
+    assert len(rows) == 2 and all(r["public"] == 0 for r in rows)
+    assert all(r["public"] == 1 for r in source)  # 원래 강좌는 그대로

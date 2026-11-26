@@ -21,6 +21,7 @@ from typing import Annotated
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, StrictBool
 
 from app.authz import Action, Granted, guard
 from app.classrooms import load_classroom
@@ -28,6 +29,7 @@ from app.clock import Clock
 from app.db import get_db, transaction
 from app.deck_store import DeckError, DeckStore
 from app.events import record_event
+from app.realtime import publish_class
 from app.sessions import ManageGuard, StoreDep, deck_item, load_session
 
 log = logging.getLogger(__name__)
@@ -111,6 +113,28 @@ def live_deck(db: sqlite3.Connection, classroom_id: int, session_id: int) -> sql
     ).fetchone()
 
 
+def _bump(db: sqlite3.Connection, classroom_id: int, session_id: int) -> tuple[str, int]:
+    """회차 `version`을 올린다(공개·비공개: 수업 중 화면이 그 발행을 바로 적용한다). (상태, 새 version)"""
+    db.execute("UPDATE class_sessions SET version = version + 1 WHERE id = ? AND classroom_id = ?", (session_id, classroom_id))
+    return _status(db, classroom_id, session_id)
+
+
+def _status(db: sqlite3.Connection, classroom_id: int, session_id: int) -> tuple[str, int]:
+    row = db.execute(
+        "SELECT status, version FROM class_sessions WHERE id = ? AND classroom_id = ?", (session_id, classroom_id)
+    ).fetchone()
+    return row["status"], row["version"]
+
+
+def _tell(request: Request, classroom_id: int, session_id: int, changed: tuple[str, int]) -> None:
+    """기록한 뒤에 수업 방에 알린다(C13). 화면은 `session.updated`를 받으면 상태를 통째로 다시 받는다.
+
+    묶음 올리기·지우기는 진행 중이 아닌 회차에서만 된다(AC7). 미리 보거나 다시 보는 화면이 알면 되므로 `version`은
+    올리지 않는다(수업 중 발행 순서와 무관하다)."""
+    status, version = changed
+    publish_class(request, classroom_id, "session.updated", session_id=session_id, status=status, version=version)
+
+
 def _record(db, granted: Granted, type: str, session_id: int, deck_id: int, clock: Clock) -> None:
     payload = {"session_id": session_id, "deck_id": deck_id}
     record_event(db, granted.resource.id, type, "professor", granted.actor.github_id, None, payload, clock.now())
@@ -125,6 +149,7 @@ def upload_deck(
     db: Db,
     clock: ClockDep,
     store: StoreDep,
+    request: Request,
     filename: str | None = None,
 ):
     classroom_id = granted.resource.id
@@ -149,6 +174,7 @@ def upload_deck(
                 "UPDATE decks SET slide_count = ?, removed_at = NULL WHERE id = ?", (meta.slide_count, deck_id)
             )
             _record(db, granted, "deck_uploaded", session_id, deck_id, clock)
+            changed = _status(db, classroom_id, session_id)
     except BaseException as err:
         _discard(db, store, classroom_id, deck_id)
         if isinstance(err, DeckError):
@@ -157,6 +183,7 @@ def upload_deck(
             raise
         log.exception("슬라이드 묶음을 저장하지 못했습니다(강좌 %s, 회차 %s)", classroom_id, session_id)
         raise HTTPException(status_code=500, detail=SAVE_FAILED) from None
+    _tell(request, classroom_id, session_id, changed)
     if old is not None:  # 4. 이전 파일 지우기
         store.remove(classroom_id, old["id"])
     row = db.execute("SELECT * FROM decks WHERE id = ?", (deck_id,)).fetchone()
@@ -171,7 +198,9 @@ def _discard(db: sqlite3.Connection, store: DeckStore, classroom_id: int, deck_i
 
 
 @router.delete("/api/classrooms/{classroom_id}/sessions/{session_id}/deck", status_code=204)
-def remove_deck(session_id: int, granted: ManageGuard, session: EditableSession, db: Db, clock: ClockDep, store: StoreDep):
+def remove_deck(
+    session_id: int, granted: ManageGuard, session: EditableSession, db: Db, clock: ClockDep, store: StoreDep, request: Request
+):
     classroom_id = granted.resource.id
     with transaction(db):
         deck = live_deck(db, classroom_id, session_id)
@@ -179,8 +208,41 @@ def remove_deck(session_id: int, granted: ManageGuard, session: EditableSession,
             raise HTTPException(status_code=404, detail=NO_DECK)
         db.execute("UPDATE decks SET removed_at = ? WHERE id = ?", (clock.now().isoformat(), deck["id"]))
         _record(db, granted, "deck_removed", session_id, deck["id"], clock)
+        changed = _status(db, classroom_id, session_id)
+    _tell(request, classroom_id, session_id, changed)
     store.remove(classroom_id, deck["id"])
     return Response(status_code=204)
+
+
+class Visibility(BaseModel):
+    public: StrictBool  # 참·거짓만 받는다("true", 1은 거절)
+
+
+@router.put("/api/classrooms/{classroom_id}/sessions/{session_id}/deck/visibility")
+def set_deck_visibility(
+    session_id: int, body: Visibility, granted: ManageGuard, db: Db, clock: ClockDep, store: StoreDep, request: Request
+):
+    """학생에게 공개·비공개(AC47). 회차 상태와 관계없이 바꾼다. 기록하고 커밋한 뒤 수업 방에 알린다(AC48, C13)."""
+    classroom_id = granted.resource.id
+    with transaction(db):
+        session = load_session(db, classroom_id, session_id)
+        deck = live_deck(db, classroom_id, session_id)
+        if deck is None:
+            raise HTTPException(status_code=404, detail=NO_DECK)
+        changed = bool(deck["public"]) != body.public
+        if changed:
+            db.execute("UPDATE decks SET public = ? WHERE id = ?", (int(body.public), deck["id"]))
+            _bump(db, classroom_id, session["id"])
+            _record(db, granted, "deck_published" if body.public else "deck_unpublished", session_id, deck["id"], clock)
+        row = db.execute("SELECT * FROM decks WHERE id = ?", (deck["id"],)).fetchone()
+        (version,) = db.execute(
+            "SELECT version FROM class_sessions WHERE id = ? AND classroom_id = ?", (session_id, classroom_id)
+        ).fetchone()
+    available = store.exists(classroom_id, deck["id"])
+    if changed:  # 같은 값이면 알리지 않는다
+        summary = {"id": row["id"], "slide_count": row["slide_count"], "available": available, "public": body.public}
+        publish_class(request, classroom_id, "deck.updated", session_id=session_id, deck=summary, version=version)
+    return {"deck": deck_item(row, row["id"], available)}
 
 
 CANNOT_OPEN = "슬라이드를 열 수 없습니다. 묶음을 다시 올려 주세요."

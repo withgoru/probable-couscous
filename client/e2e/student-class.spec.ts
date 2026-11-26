@@ -102,7 +102,7 @@ test('수업 중에 들어온 학생은 교수의 현재 위치에서 시작한�
 	await expect.poll(() => slideOf(page)).toMatch(/^#\/3/);
 });
 
-test('넘기면 따라가기가 풀리고, 가장 멀리 간 위치까지만 가며, 교수 화면으로 다시 따라간다 (AC26~AC28)', async ({ page }) => {
+test('넘기면 따라가기가 풀리고, 교수보다 앞으로도 넘겨 보며, 교수 화면으로 다시 따라간다 (AC26, AC28)', async ({ page }) => {
 	const park = student('browse');
 	const room = await classroomWith([park], `직접 넘겨 보기 ${Date.now()}`);
 	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '5주차' } })).json();
@@ -110,6 +110,8 @@ test('넘기면 따라가기가 풀리고, 가장 멀리 간 위치까지만 가
 		headers: { 'Content-Type': 'application/zip' },
 		data: readFileSync(DECK_ZIP)
 	});
+	// 공개 묶음이라 교수보다 앞으로도 넘겨 본다(AC26, AC47). 비공개 묶음의 따라가기만은 T035
+	await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck/visibility`, { data: { public: true } });
 	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`);
 	const professor = await page.context().browser()!.newContext();
 	const teacher = await professor.newPage();
@@ -126,14 +128,22 @@ test('넘기면 따라가기가 풀리고, 가장 멀리 간 위치까지만 가
 	await enterLive(page, room.token, park.email);
 	await expect.poll(() => slideOf(page)).toMatch(/^#\/2$/);
 
-	// 교수님이 2번 슬라이드 0단계까지만 보였다: 다음은 흐리고 안내가 보인다(AC27)
-	await expect(page.getByRole('button', { name: '다음' })).toBeDisabled();
-	await expect(page.getByText('교수님이 아직 보여 주지 않은 슬라이드입니다.')).toBeVisible();
-
-	// 이전을 누르면 따라가기가 풀리고 1번으로(AC26)
-	await page.getByRole('button', { name: '이전' }).click();
-	await expect.poll(() => slideOf(page)).toMatch(/^#\/1/);
+	// 교수보다 앞으로도 넘겨 볼 수 있다(가장 멀리 간 위치 제한이 없어졌다, 2026-11-26). 다음을 누르면 따라가기가 풀린다(AC26)
+	const studentNext = page.getByRole('button', { name: '다음' });
+	const studentPrev = page.getByRole('button', { name: '이전' });
+	await expect(studentNext).toHaveAttribute('aria-disabled', 'false');
+	await studentNext.click();
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/2\?clicks=1/);
 	await expect(page.getByText('직접 넘겨 보는 중 · 교수 화면은 2번 슬라이드입니다.')).toBeVisible();
+	await expect(page.getByText('교수님이 아직 보여 주지 않은 슬라이드입니다.')).toHaveCount(0);
+
+	// 이전으로 1번까지 돌아간다
+	await expect(studentPrev).toHaveAttribute('aria-disabled', 'false');
+	await studentPrev.click();
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/2$/);
+	await expect(studentPrev).toHaveAttribute('aria-disabled', 'false');
+	await studentPrev.click();
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/1/);
 
 	// 교수가 넘겨도 학생 슬라이드는 그대로, 교수 위치 번호만 바뀐다
 	await professorNext(); // 2번 1단계
@@ -215,6 +225,7 @@ test('수업이 끝나면 다시 보기로 바뀌고, 지난 회차를 처음부
 		headers: { 'Content-Type': 'application/zip' },
 		data: readFileSync(DECK_ZIP)
 	});
+	await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck/visibility`, { data: { public: true } }); // 다시 보기에서 끝까지(AC39)
 	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`);
 	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/items`, { data: { body: '과제 안내', client_key: 'r1' } });
 	// 교수가 2번 슬라이드의 단계 1까지 넘긴다
@@ -250,8 +261,8 @@ test('수업이 끝나면 다시 보기로 바뀌고, 지난 회차를 처음부
 	const replayHash = () => page.frameLocator('iframe[title="다시 보는 슬라이드"]').locator('body').evaluate(() => location.hash);
 	await expect.poll(replayHash).toMatch(/^#\/2\?clicks=1/); // 보던 곳에서 이어 본다
 	await expect(page.getByRole('list', { name: '자료' })).toContainText('과제 안내');
-	await expect(page.getByRole('button', { name: '다음' })).toHaveAttribute('aria-disabled', 'true'); // 가장 멀리 간 곳
-	await expect(page.getByText('수업에서 보여 주지 않은 슬라이드입니다.')).toBeVisible();
+	await expect(page.getByRole('button', { name: '다음' })).toHaveAttribute('aria-disabled', 'false'); // 묶음의 끝까지 넘긴다
+	await expect(page.getByText('수업에서 보여 주지 않은 슬라이드입니다.')).toHaveCount(0);
 	await expectNoAxeViolations(page, '수업이 끝난 뒤 다시 보기');
 	await expectNoHorizontalScroll(page, '수업이 끝난 뒤 다시 보기');
 

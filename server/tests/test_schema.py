@@ -169,7 +169,7 @@ def test_c5_every_table_is_classified_and_classroom_tables_carry_classroom_id(db
 
 def test_migration_is_applied_once_and_recorded(db):
     versions = [r["version"] for r in db.execute("SELECT version FROM schema_migrations")]
-    assert versions == ["0001_core_schema", "0002_class_sessions"]
+    assert versions == ["0001_core_schema", "0002_class_sessions", "0003_deck_visibility"]
 
 
 def test_login_challenges_do_not_store_the_code(db):

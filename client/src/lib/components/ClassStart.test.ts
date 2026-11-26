@@ -14,7 +14,7 @@ vi.mock('#lib/api.js', async (original) => ({
 import { ApiError, type ClassSession } from '#lib/api.js';
 import ClassStart from './ClassStart.svelte';
 
-const DECK = { id: 9, original_name: 'a.zip', slide_count: 4, size_bytes: 1, uploaded_at: 'x', available: true };
+const DECK = { id: 9, original_name: 'a.zip', slide_count: 4, size_bytes: 1, uploaded_at: 'x', available: true, public: false };
 const session = (id: number, title: string, status: ClassSession['status'], deck: typeof DECK | null = DECK): ClassSession => ({
 	id,
 	title,

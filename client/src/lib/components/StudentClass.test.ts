@@ -51,9 +51,8 @@ import StudentClass from './StudentClass.svelte';
 
 const STATE: LiveState = {
 	session: { id: 5, title: '3주차 1회차', status: 'live', version: 3 },
-	deck: { id: 9, slide_count: 4, available: true },
+	deck: { id: 9, slide_count: 4, available: true, public: false },
 	current: { slide: 2, click: 1 },
-	furthest: { slide: 3, click: 0 },
 	limit: { slide: 3, click: 0 },
 	items: [
 		{ id: 1, body: '첫 자료', url: null, created_at: '2026-03-04T05:01:00+00:00' },
@@ -221,15 +220,15 @@ describe('수업 화면 (AC24, AC25, AC29, AC30)', () => {
 	it('교수가 넘기면 같은 위치로 따라간다', async () => {
 		mount();
 		await server(snapshot());
-		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 } } }));
+		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 } } }));
 		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 3, click: 0 });
 		expect(decks.all).toHaveLength(1);
 	});
 
 	it('교수가 새 슬라이드로 넘기면 볼 수 있는 끝을 먼저 넓히고 그다음 옮긴다(애드온이 범위로 막지 않게)', async () => {
 		mount();
-		await server(snapshot({ state: { ...STATE, current: { slide: 1, click: 0 }, furthest: { slide: 1, click: 0 }, limit: { slide: 1, click: 0 } } }));
-		await server(snapshot({ state: { ...STATE, current: { slide: 2, click: 0 }, furthest: { slide: 2, click: 0 }, limit: { slide: 2, click: 0 } } }));
+		await server(snapshot({ state: { ...STATE, current: { slide: 1, click: 0 }, limit: { slide: 1, click: 0 } } }));
+		await server(snapshot({ state: { ...STATE, current: { slide: 2, click: 0 }, limit: { slide: 2, click: 0 } } }));
 		const limitAt = deck().setLimit.mock.invocationCallOrder.at(-1)!;
 		const gotoAt = deck().goto.mock.invocationCallOrder.at(-1)!;
 		expect(deck().setLimit).toHaveBeenLastCalledWith({ slide: 2, click: 0 });
@@ -313,7 +312,7 @@ describe('수업 화면 (AC24, AC25, AC29, AC30)', () => {
 
 	it('슬라이드를 열 수 없으면 그렇게 알린다', async () => {
 		mount();
-		await server(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false } } }));
+		await server(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false, public: false } } }));
 		expect(screen.getByText('슬라이드를 열 수 없습니다. 자료는 계속 볼 수 있습니다.')).toBeTruthy();
 	});
 
@@ -395,14 +394,14 @@ describe('넘기면 따라가기가 풀린다 (AC26)', () => {
 		await classAt();
 		await act(() => button('다음').click());
 		const calls = deck().goto.mock.calls.length;
-		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
+		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
 		expect(deck().goto.mock.calls.slice(calls).every((c) => c[0].slide === 2 && c[0].click === 2)).toBe(true);
 		expect(screen.getByText('직접 넘겨 보는 중 · 교수 화면은 3번 슬라이드입니다.')).toBeTruthy();
 		expect(deck().setLimit).toHaveBeenLastCalledWith({ slide: 3, click: 0 }); // 볼 수 있는 끝은 넓어진다
 	});
 
 	it('범위 밖으로 넘기려 하면 움직이지 않고 따라가기도 그대로다', async () => {
-		await classAt({ current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } }, 0);
+		await classAt({ current: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } }, 0);
 		const calls = deck().goto.mock.calls.length;
 		await act(() => deck().onIntent?.('next'));
 		await act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })));
@@ -432,18 +431,18 @@ describe('넘기면 따라가기가 풀린다 (AC26)', () => {
 		cleanup();
 		decks.all = [];
 		mount();
-		await server(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false } } }));
+		await server(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false, public: false } } }));
 		await act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' })));
 		expect(screen.getByText(FOLLOWING)).toBeTruthy();
 		expect(live.setMode).not.toHaveBeenCalled();
 	});
 
 	it('직접 넘겨 보던 곳이 볼 수 있는 끝 밖이 되면 끝으로 당겨져 계속 넘길 수 있다', async () => {
-		await classAt({ current: { slide: 2, click: 1 }, furthest: { slide: 2, click: 1 }, limit: { slide: 2, click: null } });
+		await classAt({ current: { slide: 2, click: 1 }, limit: { slide: 2, click: null } });
 		await act(() => button('다음').click()); // (2,2)
 		await drawn({ slide: 2, click: 2 }, 3);
 		// 교수가 넘겨 끝이 가장 멀리 간 위치(2,1)로 바뀌었다
-		await server(snapshot({ state: { ...STATE, current: { slide: 2, click: 1 }, furthest: { slide: 2, click: 1 }, limit: { slide: 2, click: 1 } } }));
+		await server(snapshot({ state: { ...STATE, current: { slide: 2, click: 1 }, limit: { slide: 2, click: 1 } } }));
 		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 1 });
 		await drawn({ slide: 2, click: 1 }, 3);
 		expect(button('이전').getAttribute('aria-disabled')).toBe('false');
@@ -451,7 +450,7 @@ describe('넘기면 따라가기가 풀린다 (AC26)', () => {
 
 	it('묶음이 바뀌면 예전 묶음의 단계 수를 버린다', async () => {
 		await classAt(); // 2번(단계 3개)
-		await server(snapshot({ state: { ...STATE, deck: { id: 10, slide_count: 4, available: true }, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
+		await server(snapshot({ state: { ...STATE, deck: { id: 10, slide_count: 4, available: true, public: false }, current: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
 		await act(() => decks.all[1].listener?.({ ready: true, total: 4, position: { slide: 3, click: 0 }, clicksTotal: 0 }));
 		await act(() => button('이전').click());
 		expect(decks.all[1].goto).toHaveBeenLastCalledWith({ slide: 2, click: 0 });
@@ -465,7 +464,7 @@ describe('넘기면 따라가기가 풀린다 (AC26)', () => {
 
 	it('슬라이드가 따라오는 중에는 단계를 건너뛰지 않게 넘기지 않는다', async () => {
 		await classAt();
-		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
+		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
 		expect(button('다음').getAttribute('aria-disabled')).toBe('true');
 		await act(() => button('다음').click());
 		expect(screen.getByText(FOLLOWING)).toBeTruthy();
@@ -474,7 +473,7 @@ describe('넘기면 따라가기가 풀린다 (AC26)', () => {
 
 describe('가장 멀리 간 위치까지만 (AC27)', () => {
 	it('끝에 이르면 다음이 흐려지고 안내 문구가 다음과 이어진다', async () => {
-		await classAt({ current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } }, 0);
+		await classAt({ current: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } }, 0);
 		const reason = screen.getByText('교수님이 아직 보여 주지 않은 슬라이드입니다.');
 		expect(button('다음').getAttribute('aria-disabled')).toBe('true'); // 초점을 잃지 않게 흐리게만 한다
 		expect(button('다음').disabled).toBe(false);
@@ -485,7 +484,7 @@ describe('가장 멀리 간 위치까지만 (AC27)', () => {
 	});
 
 	it('직접 넘기다 끝에 닿아도 그렇다', async () => {
-		await classAt({ current: { slide: 2, click: 3 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } });
+		await classAt({ current: { slide: 2, click: 3 }, limit: { slide: 3, click: 0 } });
 		await act(() => button('다음').click());
 		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 3, click: 0 });
 		await drawn({ slide: 3, click: 0 }, 2);
@@ -494,18 +493,18 @@ describe('가장 멀리 간 위치까지만 (AC27)', () => {
 	});
 
 	it('묶음의 마지막이면 다음이 흐려지지만 "아직 보여 주지 않은"이라고는 하지 않는다', async () => {
-		await classAt({ current: { slide: 4, click: 1 }, furthest: { slide: 4, click: 1 }, limit: { slide: 4, click: 1 } }, 1);
+		await classAt({ current: { slide: 4, click: 1 }, limit: { slide: 4, click: 1 } }, 1);
 		expect(button('다음').getAttribute('aria-disabled')).toBe('true');
 		expect(screen.queryByText('교수님이 아직 보여 주지 않은 슬라이드입니다.')).toBeNull();
 	});
 
 	it('처음이면 이전이 흐려진다', async () => {
-		await classAt({ current: { slide: 1, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } }, 0);
+		await classAt({ current: { slide: 1, click: 0 }, limit: { slide: 3, click: 0 } }, 0);
 		expect(button('이전').getAttribute('aria-disabled')).toBe('true');
 	});
 
 	it('끝의 단계를 모르면(묶음을 바꿈) 그 슬라이드의 단계는 모두 넘길 수 있다', async () => {
-		await classAt({ current: { slide: 2, click: 1 }, furthest: { slide: 2, click: 1 }, limit: { slide: 2, click: null } });
+		await classAt({ current: { slide: 2, click: 1 }, limit: { slide: 2, click: null } });
 		await act(() => button('다음').click()); // 가장 멀리 간 단계(1)를 넘어 2로
 		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 2 });
 		await drawn({ slide: 2, click: 2 }, 3);
@@ -519,7 +518,7 @@ describe('교수 화면으로 다시 따라간다 (AC28)', () => {
 	it('누르면 교수의 현재 위치로 가고 다시 따라가는 중이 된다', async () => {
 		await classAt();
 		await act(() => button('이전').click());
-		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
+		await server(snapshot({ state: { ...STATE, current: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
 		await act(() => button('교수 화면으로').click());
 		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 3, click: 0 });
 		expect(screen.getByText(FOLLOWING)).toBeTruthy();
@@ -527,7 +526,7 @@ describe('교수 화면으로 다시 따라간다 (AC28)', () => {
 		expect(deck().setMode).toHaveBeenLastCalledWith('follow');
 		expect(live.setMode).toHaveBeenLastCalledWith('follow');
 		// 다시 따라가므로 교수가 넘기면 따라간다
-		await server(snapshot({ state: { ...STATE, current: { slide: 4, click: 0 }, furthest: { slide: 4, click: 0 }, limit: { slide: 4, click: 0 } } }));
+		await server(snapshot({ state: { ...STATE, current: { slide: 4, click: 0 }, limit: { slide: 4, click: 0 } } }));
 		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 4, click: 0 });
 	});
 
@@ -562,7 +561,7 @@ describe('교수 화면으로 다시 따라간다 (AC28)', () => {
 
 	it('새 회차에서는 예전 회차에서 본 단계 수로 돌아가지 않는다', async () => {
 		await classAt(); // 2번 슬라이드(단계 3개)를 그렸다
-		await server(snapshot({ state: { ...STATE, session: { ...STATE.session, id: 6 }, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
+		await server(snapshot({ state: { ...STATE, session: { ...STATE.session, id: 6 }, current: { slide: 3, click: 0 }, limit: { slide: 3, click: 0 } } }));
 		await drawn({ slide: 3, click: 0 }, 0);
 		await act(() => button('이전').click());
 		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 0 });

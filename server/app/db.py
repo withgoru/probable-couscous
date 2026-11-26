@@ -18,6 +18,9 @@ from app.clock import Clock
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 _MIGRATION_NAME = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
+# 첫 줄에 이 표시가 있는 마이그레이션은 외래 키를 잠시 끄고 돌린다. 다른 표가 가리키는 표를 다시 만들 때 쓴다
+# (CHECK에 걸린 열은 DROP COLUMN이 안 된다). 끝나기 전에 외래 키를 모두 검사하고, 어긋나면 되돌린다.
+FOREIGN_KEYS_OFF = "-- migrate: foreign_keys=off"
 
 
 class MigrationError(RuntimeError):
@@ -115,16 +118,31 @@ def migrate(conn: sqlite3.Connection, directory: str | Path, clock: Clock) -> li
     done: list[str] = []
     for version in sorted(v for v in files if v not in applied):
         path = files[version]
+        sql = path.read_text(encoding="utf-8")
+        keys_off = sql.startswith(FOREIGN_KEYS_OFF)
+        if keys_off:
+            conn.execute("PRAGMA foreign_keys = OFF")  # 트랜잭션 밖에서만 바꿀 수 있다(안에서는 조용히 무시된다)
+            if conn.execute("PRAGMA foreign_keys").fetchone()[0] != 0:
+                raise MigrationError(f"{version}: 외래 키를 끄지 못했습니다. 열린 트랜잭션이 없을 때 다시 실행해 주세요.")
         try:
             with transaction(conn):
-                for statement in _statements(path.read_text(encoding="utf-8")):
+                for statement in _statements(sql):
                     conn.execute(statement)
+                if keys_off and (broken := conn.execute("PRAGMA foreign_key_check").fetchall()):
+                    tables = ", ".join(sorted({row[0] for row in broken}))
+                    raise MigrationError(
+                        f"{version}: 적용하지 못했습니다. 외래 키가 어긋납니다({tables}). "
+                        "다시 만든 표에 옮기지 않은 행이 있는지 확인해 주세요."
+                    )
                 conn.execute(
                     "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, ?)",
                     (version, _checksum(path), clock.now().isoformat()),
                 )
         except sqlite3.Error as err:
             raise MigrationError(f"{version}: 적용하지 못했습니다. {err}") from err
+        finally:
+            if keys_off:
+                conn.execute("PRAGMA foreign_keys = ON")
         done.append(version)
     return done
 

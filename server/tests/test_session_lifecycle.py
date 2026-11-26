@@ -63,14 +63,10 @@ def row(world, sid):
         return dict(db.execute("SELECT * FROM class_sessions WHERE id = ?", (sid,)).fetchone())
 
 
-def move(world, sid, current, furthest):
+def move(world, sid, current):
     # 넘기기는 T009의 일이다. 여기서는 위치를 DB에 직접 둔다
     with world.db() as db:
-        db.execute(
-            "UPDATE class_sessions SET current_slide = ?, current_click = ?, furthest_slide = ?, furthest_click = ? "
-            "WHERE id = ?",
-            (*current, *furthest, sid),
-        )
+        db.execute("UPDATE class_sessions SET current_slide = ?, current_click = ? WHERE id = ?", (*current, sid))
 
 
 def session_events(world, cid):
@@ -97,7 +93,7 @@ def test_start_makes_a_scheduled_session_live_at_the_first_slide(world):
     assert body["can_delete"] is False  # 한 번 시작한 회차는 지울 수 없다(AC4)
     r = row(world, sid)
     assert r["status"] == "live"
-    assert (r["current_slide"], r["current_click"], r["furthest_slide"], r["furthest_click"]) == (1, 0, 1, 0)
+    assert (r["current_slide"], r["current_click"]) == (1, 0)
     assert r["first_started_at"] == r["started_at"] == world.clock.now().isoformat()
     assert r["ended_at"] is None
     assert r["version"] == body["version"] == 1
@@ -135,7 +131,7 @@ def test_starting_twice_is_harmless(world):
     prof, cid = classroom(world)
     sid = create(prof, cid)
     act(prof, cid, sid, "start")
-    move(world, sid, (3, 1), (4, 0))
+    move(world, sid, (3, 1))
     before = row(world, sid)
     world.clock.advance(minutes=1)
     res = act(prof, cid, sid, "start")
@@ -176,14 +172,14 @@ def test_end_makes_a_live_session_ended_and_keeps_its_positions(world):
     prof, cid = classroom(world)
     sid = create(prof, cid)
     act(prof, cid, sid, "start")
-    move(world, sid, (2, 0), (5, 2))
+    move(world, sid, (2, 0))
     world.clock.advance(minutes=50)
     res = act(prof, cid, sid, "end")
     assert res.status_code == 200
     assert res.json()["status"] == "ended" and res.json()["version"] == 2
     r = row(world, sid)
     assert r["status"] == "ended" and r["ended_at"] == world.clock.now().isoformat()
-    assert (r["current_slide"], r["current_click"], r["furthest_slide"], r["furthest_click"]) == (2, 0, 5, 2)
+    assert (r["current_slide"], r["current_click"]) == (2, 0)
 
 
 def test_ending_frees_the_classroom_for_another_session(world):
@@ -225,12 +221,12 @@ def test_a_live_session_can_still_be_ended_after_the_classroom_is_archived(world
 # --- 이어서 하기 ------------------------------------------------------------------------------
 
 
-def test_resume_keeps_the_last_and_the_furthest_position(world):
+def test_resume_keeps_the_last_position(world):
     prof, cid = classroom(world)
     sid = create(prof, cid)
     act(prof, cid, sid, "start")
     first_started = row(world, sid)["first_started_at"]
-    move(world, sid, (3, 1), (7, 0))
+    move(world, sid, (3, 1))
     act(prof, cid, sid, "end")
     world.clock.advance(minutes=3)
     res = act(prof, cid, sid, "resume")
@@ -238,7 +234,7 @@ def test_resume_keeps_the_last_and_the_furthest_position(world):
     assert res.json()["status"] == "live" and res.json()["version"] == 3
     r = row(world, sid)
     assert r["status"] == "live" and r["ended_at"] is None
-    assert (r["current_slide"], r["current_click"], r["furthest_slide"], r["furthest_click"]) == (3, 1, 7, 0)
+    assert (r["current_slide"], r["current_click"]) == (3, 1)
     assert r["started_at"] == world.clock.now().isoformat()
     assert r["first_started_at"] == first_started
 

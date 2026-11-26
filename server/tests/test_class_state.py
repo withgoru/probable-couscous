@@ -1,10 +1,10 @@
-"""002 T008: 회차 목록과 회차 현재 상태(AC16, AC23, AC27, AC29, AC39, AC41 서버).
+"""002 T008, T032: 회차 목록과 회차 현재 상태(AC16, AC23, AC29, AC39 서버).
 
-- `GET /api/class/{강좌}/sessions`: 교수에게는 모든 회차, 학생에게는 진행 중과 종료 회차만(최근 것부터) 준다.
-- `GET /api/class/{강좌}/sessions/{회차}/live`: 상태를 통째로 준다. 회차 상태, 묶음 번호와 슬라이드 수,
-  현재·가장 멀리 간 위치, 학생이 볼 수 있는 끝(`limit`), 보낸 항목, `version`. 화면은 이것으로 다시 맞춘다.
-- 학생 응답에는 거둔 항목이 없다. 예정 회차와 다른 강좌의 회차는 없는 것과 같다(404, C5).
-- 종료 뒤 묶음을 바꾸면 학생이 볼 수 있는 끝은 가장 멀리 간 위치의 슬라이드 번호까지다(단계는 그 슬라이드 전부).
+- `GET /api/class/{강좌}/sessions`: 교수에게는 모든 회차, 학생에게는 진행 중과 종료 회차(최근 것부터), 공개 묶음이
+  있는 예정 회차를 준다(공개 묶음은 `test_deck_visibility.py`).
+- `GET /api/class/{강좌}/sessions/{회차}/live`: 상태를 통째로 준다. 회차 상태, 묶음(번호, 슬라이드 수, 공개 여부),
+  현재 위치, 보낸 항목, `version`. 화면은 이것으로 다시 맞춘다.
+- 학생 응답에는 거둔 항목이 없다. 비공개 예정 회차와 다른 강좌의 회차는 없는 것과 같다(404, C5).
 """
 
 from conftest import ORIGIN
@@ -23,13 +23,12 @@ def act(prof, cid, sid, what):
     assert res.status_code == 200, res.text
 
 
-def move(world, sid, current, furthest):
+def move(world, sid, current):
     # 넘기기는 T009의 일이다. 여기서는 위치를 DB에 직접 둔다
     with world.db() as db:
         db.execute(
-            "UPDATE class_sessions SET current_slide = ?, current_click = ?, furthest_slide = ?, furthest_click = ?, "
-            "version = version + 1 WHERE id = ?",
-            (*current, *furthest, sid),
+            "UPDATE class_sessions SET current_slide = ?, current_click = ?, version = version + 1 WHERE id = ?",
+            (*current, sid),
         )
 
 
@@ -76,10 +75,11 @@ def test_professor_sees_every_session_in_order(world):
 
 
 def test_student_sees_live_and_ended_sessions_most_recent_first(world):
+    # 예정 회차는 공개 묶음이 있을 때만 보인다(AC49, test_deck_visibility.py)
     prof, cid, first, _, student = with_student(world)
     second = create(prof, cid, "2회차")
     third = create(prof, cid, "3회차")
-    create(prof, cid, "4회차")  # 예정: 학생에게 보이지 않는다
+    create(prof, cid, "4회차")  # 묶음 없는 예정: 학생에게 보이지 않는다
     act(prof, cid, first, "start")
     world.clock.advance(minutes=60)
     act(prof, cid, first, "end")
@@ -115,7 +115,7 @@ def test_listed_session_shape(world):
         "status": "live",
         "started_at": world.clock.now().isoformat(),
         "ended_at": None,
-        "deck": {"id": deck_id, "slide_count": 4, "available": True},
+        "deck": {"id": deck_id, "slide_count": 4, "available": True, "public": False},
     }
 
 
@@ -125,7 +125,7 @@ def test_listed_session_shape(world):
 def test_live_state_for_a_session_in_class(world):
     prof, cid, sid, deck_id, student = with_student(world)
     act(prof, cid, sid, "start")
-    move(world, sid, (2, 1), (3, 0))
+    move(world, sid, (2, 1))
     kept = add_item(world, cid, sid, "a", body="과제 안내")
     gone = add_item(world, cid, sid, "b", url="https://example.com/x", retracted=True)
     res = live(student, cid, sid)
@@ -139,10 +139,9 @@ def test_live_state_for_a_session_in_class(world):
         "version": 2,
         "started_at": world.clock.now().isoformat(),  # 교수 화면의 경과 시간(AC12)
     }
-    assert body["deck"] == {"id": deck_id, "slide_count": 4, "available": True}
+    assert body["deck"] == {"id": deck_id, "slide_count": 4, "available": True, "public": False}
     assert body["current"] == {"slide": 2, "click": 1}
-    assert body["furthest"] == {"slide": 3, "click": 0}
-    assert body["limit"] == {"slide": 3, "click": 0}  # AC27: 학생은 가장 멀리 간 위치까지
+    assert set(body) == {"session", "deck", "current", "items"}  # 가장 멀리 간 위치는 없다(T032)
     assert body["items"] == [
         {"id": kept, "body": "과제 안내", "url": None, "created_at": world.clock.now().isoformat()}
     ]  # 거둔 항목은 학생에게 없다
@@ -162,7 +161,7 @@ def test_professor_sees_retracted_items_marked(world):
     ]
 
 
-def test_professor_can_read_a_scheduled_session_but_a_student_cannot(world):
+def test_professor_can_read_a_scheduled_session_but_a_student_cannot_while_private(world):
     prof, cid, sid, _, student = with_student(world)
     body = live(prof, cid, sid).json()
     assert body["session"]["status"] == "scheduled"
@@ -175,27 +174,26 @@ def test_reopened_professor_screen_resumes_from_the_last_position(world):
     # AC16, AC29: 다시 열거나 새로 들어온 화면은 DB의 위치에서 이어진다
     prof, cid, sid, _, student = with_student(world)
     act(prof, cid, sid, "start")
-    move(world, sid, (4, 1), (4, 1))
+    move(world, sid, (4, 1))
     for client in (prof, world.client("kim"), student):
         assert live(client, cid, sid).json()["current"] == {"slide": 4, "click": 1}
 
 
-def test_ended_session_keeps_its_range(world):
-    # AC39: 종료 회차는 처음부터 가장 멀리 간 위치까지
+def test_ended_session_keeps_its_last_position(world):
+    # AC38: 수업이 끝나 이어 보는 학생은 교수의 마지막 위치에서 시작한다
     prof, cid, sid, _, student = with_student(world)
     act(prof, cid, sid, "start")
-    move(world, sid, (1, 0), (3, 2))
+    move(world, sid, (3, 2))
     act(prof, cid, sid, "end")
     body = live(student, cid, sid).json()
     assert body["session"]["status"] == "ended"
-    assert body["limit"] == {"slide": 3, "click": 2}
+    assert body["current"] == {"slide": 3, "click": 2}
 
 
-def test_replacing_the_deck_after_the_class_widens_clicks_to_the_whole_slide(world):
-    # AC41: 새 묶음은 단계 수가 다를 수 있다. 슬라이드 번호까지만 지키고 그 슬라이드의 단계는 모두 보인다
+def test_replacing_the_deck_after_the_class_shows_the_new_deck(world):
+    # AC41: 새 묶음이 보이고 비공개로 시작한다(공개는 test_deck_visibility.py)
     prof, cid, sid, _, student = with_student(world)
     act(prof, cid, sid, "start")
-    move(world, sid, (2, 0), (2, 1))
     act(prof, cid, sid, "end")
     world.clock.advance(hours=1)
     res = prof.put(
@@ -203,22 +201,7 @@ def test_replacing_the_deck_after_the_class_widens_clicks_to_the_whole_slide(wor
     )
     assert res.status_code == 200
     body = live(student, cid, sid).json()
-    assert body["deck"]["id"] == res.json()["deck"]["id"]
-    assert body["limit"] == {"slide": 2, "click": None}  # None: 그 슬라이드의 마지막 단계까지
-    assert body["furthest"] == {"slide": 2, "click": 1}
-
-
-def test_limit_never_goes_past_the_last_slide_of_the_deck(world):
-    # 새 묶음이 더 짧으면 그 묶음의 마지막 슬라이드까지다
-    prof, cid, sid, _, student = with_student(world)
-    act(prof, cid, sid, "start")
-    move(world, sid, (6, 0), (9, 3))
-    act(prof, cid, sid, "end")
-    world.clock.advance(hours=1)
-    prof.put(
-        f"/api/classrooms/{cid}/sessions/{sid}/deck", params={"filename": "b.zip"}, content=FIXTURE.read_bytes(), headers=ZIP
-    )
-    assert live(student, cid, sid).json()["limit"] == {"slide": 4, "click": None}
+    assert body["deck"]["id"] == res.json()["deck"]["id"] and body["deck"]["public"] is False
 
 
 def test_session_without_a_deck(world):
@@ -228,7 +211,7 @@ def test_session_without_a_deck(world):
     act(prof, cid, sid, "start")
     body = live(prof, cid, sid).json()
     assert body["deck"] is None
-    assert body["limit"] == {"slide": 1, "click": 0}
+    assert body["current"] == {"slide": 1, "click": 0}
 
 
 def test_deck_whose_files_are_missing_is_reported(world):
@@ -236,7 +219,7 @@ def test_deck_whose_files_are_missing_is_reported(world):
 
     prof, cid, sid, deck_id, _ = classroom_with_deck(world)
     shutil.rmtree(world.app.state.deck_store.path_for(cid, deck_id))
-    assert live(prof, cid, sid).json()["deck"] == {"id": deck_id, "slide_count": 4, "available": False}
+    assert live(prof, cid, sid).json()["deck"] == {"id": deck_id, "slide_count": 4, "available": False, "public": False}
 
 
 # --- 권한과 강좌 경계 ---------------------------------------------------------------------------

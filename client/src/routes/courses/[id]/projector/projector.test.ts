@@ -45,9 +45,8 @@ import ProjectorPage from './+page.svelte';
 const CLASSROOM = { id: 7, name: '웹 프로그래밍', section_name: null, status: 'active', student_count: 40, session_count: 3, created_at: 'x' } as const;
 const STATE: LiveState = {
 	session: { id: 5, title: '3주차 1회차', status: 'live', version: 3, started_at: '2026-03-04T05:00:00+00:00' },
-	deck: { id: 9, slide_count: 4, available: true },
+	deck: { id: 9, slide_count: 4, available: true, public: false },
 	current: { slide: 2, click: 1 },
-	furthest: { slide: 2, click: 1 },
 	limit: { slide: 2, click: 1 },
 	items: []
 };
@@ -194,7 +193,7 @@ describe('교수 위치를 따라오고 직접 넘기지 않는다 (AC20)', () =
 	it('묶음이 바뀌면 예전 다리를 닫고 새 다리로 지금 위치를 보낸다', async () => {
 		await open();
 		const old = deck();
-		await server(snapshot({ state: { ...STATE, deck: { id: 10, slide_count: 4, available: true } } }));
+		await server(snapshot({ state: { ...STATE, deck: { id: 10, slide_count: 4, available: true, public: false } } }));
 		expect(old.stop).toHaveBeenCalled();
 		expect(decks.all).toHaveLength(2);
 		expect(decks.all[1].goto).toHaveBeenLastCalledWith({ slide: 2, click: 1 });
@@ -278,7 +277,7 @@ describe('슬라이드를 보일 수 없을 때', () => {
 	});
 
 	it('묶음이 열리지 않으면 그렇게 알린다', async () => {
-		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false } } }));
+		await open(snapshot({ state: { ...STATE, deck: { id: 9, slide_count: 4, available: false, public: false } } }));
 		expect(screen.getByText('슬라이드를 열 수 없습니다.')).toBeTruthy();
 	});
 

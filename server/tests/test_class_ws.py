@@ -59,7 +59,7 @@ def live_class(world):
 def position_row(world, sid):
     with world.db() as db:
         r = db.execute("SELECT * FROM class_sessions WHERE id = ?", (sid,)).fetchone()
-    return (r["current_slide"], r["current_click"]), (r["furthest_slide"], r["furthest_click"]), r["version"]
+    return (r["current_slide"], r["current_click"]), r["version"]
 
 
 def drain(world, ws, cid):
@@ -181,17 +181,16 @@ def test_professor_goto_is_recorded_acked_then_published(world):
             "type": "position",
             "session_id": sid,
             "current": {"slide": 2, "click": 1},
-            "furthest": {"slide": 2, "click": 1},
             "version": 2,
         }
         assert until(teacher, "position") == expected  # ack 다음에 발행이 온다
         assert until(projector, "position") == expected  # AC20
         assert until(phone, "position") == expected  # AC25
-    assert position_row(world, sid) == ((2, 1), (2, 1), 2)
+    assert position_row(world, sid) == ((2, 1), 2)
     assert bus.checked == [(2, 2)]  # 발행하는 순간 DB에는 이미 그 버전이 있었다
 
 
-def test_going_back_does_not_shrink_the_furthest_position(world):
+def test_going_back_is_recorded_as_the_new_position(world):
     prof, cid, sid, _, _ = live_class(world)
     with connect(prof, cid) as ws:
         until(ws, "presence")
@@ -200,19 +199,8 @@ def test_going_back_does_not_shrink_the_furthest_position(world):
         goto(ws, sid, 1, 0, req="b")
         assert until(ws, "ack")["version"] == 3
         moved = until(ws, "position")
-    assert moved["current"] == {"slide": 1, "click": 0}
-    assert moved["furthest"] == {"slide": 3, "click": 2}
-    assert position_row(world, sid) == ((1, 0), (3, 2), 3)
-
-
-def test_furthest_moves_on_by_clicks_within_the_same_slide(world):
-    prof, cid, sid, _, _ = live_class(world)
-    with connect(prof, cid) as ws:
-        until(ws, "presence")
-        goto(ws, sid, 2, 0, req="a")
-        until(ws, "position")
-        goto(ws, sid, 2, 3, req="b")
-        assert until(ws, "position")["furthest"] == {"slide": 2, "click": 3}
+    assert moved == {"type": "position", "session_id": sid, "current": {"slide": 1, "click": 0}, "version": 3}
+    assert position_row(world, sid) == ((1, 0), 3)
 
 
 def test_two_professor_screens_get_the_same_position(world):
@@ -235,7 +223,7 @@ def test_going_to_the_same_place_is_acked_without_a_new_version(world):
         goto(ws, sid, 1, 0, req="same")
         assert until(ws, "ack") == {"type": "ack", "req": "same", "version": 1}
         assert drain(world, ws, cid) == []
-    assert position_row(world, sid) == ((1, 0), (1, 0), 1)
+    assert position_row(world, sid) == ((1, 0), 1)
 
 
 @pytest.mark.parametrize(
@@ -251,7 +239,7 @@ def test_positions_outside_the_deck_are_refused(world, slide, click):
         assert message["req"] == "bad" and message["reason"] == "out_of_range"
         assert message["message"] == "그 위치로 넘길 수 없습니다. 슬라이드 범위를 확인해 주세요."
         assert drain(world, ws, cid) == []
-    assert position_row(world, sid) == ((1, 0), (1, 0), 1)
+    assert position_row(world, sid) == ((1, 0), 1)
 
 
 def test_a_session_without_a_deck_stays_on_the_first_slide(world):
@@ -277,8 +265,8 @@ def test_only_the_live_session_of_this_classroom_moves(world):
             message = until(ws, "error")
             assert (message["req"], message["reason"]) == (f"s{target}", "not_live")
             assert message["message"] == "진행 중인 수업이 아닙니다. 화면을 새로 고쳐 주세요."
-    assert position_row(world, other_sid)[2] == 1
-    assert position_row(world, scheduled)[2] == 0
+    assert position_row(world, other_sid)[1] == 1
+    assert position_row(world, scheduled)[1] == 0
 
 
 def test_after_the_class_ends_goto_is_refused(world):
@@ -301,7 +289,7 @@ def test_students_and_projectors_cannot_move_the_class(world, role):
         message = until(ws, "error")
         assert (message["req"], message["reason"]) == ("no", "not_allowed")
         assert message["message"] == "교수 수업 화면에서만 넘길 수 있습니다."
-    assert position_row(world, sid) == ((1, 0), (1, 0), 1)
+    assert position_row(world, sid) == ((1, 0), 1)
 
 
 @pytest.mark.parametrize("message", ["not json", '{"type": "dance"}', "[1, 2]", '{"type": "goto"}'])

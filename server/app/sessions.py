@@ -40,7 +40,7 @@ _COLUMNS = "id, title, status, sort_order, first_started_at, created_at"
 # 회차와 그 회차의 살아 있는 슬라이드 묶음(AC5: 업로드됨/비어 있음, 파일 이름, 시각, 슬라이드 수)
 _LIST_SQL = """
 SELECT s.id, s.title, s.status, s.sort_order, s.first_started_at, s.created_at,
-       d.id AS deck_id, d.original_name, d.slide_count, d.size_bytes, d.uploaded_at
+       d.id AS deck_id, d.original_name, d.slide_count, d.size_bytes, d.uploaded_at, d.public
   FROM class_sessions s
   LEFT JOIN decks d ON d.session_id = s.id AND d.classroom_id = s.classroom_id AND d.removed_at IS NULL
  WHERE s.classroom_id = ?
@@ -77,6 +77,7 @@ def deck_item(row: sqlite3.Row, deck_id: int, available: bool) -> dict:
         "size_bytes": row["size_bytes"],
         "uploaded_at": row["uploaded_at"],
         "available": available,
+        "public": bool(row["public"]),  # 학생에게 공개(AC47). 새로 올린 묶음은 비공개
     }
 
 

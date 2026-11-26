@@ -32,10 +32,9 @@ const last = () => FakeSocket.all[FakeSocket.all.length - 1];
 
 const LIVE: LiveState = {
 	session: { id: 5, title: '1회차', status: 'live', version: 3 },
-	deck: { id: 9, slide_count: 4, available: true },
+	deck: { id: 9, slide_count: 4, available: true, public: true },
 	current: { slide: 2, click: 0 },
-	furthest: { slide: 2, click: 1 },
-	limit: { slide: 2, click: 1 },
+	limit: { slide: 4, click: null }, // 서버는 보내지 않는다. 이 모듈이 채운다(공개 묶음은 끝까지)
 	items: [{ id: 1, body: '첫 자료', url: null, created_at: '2026-03-01T09:00:00+00:00' }]
 };
 
@@ -150,30 +149,80 @@ describe('연결 → 구독 → 상태 통째로 받기 (C13)', () => {
 });
 
 describe('받은 version보다 큰 발행만 적용한다', () => {
-	it('바로 다음 version의 위치를 적용하고 볼 수 있는 끝도 따라간다 (AC25)', async () => {
+	it('바로 다음 version의 위치를 적용한다 (AC25)', async () => {
 		const { now } = setup();
 		await ready();
-		last().push({ type: 'position', session_id: 5, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, version: 4 });
+		last().push({ type: 'position', session_id: 5, current: { slide: 3, click: 0 }, version: 4 });
 		expect(now().state).toMatchObject({
 			current: { slide: 3, click: 0 },
-			furthest: { slide: 3, click: 0 },
-			limit: { slide: 3, click: 0 },
+			limit: { slide: 4, click: null }, // 볼 수 있는 끝은 늘 묶음의 끝이다
 			session: { version: 4 }
 		});
+	});
+
+	it('서버가 보내지 않는 볼 수 있는 끝을 묶음의 끝으로 채운다(묶음이 없으면 첫 슬라이드)', async () => {
+		const { limit: _, ...fromServer } = structuredClone(LIVE);
+		const { now, live } = setup({ server: { live: fromServer as LiveState } });
+		await ready();
+		expect(now().state?.limit).toEqual({ slide: 4, click: null });
+		live.stop();
+		const { now: again } = setup({ server: { live: { ...(fromServer as LiveState), deck: null } } });
+		await ready();
+		expect(again().state?.limit).toEqual({ slide: 1, click: null });
+	});
+
+	it('비공개 묶음의 볼 수 있는 끝은 교수의 지금 위치이고, 교수가 넘기면 따라온다(T035까지의 임시 처리)', async () => {
+		const { now } = setup({ server: { live: { ...structuredClone(LIVE), deck: { ...LIVE.deck!, public: false } } } });
+		await ready();
+		expect(now().state?.limit).toEqual({ slide: 2, click: 0 });
+		last().push({ type: 'position', session_id: 5, current: { slide: 3, click: 1 }, version: 4 });
+		expect(now().state?.limit).toEqual({ slide: 3, click: 1 });
+	});
+
+	it('공개·비공개가 바뀌면 묶음과 볼 수 있는 끝을 바꾸고 위치는 둔다 (AC48)', async () => {
+		const { now } = setup();
+		await ready();
+		last().push({ type: 'deck.updated', session_id: 5, deck: { id: 9, slide_count: 4, available: true, public: false }, version: 4 });
+		expect(now().state).toMatchObject({
+			deck: { id: 9, public: false },
+			current: { slide: 2, click: 0 },
+			limit: { slide: 2, click: 0 },
+			session: { version: 4 }
+		});
+		last().push({ type: 'deck.updated', session_id: 5, deck: { id: 9, slide_count: 4, available: true, public: true }, version: 5 });
+		expect(now().state?.limit).toEqual({ slide: 4, click: null });
+	});
+
+	it('교수 화면도 공개·비공개 바뀜을 그대로 적용한다', async () => {
+		const { now, fetchFn } = setup({ role: 'professor' });
+		await ready();
+		const calls = fetchFn.mock.calls.length;
+		last().push({ type: 'deck.updated', session_id: 5, deck: { id: 9, slide_count: 4, available: true, public: true }, version: 4 });
+		expect(now().state?.deck?.public).toBe(true);
+		expect(fetchFn.mock.calls.length).toBe(calls);
+	});
+
+	it('형식이 맞지 않는 묶음 알림이면 통째로 다시 받는다', async () => {
+		const { fetchFn } = setup();
+		await ready();
+		const calls = fetchFn.mock.calls.length;
+		last().push({ type: 'deck.updated', session_id: 5, deck: { id: 9 }, version: 4 });
+		await vi.runAllTimersAsync();
+		expect(fetchFn.mock.calls.length).toBeGreaterThan(calls);
 	});
 
 	it('이미 받은 version이나 더 오래된 발행은 무시한다', async () => {
 		const { now } = setup();
 		await ready();
-		last().push({ type: 'position', session_id: 5, current: { slide: 1, click: 0 }, furthest: { slide: 2, click: 1 }, version: 3 });
-		last().push({ type: 'position', session_id: 5, current: { slide: 1, click: 0 }, furthest: { slide: 2, click: 1 }, version: 2 });
+		last().push({ type: 'position', session_id: 5, current: { slide: 1, click: 0 }, version: 3 });
+		last().push({ type: 'position', session_id: 5, current: { slide: 1, click: 0 }, version: 2 });
 		expect(now().state?.current).toEqual({ slide: 2, click: 0 });
 	});
 
 	it('다른 회차의 발행은 무시한다', async () => {
 		const { now } = setup();
 		await ready();
-		last().push({ type: 'position', session_id: 6, current: { slide: 4, click: 0 }, furthest: { slide: 4, click: 0 }, version: 4 });
+		last().push({ type: 'position', session_id: 6, current: { slide: 4, click: 0 }, version: 4 });
 		expect(now().state?.current).toEqual({ slide: 2, click: 0 });
 	});
 
@@ -181,7 +230,7 @@ describe('받은 version보다 큰 발행만 적용한다', () => {
 		const { fetchFn, server, now } = setup();
 		await ready();
 		server.live = { ...structuredClone(LIVE), current: { slide: 4, click: 0 }, session: { ...LIVE.session, version: 6 } };
-		last().push({ type: 'position', session_id: 5, current: { slide: 4, click: 0 }, furthest: { slide: 4, click: 0 }, version: 6 });
+		last().push({ type: 'position', session_id: 5, current: { slide: 4, click: 0 }, version: 6 });
 		await vi.runAllTimersAsync();
 		expect(fetchFn).toHaveBeenCalledTimes(4);
 		expect(now().state?.session.version).toBe(6);
@@ -219,7 +268,7 @@ describe('받은 version보다 큰 발행만 적용한다', () => {
 	it('불러오는 동안 온 발행은 받은 뒤에 차례로 적용한다', async () => {
 		const { now } = setup();
 		last().push({ type: 'ready', role: 'student' });
-		last().push({ type: 'position', session_id: 5, current: { slide: 3, click: 0 }, furthest: { slide: 3, click: 0 }, version: 4 });
+		last().push({ type: 'position', session_id: 5, current: { slide: 3, click: 0 }, version: 4 });
 		await vi.runAllTimersAsync();
 		expect(now().state?.current).toEqual({ slide: 3, click: 0 });
 	});
