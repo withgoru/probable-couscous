@@ -10,9 +10,11 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app import attendance_state, events
+from app.attendance_core import compute_attendance_code, slot_bounds, slot_of
 from app.authz import Action, Granted
 from app.class_access import guard_class
 from app.classrooms import load_classroom
@@ -142,3 +144,35 @@ def reopen_attendance(session_id: int, granted: PresentGuard, db: Db, request: R
         attendance_state.open_window(db, granted.resource.id, session_id, "reopen", granted.actor.github_id, now)
 
     return _control(request, db, granted, session_id, apply)
+
+
+# --- 교수·프로젝터용 코드(AC3) ----------------------------------------------------------------
+
+NO_WINDOW = "지금은 출석을 받고 있지 않습니다."
+NO_STORE = {"Cache-Control": "no-store"}
+
+
+@router.get("/api/classrooms/{classroom_id}/sessions/{session_id}/attendance/code")
+def attendance_code(session_id: int, granted: ManageGuard, db: Db, request: Request):
+    """지금 코드와 다음 코드, 각 칸이 끝나는 시각, 마감 시각, 서버 시각.
+
+    화면은 서버 시각과의 차이를 구해 경계에서 다음 코드로 바꾸고 곧바로 그다음을 받는다(plan '코드 전달').
+    다음 코드는 마감 뒤의 칸일 수도 있다. 그 코드는 받지 않으므로(창이 닫힌다) 화면이 마감 시각에 숨긴다.
+    """
+    classroom_id = granted.resource.id
+    load_session(db, classroom_id, session_id)  # 다른 강좌의 회차는 404
+    now = request.app.state.clock.now()
+    window = attendance_state.unclosed_window(db, classroom_id, session_id)
+    if not attendance_state.is_open(window, now):
+        return JSONResponse(status_code=409, content={"detail": NO_WINDOW}, headers=NO_STORE)
+    secret = request.app.state.settings.server_secret
+    slot = slot_of(now)
+
+    def at(s: int) -> dict:
+        return {
+            "code": compute_attendance_code(secret, window["id"], window["nonce"], s),
+            "ends_at": slot_bounds(s)[1].isoformat(),
+        }
+
+    body = {"current": at(slot), "next": at(slot + 1), "closes_at": window["closes_at"], "server_now": now.isoformat()}
+    return JSONResponse(body, headers=NO_STORE)
