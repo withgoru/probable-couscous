@@ -52,3 +52,13 @@ def test_a_lost_delivery_makes_the_script_fail():
     result = run("--students", "3", "--moves", "2", "--json", "--self-check-fail")
     assert result.returncode != 0
     assert json.loads(result.stdout)["lost"] > 0
+
+
+def test_preload_measures_only_the_first_screen_at_class_start():
+    # T038: 기다리는 동안 공개 묶음을 미리 받으면, 수업 시작에는 첫 화면(index.html)만 다시 받는다
+    result = run("--students", "10", "--moves", "2", "--preload", "--json")
+    assert result.returncode == 0, result.stderr[-2000:]
+    report = json.loads(result.stdout)
+    assert report["preload"] is True
+    assert report["deck_files"] == 1  # 해시 파일은 캐시에 있다
+    assert report["first_load_failures"] == {} and report["lost"] == 0
