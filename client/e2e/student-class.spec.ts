@@ -323,3 +323,43 @@ test('비공개 묶음은 따라가기만 하고, 수업 중 공개 여부가 �
 	await expect(page.getByRole('button', { name: '다음' })).toHaveCount(0);
 	await expectNoAxeViolations(page, '비공개로 바뀐 학생 화면');
 });
+
+// 002 T037: 비공개 회차의 다시 보기는 자료만, 교수가 공개하면 새로 고치지 않고 슬라이드가 나타나 끝까지 넘긴다(AC39, AC41)
+test('비공개 회차는 자료만 다시 보고, 공개하면 바로 슬라이드를 끝까지 넘겨 본다 (AC39, AC41)', async ({ page }) => {
+	const yoon = student('replay-private');
+	const room = await classroomWith([yoon], `비공개 다시 보기 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '8주차' } })).json();
+	await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck?filename=deck.zip`, {
+		headers: { 'Content-Type': 'application/zip' },
+		data: readFileSync(DECK_ZIP)
+	});
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`);
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/items`, { data: { body: '복습 자료', client_key: 'p1' } });
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/end`);
+
+	await enter(page, room.token, yoon.email);
+	await noTransitions(page);
+	await page.getByRole('button', { name: '8주차 다시 보기' }).click();
+	await expect(page.getByRole('heading', { level: 1, name: '8주차 다시 보기' })).toBeFocused();
+	// 비공개 묶음: 슬라이드 대신 안내, 자료는 보인다(AC39)
+	await expect(page.getByText('이 회차의 슬라이드는 공개되지 않았습니다.')).toBeVisible();
+	await expect(page.getByTitle('다시 보는 슬라이드')).toHaveCount(0);
+	await expect(page.getByRole('list', { name: '자료' })).toContainText('복습 자료');
+	await expectNoAxeViolations(page, '비공개 회차 다시 보기');
+
+	// 교수가 공개한다: 새로 고치지 않아도 슬라이드가 나타나고 처음부터 끝까지 넘긴다
+	expect(
+		(await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck/visibility`, { data: { public: true } })).status()
+	).toBe(200);
+	await expect(page.getByTitle('다시 보는 슬라이드')).toBeVisible();
+	const replayHash = () => page.frameLocator('iframe[title="다시 보는 슬라이드"]').locator('body').evaluate(() => location.hash);
+	await expect.poll(replayHash).toMatch(/^#\/1/);
+	const next = page.getByRole('button', { name: '다음' });
+	for (const expected of [/^#\/2(\?clicks=0)?$/, /^#\/2\?clicks=1/, /^#\/2\?clicks=2/, /^#\/2\?clicks=3/, /^#\/3/, /^#\/4(\?clicks=0)?$/, /^#\/4\?clicks=1/]) {
+		await expect(next).toHaveAttribute('aria-disabled', 'false');
+		await next.click();
+		await expect.poll(replayHash).toMatch(expected);
+	}
+	await expect(next).toHaveAttribute('aria-disabled', 'true'); // 묶음의 끝
+	await expectNoAxeViolations(page, '공개된 회차 다시 보기');
+});

@@ -59,7 +59,7 @@ class FakeDocument extends EventTarget {
 	}
 }
 
-function setup(options: { role?: 'professor' | 'projector' | 'student'; sessionId?: number | null; server?: Partial<Server> } = {}) {
+function setup(options: { role?: 'professor' | 'projector' | 'student'; sessionId?: number | null; server?: Partial<Server>; onEvent?: (e: Record<string, unknown>) => void } = {}) {
 	const server: Server = { sessions: { live_session_id: 5 }, live: structuredClone(LIVE), ...options.server };
 	const fetchFn = fakeFetch(server);
 	const doc = new FakeDocument();
@@ -70,7 +70,8 @@ function setup(options: { role?: 'professor' | 'projector' | 'student'; sessionI
 		fetchFn: fetchFn as unknown as typeof fetch,
 		location: { protocol: 'http:', host: 'localhost:8000' },
 		Socket: FakeSocket as unknown as typeof WebSocket,
-		document: doc
+		document: doc,
+		onEvent: options.onEvent
 	});
 	const unsubscribe = live.subscribe((s) => snapshots.push(s));
 	const now = () => snapshots[snapshots.length - 1];
@@ -423,5 +424,28 @@ describe('정리', () => {
 		last().push({ nope: 1 });
 		last().push({ type: 'position', session_id: 5, version: 4 }); // 위치가 없다
 		expect(now().state).toEqual(LIVE);
+	});
+});
+
+describe('받은 알림을 그대로 알려 준다 (T037)', () => {
+	it('다른 회차의 알림도 onEvent로 넘긴다(다시 보기가 알아본다)', async () => {
+		const seen: Record<string, unknown>[] = [];
+		setup({ onEvent: (e) => seen.push(e) });
+		await ready();
+		const other = { type: 'deck.updated', session_id: 4, deck: { id: 7, slide_count: 4, available: true, public: true }, version: 2 };
+		last().push(other);
+		last().push({ type: 'session.updated', session_id: 4, status: 'ended', version: 2 });
+		expect(seen).toContainEqual(other);
+		expect(seen.map((e) => e.type)).toContain('session.updated');
+	});
+});
+
+describe('onEvent가 실패해도 (T037 검증 뒤)', () => {
+	it('연결 처리는 그대로 이어 간다', async () => {
+		const { now } = setup({ onEvent: () => { throw new Error('boom'); } });
+		await ready();
+		last().push({ type: 'position', session_id: 5, current: { slide: 3, click: 0 }, version: 4 });
+		expect(now().state?.current).toEqual({ slide: 3, click: 0 });
+		expect(now().status).toBe('live');
 	});
 });

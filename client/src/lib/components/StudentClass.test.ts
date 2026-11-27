@@ -805,3 +805,74 @@ describe('공개 여부와 초점: 검증 뒤 추가', () => {
 		expect(texts.filter((t) => t === UNPUBLISHED).length).toBe(2); // 비웠다가 다시 써서 바뀐 것으로 읽힌다
 	});
 });
+
+describe('다시 보는 회차가 바뀌면 다시 받는다 (AC41, T037)', () => {
+	const event = (e: Record<string, unknown>) => act(() => (live.options as { onEvent?: (e: unknown) => void }).onEvent?.(e));
+
+	it('그 회차의 묶음이 바뀌거나 공개 여부가 바뀌면 다시 보기가 상태를 다시 받는다', async () => {
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '지난 회차' });
+		await act(() => within(list).getByRole('button', { name: '2주차 2회차 다시 보기' }).click());
+		await screen.findByRole('heading', { level: 1, name: '2주차 2회차 다시 보기' });
+		expect(api.fetchClassLive).toHaveBeenCalledTimes(1);
+		await event({ type: 'deck.updated', session_id: 4, deck: { id: 9, slide_count: 4, available: true, public: false }, version: 9 });
+		await waitFor(() => expect(api.fetchClassLive).toHaveBeenCalledTimes(2));
+		await event({ type: 'session.updated', session_id: 4, status: 'ended', version: 9 }); // 묶음을 올리거나 지움
+		await waitFor(() => expect(api.fetchClassLive).toHaveBeenCalledTimes(3));
+	});
+
+	it('다른 회차의 알림에는 다시 받지 않는다', async () => {
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '지난 회차' });
+		await act(() => within(list).getByRole('button', { name: '2주차 2회차 다시 보기' }).click());
+		await screen.findByRole('heading', { level: 1, name: '2주차 2회차 다시 보기' });
+		await event({ type: 'deck.updated', session_id: 3, deck: { id: 7, slide_count: 4, available: true, public: true }, version: 2 });
+		await event({ type: 'position', session_id: 4, current: { slide: 2, click: 0 }, version: 10 });
+		await act(() => Promise.resolve());
+		expect(api.fetchClassLive).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('다시 보는 중에 다시 연결되면', () => {
+	it('끊긴 동안 놓친 바뀜이 있을 수 있어 다시 보기가 상태를 다시 받는다', async () => {
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '지난 회차' });
+		await act(() => within(list).getByRole('button', { name: '2주차 2회차 다시 보기' }).click());
+		await screen.findByRole('heading', { level: 1, name: '2주차 2회차 다시 보기' });
+		await act(() => (live.options as { onEvent?: (e: unknown) => void }).onEvent?.({ type: 'ready' }));
+		await waitFor(() => expect(api.fetchClassLive).toHaveBeenCalledTimes(2));
+	});
+});
+
+describe('다시 보기: 검증 뒤 추가', () => {
+	async function openReplay() {
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '지난 회차' });
+		await act(() => within(list).getByRole('button', { name: '2주차 2회차 다시 보기' }).click());
+		await screen.findByRole('heading', { level: 1, name: '2주차 2회차 다시 보기' });
+	}
+	const event = (e: Record<string, unknown>) => act(() => (live.options as { onEvent?: (e: unknown) => void }).onEvent?.(e));
+
+	it('서버가 놓친 알림 대신 resync를 보내면 다시 보기도 다시 받는다', async () => {
+		await openReplay();
+		await event({ type: 'resync' });
+		await waitFor(() => expect(api.fetchClassLive).toHaveBeenCalledTimes(2));
+	});
+
+	it('다시 보기의 공개·비공개 알림은 늘 있는 알림 자리로 읽힌다', async () => {
+		await openReplay();
+		api.fetchClassLive.mockImplementationOnce(async () => ({
+			...STATE,
+			deck: { ...STATE.deck!, public: false },
+			session: { ...STATE.session, id: 4, title: '2주차 2회차', status: 'ended' }
+		}));
+		await event({ type: 'deck.updated', session_id: 4, deck: { id: 9, slide_count: 4, available: true, public: false }, version: 9 });
+		await waitFor(() =>
+			expect((document.querySelector('[data-class-status]') as HTMLElement).textContent).toBe('이 회차의 슬라이드는 공개되지 않았습니다.')
+		);
+	});
+});
