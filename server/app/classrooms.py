@@ -52,7 +52,7 @@ def _clock(request: Request) -> Clock:
 ClockDep = Annotated[Clock, Depends(_clock)]
 
 _ITEM_SQL = """
-SELECT c.id, c.name, c.section_name, c.status, c.created_at,
+SELECT c.id, c.name, c.section_name, c.status, c.created_at, c.attendance_minutes,
        (SELECT COUNT(*) FROM roster_entries r
          WHERE r.classroom_id = c.id AND r.removed_at IS NULL) AS student_count,
        (SELECT COUNT(*) FROM class_sessions s
@@ -131,6 +131,7 @@ def _insert_classroom(
     source_id: int | None,
     now: str,
     fill: Callable[[sqlite3.Connection, int], None] | None = None,
+    attendance_minutes: int = 10,
 ) -> dict:
     """강좌 한 개를 새로 만든다. 새 초대 토큰을 받고 명단과 기록은 비어 있다. 토큰이 겹치면 다시 시도한다.
 
@@ -141,8 +142,8 @@ def _insert_classroom(
             with transaction(db):
                 cursor = db.execute(
                     "INSERT INTO classrooms(owner_github_id, name, section_name, invite_token, "
-                    "source_classroom_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    (owner, name, section, secrets.token_urlsafe(16), source_id, now),
+                    "source_classroom_id, created_at, attendance_minutes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (owner, name, section, secrets.token_urlsafe(16), source_id, now, attendance_minutes),
                 )
                 if fill is not None:
                     fill(db, cursor.lastrowid)
@@ -165,9 +166,10 @@ def clone_classroom(body: CloneClassroom, granted: CloneGuard, db: Db, clock: Cl
     """분반 만들기, 새 학기로 복제. 이름과 분반을 가져오고 명단, 입장 기록, 초대 링크는 새로 시작한다(AC12).
 
     회차와 슬라이드 묶음은 '예정' 상태로 복사한다(002 AC42). 보낸 항목과 위치는 복사하지 않는다.
+    출석 받는 시간은 강좌 설정이라 가져간다(003 AC1). 출석 기록은 가져가지 않는다.
     """
     source = db.execute(
-        "SELECT name, section_name FROM classrooms WHERE id = ?", (granted.resource.id,)
+        "SELECT name, section_name, attendance_minutes FROM classrooms WHERE id = ?", (granted.resource.id,)
     ).fetchone()
     name = _clean_name(body.name) if "name" in body.model_fields_set else source["name"]
     section = (
@@ -183,7 +185,9 @@ def clone_classroom(body: CloneClassroom, granted: CloneGuard, db: Db, clock: Cl
         copy_sessions(conn, store, granted.resource.id, classroom_id, now, copied)
 
     try:
-        return _insert_classroom(db, granted.actor.github_id, name, section, granted.resource.id, now, fill)
+        return _insert_classroom(
+            db, granted.actor.github_id, name, section, granted.resource.id, now, fill, source["attendance_minutes"]
+        )
     except HTTPException:
         raise
     except Exception as err:
