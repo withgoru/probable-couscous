@@ -498,3 +498,27 @@ describe('미리 보기: 검증 뒤 추가', () => {
 		expect(screen.queryByText(/자료는 계속/)).toBeNull();
 	});
 });
+
+describe('느린 로딩 (오류 동작)', () => {
+	it('슬라이드를 받는 중에는 그 자리에 불러오는 중이 보인다', async () => {
+		mount();
+		await screen.findByTitle('다시 보는 슬라이드');
+		expect(screen.getByText('슬라이드를 불러오는 중…')).toBeTruthy();
+		await drawn({ slide: 1, click: 0 }, 0);
+		expect(screen.queryByText('슬라이드를 불러오는 중…')).toBeNull();
+	});
+});
+
+describe('느린 로딩: 검증 뒤 추가', () => {
+	it('슬라이드가 15초 안에 준비되지 않으면 열 수 없다고 알린다', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		try {
+			mount();
+			await screen.findByTitle('다시 보는 슬라이드');
+			await act(() => vi.advanceTimersByTime(15_000));
+			expect(screen.getByText('슬라이드를 열 수 없습니다. 자료는 계속 볼 수 있습니다.')).toBeTruthy();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});

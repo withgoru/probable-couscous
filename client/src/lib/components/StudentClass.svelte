@@ -21,7 +21,18 @@
 	// 수업이 끝나면 새로 고치지 않아도 같은 회차의 다시 보기로 바뀌고(AC38), 대기 화면의 지난 회차도 다시 볼 수 있다(AC39)
 	const EMPTY_DECK: DeckSnapshot = { ready: false, total: null, position: null, clicksTotal: null };
 	const UNPUBLISHED = '교수님이 슬라이드를 비공개로 바꿨습니다. 교수 화면을 따라갑니다.';
-	let { classroomId, title, nickname }: { classroomId: number; title: string; nickname: string } = $props();
+	let {
+		classroomId,
+		title,
+		nickname,
+		onGone = () => {}
+	}: {
+		classroomId: number;
+		title: string;
+		nickname: string;
+		/** 입장이 끝났다(명단에서 빠짐, 로그인 끊김, AC44). 서버가 알려 준 이유. 이유 없이 닫혔으면 null. */
+		onGone?: (message: string | null) => void;
+	} = $props();
 
 	let snapshot = $state<ClassSnapshot | null>(null);
 	let past = $state<ClassSessionSummary[] | null>(null);
@@ -35,6 +46,18 @@
 	let send: DeckBridge | null = null;
 	let classLive: ClassLive | null = null;
 	let mainDeck = $state<DeckSnapshot>(EMPTY_DECK);
+
+	// 슬라이드가 오래 준비되지 않으면(파일을 받지 못함, 애드온 문제) 불러오는 중에 머물지 않고 열 수 없다고 알린다
+	const SLOW_MS = 15_000;
+	let stalled = $state(false);
+	$effect(() => {
+		const f = frame;
+		const ready = mainDeck.ready;
+		untrack(() => (stalled = false));
+		if (!f || ready) return;
+		const timer = setTimeout(() => (stalled = true), SLOW_MS);
+		return () => clearTimeout(timer);
+	});
 	let mode = $state<'follow' | 'browse'>('follow');
 	let mine = $state<Position | null>(null); // 직접 넘겨 보는 위치
 	// 지나온 슬라이드의 단계 수. 이전 슬라이드로 돌아가면 그 슬라이드의 마지막 단계로 간다.
@@ -58,6 +81,19 @@
 	let focusInControls = false;
 
 	const liveState = $derived(snapshot?.state?.session.status === 'live' ? snapshot.state : null);
+	// 연결이 끊겨 다시 붙는 중(오류 동작 "학생 연결이 끊김", C12). 화면은 마지막 상태 그대로 둔다
+	const offline = $derived(snapshot?.status === 'reconnecting');
+	// 끊겼다가 다시 붙으면 알린다(끊김 안내가 사라지는 것만으로는 읽히지 않는다)
+	let wasOffline = false;
+	$effect(() => {
+		const now = offline;
+		const status = snapshot?.status;
+		if (now) wasOffline = true;
+		else if (wasOffline && status === 'live') {
+			wasOffline = false;
+			untrack(() => announce('다시 연결되었습니다.'));
+		}
+	});
 	const deck = $derived(liveState?.deck ?? null);
 	const current = $derived(liveState?.current ?? null);
 	// 직접 넘겨 볼 수 있는가: 공개 묶음이고 열 수 있을 때만(AC26, AC27)
@@ -127,6 +163,15 @@
 		else if (event.session_id === replay.id && (event.type === 'deck.updated' || event.type === 'session.updated'))
 			replayRefresh += 1;
 	}
+
+	// 입장이 끝나면(goodbye 또는 4403으로 닫힘) 한 번만 알린다. 이 화면을 연 입장 페이지가 입장 화면으로 돌아간다(AC44)
+	let goneTold = false;
+	$effect(() => {
+		if (snapshot?.status !== 'gone' || goneTold) return;
+		goneTold = true;
+		const message = snapshot.goodbye?.message ?? null;
+		untrack(() => onGone(message));
+	});
 
 	/** 늘 있는 알림 자리에 쓴다. 같은 글이 다시 와도 바뀐 것으로 읽히게 비웠다가 쓴다. */
 	function announce(text: string) {
@@ -302,6 +347,13 @@
 
 <svelte:window onkeydown={onKey} />
 
+<!-- 연결 끊김 안내: 위쪽에, 늘 있는 알림 자리라 화면 낭독기에도 읽힌다 -->
+<!-- 비어 있을 때는 화면 흐름을 차지하지 않는다(자리는 늘 있어야 바뀔 때 읽힌다) -->
+<div role="status" data-connection class={offline ? '' : 'sr-only'}>
+	{#if offline}
+		<p class="alert alert-warning"><Icon name="warning-circle" />연결이 끊겼습니다. 다시 연결하는 중…</p>
+	{/if}
+</div>
 <p role="status" data-class-status class="sr-only">{announcement}</p>
 
 {#if liveState}
@@ -314,8 +366,15 @@
 		{:else}
 			{#key deck.id}
 				<!-- 화면 폭 전체(AC24): 입장 화면의 옆 여백을 넘어선다 -->
-				<div class="-mx-6 aspect-video overflow-hidden bg-foreground">
+				<div class="relative -mx-6 aspect-video overflow-hidden bg-foreground">
 					<iframe bind:this={frame} title="수업 슬라이드" src="/decks/{deck.id}/" class="h-full w-full border-0"></iframe>
+					{#if !mainDeck.ready}
+						<!-- 느린 휴대폰: 슬라이드를 받는 동안. 그 사이에도 자료는 쓸 수 있다(오류 동작 "학생 휴대폰이 느림").
+						     슬라이드 위를 가려 글자가 겹치지 않게 한다. 끝내 준비되지 않으면 열 수 없다고 알린다 -->
+						<p class="absolute inset-0 flex items-center justify-center bg-foreground p-4 text-center text-sm text-background">
+							{stalled ? '슬라이드를 열 수 없습니다. 자료는 계속 볼 수 있습니다.' : '슬라이드를 불러오는 중…'}
+						</p>
+					{/if}
 				</div>
 			{/key}
 		{/if}

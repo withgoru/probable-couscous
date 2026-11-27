@@ -403,3 +403,109 @@ test('공개한 예정 회차를 대기 화면에서 미리 보고, 그 수업�
 	await expect(page.getByText('교수 화면 따라가는 중')).toBeVisible();
 	await expect.poll(() => slideOf(page)).toMatch(/^#\/1/);
 });
+
+// 002 T027: 연결이 끊기면 안내하고 다시 붙으면 놓친 것을 채운다(C12). 명단에서 빠지면 입장 화면으로 간다(AC44)
+/** 페이지의 WebSocket을 끊고, 풀어 줄 때까지 다시 붙지 못하게 한다(로컬 연결은 오프라인 흉내로 끊기지 않는다). */
+async function controlSockets(page: Page) {
+	await page.addInitScript(() => {
+		const Real = window.WebSocket;
+		const w = window as unknown as { __sockets: WebSocket[]; __blocked: boolean };
+		w.__sockets = [];
+		w.__blocked = false;
+		class Controlled extends Real {
+			constructor(url: string | URL, protocols?: string | string[]) {
+				super(url, protocols);
+				w.__sockets.push(this);
+				if (w.__blocked) queueMicrotask(() => this.close()); // 막힌 동안에는 열리자마자 닫는다(서버가 받지 않은 것처럼)
+			}
+		}
+		window.WebSocket = Controlled as typeof WebSocket;
+	});
+	return {
+		drop: () =>
+			page.evaluate(() => {
+				const w = window as unknown as { __sockets: WebSocket[]; __blocked: boolean };
+				w.__blocked = true;
+				for (const s of w.__sockets) s.close();
+			}),
+		restore: () =>
+			page.evaluate(() => {
+				(window as unknown as { __blocked: boolean }).__blocked = false;
+			})
+	};
+}
+
+test('끊기면 안내하고, 다시 붙으면 교수 위치와 놓친 자료로 돌아온다 (오류 동작, C12)', async ({ page }) => {
+	test.setTimeout(60_000); // 다시 붙는 간격(1·2·5·10초)을 기다린다
+	const sockets = await controlSockets(page);
+	const oh = student('offline');
+	const room = await classroomWith([oh], `연결 끊김 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '10주차' } })).json();
+	await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck?filename=deck.zip`, {
+		headers: { 'Content-Type': 'application/zip' },
+		data: readFileSync(DECK_ZIP)
+	});
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`);
+	await enterLive(page, room.token, oh.email);
+	await noTransitions(page);
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/1/);
+
+	await sockets.drop();
+	await expect(page.getByText('연결이 끊겼습니다. 다시 연결하는 중…')).toBeVisible();
+	await expect(page.getByTitle('수업 슬라이드')).toBeVisible(); // 슬라이드는 그대로
+	await expectNoAxeViolations(page, '연결이 끊긴 학생 화면');
+
+	// 끊긴 동안 교수가 넘기고 자료를 보낸다
+	const professor = await page.context().browser()!.newContext();
+	const teacher = await professor.newPage();
+	await teacher.goto('/api/auth/github/login');
+	await teacher.waitForURL('**/courses');
+	await teacher.goto(`/courses/${room.id}/live`);
+	const next = teacher.getByRole('button', { name: '다음' });
+	await expect(next).toHaveAttribute('aria-disabled', 'false');
+	await next.click();
+	await expect
+		.poll(async () => (await (await room.api.get(`/api/class/${room.id}/sessions/${session.id}/live`)).json()).current)
+		.toEqual({ slide: 2, click: 0 });
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/items`, { data: { body: '끊긴 동안 보낸 자료', client_key: 'o1' } });
+	await professor.close();
+
+	await sockets.restore();
+	await expect(page.getByText('연결이 끊겼습니다. 다시 연결하는 중…')).toHaveCount(0, { timeout: 20_000 }); // 1·2·5·10초 간격으로 다시 붙는다
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/2/); // 따라가던 학생은 교수 위치로
+	await expect(page.getByRole('list', { name: '자료' })).toContainText('끊긴 동안 보낸 자료'); // 놓친 항목 0개
+});
+
+test('수업 중에 명단에서 빠지면 입장 화면으로 가고 이유를 본다 (AC44)', async ({ page }) => {
+	const ra = student('removed');
+	const room = await classroomWith([ra], `명단에서 빠짐 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '11주차' } })).json();
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`);
+	await enterLive(page, room.token, ra.email);
+	const roster = await (await room.api.get(`/api/classrooms/${room.id}/roster`)).json();
+	const entry = roster.entries.find((e: { email: string }) => e.email === ra.email);
+	expect((await room.api.delete(`/api/classrooms/${room.id}/roster/${entry.id}`)).ok()).toBe(true);
+	await expect(page.getByRole('alert')).toContainText('수강생 명단에서 빠져 이 수업을 볼 수 없습니다. 교수님께 문의해 주세요.');
+	await expect(page.getByLabel('이메일')).toBeVisible();
+	await expect(page.getByText('교수 화면 따라가는 중')).toHaveCount(0);
+	await expectNoAxeViolations(page, '명단에서 빠진 뒤의 입장 화면');
+});
+
+test('끊긴 동안 명단에서 빠져도 입장 화면으로 간다 (AC44)', async ({ page }) => {
+	test.setTimeout(60_000);
+	const sockets = await controlSockets(page);
+	const kwon = student('removed-offline');
+	const room = await classroomWith([kwon], `끊긴 동안 빠짐 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '12주차' } })).json();
+	await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`);
+	await enterLive(page, room.token, kwon.email);
+	await sockets.drop(); // 휴대폰 화면이 꺼지는 등
+	await expect(page.getByText('연결이 끊겼습니다. 다시 연결하는 중…')).toBeVisible();
+	const roster = await (await room.api.get(`/api/classrooms/${room.id}/roster`)).json();
+	const entry = roster.entries.find((e: { email: string }) => e.email === kwon.email);
+	expect((await room.api.delete(`/api/classrooms/${room.id}/roster/${entry.id}`)).ok()).toBe(true);
+	await sockets.restore();
+	// 서버는 빠진 학생의 연결을 받지 않는다(goodbye 없이). 화면이 물어보고 입장 화면으로 간다
+	await expect(page.getByRole('alert')).toContainText('이 수업을 더 볼 수 없습니다. 이메일로 다시 입장해 주세요.', { timeout: 30_000 });
+	await expect(page.getByLabel('이메일')).toBeVisible();
+});

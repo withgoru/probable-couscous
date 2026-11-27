@@ -304,7 +304,8 @@ describe('끊기면 1·2·5·10초 간격으로 다시 붙는다 (C12)', () => {
 		expect(RETRY_DELAYS).toEqual([1_000, 2_000, 5_000, 10_000]);
 		await ready();
 		expect(now().status).toBe('live');
-		expect(fetchFn).toHaveBeenCalledTimes(4);
+		// 처음 받기 한 번과 다시 붙은 뒤 한 번. 붙기 전에 닫힌 연결마다 볼 수 있는지 묻는 목록 요청은 따로 센다
+		expect(fetchFn.mock.calls.filter(([url]) => String(url).endsWith('/live'))).toHaveLength(2);
 	});
 
 	it('끊겨도 마지막 상태는 그대로 둔다', async () => {
@@ -447,5 +448,58 @@ describe('onEvent가 실패해도 (T037 검증 뒤)', () => {
 		last().push({ type: 'position', session_id: 5, current: { slide: 3, click: 0 }, version: 4 });
 		expect(now().state?.current).toEqual({ slide: 3, click: 0 });
 		expect(now().status).toBe('live');
+	});
+});
+
+describe('끊긴 동안 내보내진 학생 (AC44, T027 검증 뒤)', () => {
+	it('다시 붙기 전에 닫히고 서버가 거절하면(403) 내보낸 것으로 보고 더 붙지 않는다', async () => {
+		const { fetchFn, now } = setup();
+		await ready();
+		last().drop(); // 붙어 있던 연결이 끊겼다
+		await vi.advanceTimersByTimeAsync(1_000);
+		fetchFn.mockImplementation(async () => new Response(JSON.stringify({ detail: '거절' }), { status: 403 }));
+		last().drop(); // 다시 붙으려 했지만 서버가 받지 않았다(코드 없이 닫힘)
+		await vi.advanceTimersByTimeAsync(0);
+		expect(now().status).toBe('gone');
+		const count = FakeSocket.all.length;
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(FakeSocket.all).toHaveLength(count);
+	});
+
+	it('로그인이 끊겨 401이어도 같다', async () => {
+		const { fetchFn, now } = setup();
+		await ready();
+		last().drop();
+		await vi.advanceTimersByTimeAsync(1_000);
+		fetchFn.mockImplementation(async () => new Response('{}', { status: 401 }));
+		last().drop();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(now().status).toBe('gone');
+	});
+
+	it('묻지 못하면(네트워크) 계속 다시 붙는다', async () => {
+		const { fetchFn, now } = setup();
+		await ready();
+		last().drop();
+		await vi.advanceTimersByTimeAsync(1_000);
+		fetchFn.mockImplementation(async () => {
+			throw new TypeError('Failed to fetch');
+		});
+		const count = FakeSocket.all.length;
+		last().drop();
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect(now().status).toBe('reconnecting');
+		expect(FakeSocket.all.length).toBe(count + 1);
+	});
+
+	it('교수 화면은 묻지 않고 다시 붙는다', async () => {
+		const { fetchFn } = setup({ role: 'professor' });
+		await ready();
+		last().drop();
+		await vi.advanceTimersByTimeAsync(1_000);
+		const calls = fetchFn.mock.calls.length;
+		last().drop();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(fetchFn.mock.calls.length).toBe(calls);
 	});
 });

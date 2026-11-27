@@ -48,6 +48,18 @@
 	let send: DeckBridge | null = null;
 	let lastSent = '';
 	let mainDeck = $state<DeckSnapshot>(EMPTY_DECK);
+
+	// 슬라이드가 오래 준비되지 않으면(파일을 받지 못함, 애드온 문제) 불러오는 중에 머물지 않고 열 수 없다고 알린다
+	const SLOW_MS = 15_000;
+	let stalled = $state(false);
+	$effect(() => {
+		const f = frame;
+		const ready = mainDeck.ready;
+		untrack(() => (stalled = false));
+		if (!f || ready) return;
+		const timer = setTimeout(() => (stalled = true), SLOW_MS);
+		return () => clearTimeout(timer);
+	});
 	let mine = $state<Position | null>(null);
 	const seenClicks = new SvelteMap<number, number>();
 
@@ -228,8 +240,15 @@
 			<p class="rounded-md bg-foreground p-4 text-background">{HIDDEN}</p>
 		{:else}
 			{#key deck.id}
-				<div class="-mx-6 aspect-video overflow-hidden bg-foreground">
+				<div class="relative -mx-6 aspect-video overflow-hidden bg-foreground">
 					<iframe bind:this={frame} title={preview ? '미리 보는 슬라이드' : '다시 보는 슬라이드'} src="/decks/{deck.id}/" class="h-full w-full border-0"></iframe>
+					{#if !mainDeck.ready}
+						<!-- 느린 휴대폰: 슬라이드를 받는 동안. 그 사이에도 자료는 쓸 수 있다(오류 동작 "학생 휴대폰이 느림").
+						     슬라이드 위를 가려 글자가 겹치지 않게 한다. 끝내 준비되지 않으면 열 수 없다고 알린다 -->
+						<p class="absolute inset-0 flex items-center justify-center bg-foreground p-4 text-center text-sm text-background">
+							{stalled ? '슬라이드를 열 수 없습니다. 자료는 계속 볼 수 있습니다.' : '슬라이드를 불러오는 중…'}
+						</p>
+					{/if}
 				</div>
 			{/key}
 		{/if}
