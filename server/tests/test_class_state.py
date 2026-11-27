@@ -141,7 +141,7 @@ def test_live_state_for_a_session_in_class(world):
     }
     assert body["deck"] == {"id": deck_id, "slide_count": 4, "available": True, "public": False}
     assert body["current"] == {"slide": 2, "click": 1}
-    assert set(body) == {"session", "deck", "current", "items"}  # 가장 멀리 간 위치는 없다(T032)
+    assert set(body) == {"session", "deck", "current", "items", "attendance"}  # 가장 멀리 간 위치는 없다(T032)
     assert body["items"] == [
         {"id": kept, "body": "과제 안내", "url": None, "created_at": world.clock.now().isoformat()}
     ]  # 거둔 항목은 학생에게 없다

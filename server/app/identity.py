@@ -83,6 +83,15 @@ def find_membership(db: sqlite3.Connection, classroom_id: int, account_id: int) 
     return MembershipInfo(row["id"], row["nickname"], after)
 
 
+def roster_entry_of(db: sqlite3.Connection, classroom_id: int, membership_id: int) -> int | None:
+    """이 강좌의 멤버십이 이어진 명단 항목 번호(003 출석은 학생을 명단 항목으로 센다). 없으면 None."""
+    row = db.execute(
+        "SELECT roster_entry_id FROM member_identities WHERE classroom_id = ? AND membership_id = ?",
+        (classroom_id, membership_id),
+    ).fetchone()
+    return row["roster_entry_id"] if row else None
+
+
 def acknowledge_notice(db: sqlite3.Connection, membership_id: int, now: datetime) -> None:
     """채팅 이용 안내를 확인한 시각. 처음 확인한 시각을 그대로 둔다."""
     db.execute(

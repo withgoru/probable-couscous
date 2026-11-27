@@ -106,7 +106,9 @@ def test_c13_a_class_survives_a_killed_process(servers, tmp_path):  # noqa: F811
     prof, student = (b.client(cookies=c.cookies) for c in (prof, student))
 
     after = prof.get(f"/api/class/{cid}/sessions/{sid}/live").json()
-    assert after == before  # 상태 전체가 그대로다
+    for state in (before, after):  # 서버 시각(003 출석의 server_now)만 다르다
+        state["attendance"].pop("server_now")
+    assert after == before  # 상태 전체가 그대로다(출석 창 포함)
     assert after["session"]["status"] == "live"
     assert after["current"] == {"slide": 2, "click": 0}
     assert after["deck"]["public"] is True
