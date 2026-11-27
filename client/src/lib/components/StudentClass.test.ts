@@ -46,6 +46,8 @@ vi.mock('#lib/api.js', async (original) => ({
 	fetchClassLive: api.fetchClassLive
 }));
 
+const prefetch = vi.hoisted(() => ({ prefetchDeck: vi.fn() }));
+vi.mock('#lib/deckPrefetch.js', () => ({ prefetchDeck: prefetch.prefetchDeck }));
 import StudentClass from './StudentClass.svelte';
 
 const STATE: LiveState = {
@@ -90,6 +92,8 @@ beforeEach(() => {
 	api.fetchClassSessions.mockResolvedValue({ items: PAST, live_session_id: null });
 	api.fetchDeckNotes.mockReset();
 	api.fetchClassLive.mockReset();
+	prefetch.prefetchDeck.mockReset();
+	prefetch.prefetchDeck.mockResolvedValue(true);
 	api.fetchClassLive.mockImplementation(async (_c: number, sid: number) => ({
 		...STATE,
 		deck: { ...STATE.deck!, public: true }, // 다시 보기에서 슬라이드를 보는 공개 묶음
@@ -1195,5 +1199,82 @@ describe('연결과 로딩: 검증 뒤 추가', () => {
 		mount();
 		await server(snapshot());
 		expect(screen.getByText('슬라이드를 불러오는 중…').className).toContain('bg-foreground');
+	});
+});
+
+describe('공개 묶음 미리 받기 (T038, plan 위험 4)', () => {
+	const preview = (id: number, deckId: number, isPublic = true) => ({
+		id, title: `${id}회차`, status: 'scheduled', started_at: null, ended_at: null,
+		deck: { id: deckId, slide_count: 4, available: true, public: isPublic }
+	});
+	const event = (e: Record<string, unknown>) => act(() => (live.options as { onEvent?: (e: unknown) => void }).onEvent?.(e));
+
+	it('기다리는 동안 미리 볼 수 있는 회차 가운데 첫 회차의 묶음을 한 번 미리 받는다', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [preview(8, 21), preview(9, 22), ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('list', { name: '미리 볼 수 있는 회차' });
+		await waitFor(() => expect(prefetch.prefetchDeck).toHaveBeenCalledWith(21));
+		expect(prefetch.prefetchDeck).toHaveBeenCalledTimes(1);
+		await event({ type: 'deck.updated', session_id: 9, deck: preview(9, 22).deck, version: 2 }); // 목록을 다시 받아도
+		await waitFor(() => expect(api.fetchClassSessions).toHaveBeenCalledTimes(2));
+		expect(prefetch.prefetchDeck).toHaveBeenCalledTimes(1); // 이미 받은 묶음은 다시 받지 않는다
+	});
+
+	it('미리 볼 수 있는 회차가 없으면(비공개·묶음 없음) 받지 않는다', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [preview(8, 21, false), ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('list', { name: '지난 회차' });
+		await act(() => Promise.resolve());
+		expect(prefetch.prefetchDeck).not.toHaveBeenCalled();
+	});
+
+	it('첫 회차의 묶음이 바뀌면 새 묶음을 받는다', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [preview(8, 21), ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await waitFor(() => expect(prefetch.prefetchDeck).toHaveBeenCalledWith(21));
+		api.fetchClassSessions.mockResolvedValue({ items: [preview(8, 30), ...PAST], live_session_id: null });
+		await event({ type: 'session.updated', session_id: 8, status: 'scheduled', version: 2 });
+		await waitFor(() => expect(prefetch.prefetchDeck).toHaveBeenCalledWith(30));
+	});
+
+	it('미리 받지 못해도 화면에 아무것도 알리지 않는다', async () => {
+		prefetch.prefetchDeck.mockResolvedValue(false);
+		api.fetchClassSessions.mockResolvedValue({ items: [preview(8, 21), ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await waitFor(() => expect(prefetch.prefetchDeck).toHaveBeenCalled());
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+});
+
+describe('공개 묶음 미리 받기: 검증 뒤 추가', () => {
+	const preview = (id: number, deckId: number) => ({
+		id, title: `${id}회차`, status: 'scheduled', started_at: null, ended_at: null,
+		deck: { id: deckId, slide_count: 4, available: true, public: true }
+	});
+	const event = (e: Record<string, unknown>) => act(() => (live.options as { onEvent?: (e: unknown) => void }).onEvent?.(e));
+
+	it('목록이 오기 전에 수업이 시작되면 미리 받지 않는다(기다리는 동안에만)', async () => {
+		let answer: (v: unknown) => void = () => {};
+		api.fetchClassSessions.mockReturnValueOnce(new Promise((r) => (answer = r)));
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await server(snapshot()); // 수업이 시작됐다
+		await act(async () => answer({ items: [preview(8, 21), ...PAST], live_session_id: null }));
+		expect(prefetch.prefetchDeck).not.toHaveBeenCalled();
+	});
+
+	it('미리 받지 못했으면 목록을 다시 받을 때 다시 해 본다', async () => {
+		prefetch.prefetchDeck.mockResolvedValueOnce(false);
+		api.fetchClassSessions.mockResolvedValue({ items: [preview(8, 21), ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await waitFor(() => expect(prefetch.prefetchDeck).toHaveBeenCalledTimes(1));
+		await act(() => Promise.resolve());
+		await event({ type: 'resync' });
+		await waitFor(() => expect(prefetch.prefetchDeck).toHaveBeenCalledTimes(2));
 	});
 });

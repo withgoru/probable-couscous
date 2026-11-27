@@ -7,6 +7,7 @@
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
 	import MaterialsPanel from '#lib/components/MaterialsPanel.svelte';
 	import ReplayView from '#lib/components/ReplayView.svelte';
+	import { prefetchDeck } from '#lib/deckPrefetch.js';
 	import Icon from '#lib/components/Icon.svelte';
 	import NicknameCard from '#lib/components/NicknameCard.svelte';
 	import { connectDeck, type DeckBridge, type DeckSnapshot, type Direction, type Position } from '#lib/deckBridge.js';
@@ -311,6 +312,19 @@
 	$effect(() => {
 		if (!waiting) return;
 		untrack(() => loadSessions(true));
+	});
+
+	// 공개 묶음 미리 받기(T038, plan 위험 4): 기다리는 동안 다음 수업(미리 볼 수 있는 회차 가운데 회차 순서로 첫 회차)의
+	// 묶음 첫 화면을 화면 변화 없이 받아 둔다. 수업 시작에 학생이 한꺼번에 받는 몰림을 줄인다. 받은 묶음은 다시 받지 않는다
+	const prefetched = new Set<number>();
+	$effect(() => {
+		const deckId = waiting ? (previews[0]?.deck?.id ?? null) : null;
+		if (deckId === null || prefetched.has(deckId)) return;
+		prefetched.add(deckId);
+		// 받지 못했으면(잠깐 끊김 등) 목록을 다시 받을 때 다시 해 본다
+		void prefetchDeck(deckId).then((ok) => {
+			if (!ok) prefetched.delete(deckId);
+		});
 	});
 
 	/** 회차 목록을 받는다. 처음이면 비우고, 다시 받을 때는 보던 목록을 그대로 둔다(깜빡이지 않게). */

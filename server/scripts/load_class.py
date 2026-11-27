@@ -51,8 +51,8 @@ def professor(base: str) -> httpx.Client:
     return prof
 
 
-def setup_class(prof: httpx.Client, n: int, deck: Path) -> dict:
-    """강좌·명단·회차·묶음을 만들고 수업을 시작한다."""
+def setup_class(prof: httpx.Client, n: int, deck: Path, preload: bool = False) -> dict:
+    """강좌·명단·회차·묶음을 만들고 수업을 시작한다. 미리 받기면 묶음을 공개하고 시작은 학생이 미리 받은 뒤로 미룬다."""
     cid = prof.post("/api/classrooms", json={"name": "동기화 측정"}).json()["id"]
     emails = [f"sync{i:03d}@load.test" for i in range(n)]
     csv = "학번,이름,이메일\n" + "".join(f"2026{i:04d},학생{i},{e}\n" for i, e in enumerate(emails))
@@ -67,7 +67,9 @@ def setup_class(prof: httpx.Client, n: int, deck: Path) -> dict:
     if r.status_code != 200:
         raise RuntimeError(f"묶음을 올리지 못했습니다: {r.status_code} {r.text[:200]}")
     deck_id = r.json()["deck"]["id"]
-    if prof.post(f"/api/classrooms/{cid}/sessions/{sid}/start").status_code != 200:
+    if preload:
+        prof.put(f"/api/classrooms/{cid}/sessions/{sid}/deck/visibility", json={"public": True}).raise_for_status()
+    elif prof.post(f"/api/classrooms/{cid}/sessions/{sid}/start").status_code != 200:
         raise RuntimeError("수업을 시작하지 못했습니다.")
     token = prof.get(f"/api/classrooms/{cid}/invite").json()["token"]
     return {"cid": cid, "sid": sid, "deck_id": deck_id, "token": token, "emails": emails}
@@ -105,7 +107,7 @@ def deck_files(index_html: str, deck_id: int) -> list[str]:
     return sorted(set(found))
 
 
-async def first_load(client: httpx.AsyncClient, deck_id: int, start: asyncio.Event) -> dict:
+async def first_load(client: httpx.AsyncClient, deck_id: int, start: asyncio.Event, cached: bool = False) -> dict:
     """{ms, bytes, files, failure}. 모두 같은 순간에 시작한다(수업 시작에 학생들이 한꺼번에 받는다).
     받지 못하면(연결 끊김, 오류 응답) 멈추지 않고 실패로 센다. 그 학생은 슬라이드를 볼 수 없다."""
     await start.wait()
@@ -113,7 +115,8 @@ async def first_load(client: httpx.AsyncClient, deck_id: int, start: asyncio.Eve
     try:
         index = await client.get(f"/decks/{deck_id}/index.html")
         index.raise_for_status()
-        files = deck_files(index.text, deck_id)
+        # 미리 받았으면 해시 파일은 브라우저 캐시에 있다(서버가 공개 묶음에 오래 캐시하라고 한다): 첫 화면만 받는다
+        files = [] if cached else deck_files(index.text, deck_id)
         responses = await asyncio.gather(*(client.get(f) for f in files))
         for r in responses:
             r.raise_for_status()
@@ -196,7 +199,21 @@ async def measure_sync(base: str, setup: dict, students: list[httpx.AsyncClient]
     return latencies, got, lost
 
 
-async def run(base: str, setup: dict, prof: httpx.Client, moves: int, drop_one: bool) -> dict:
+async def preload_all(base: str, students: list[httpx.AsyncClient], deck_id: int) -> None:
+    """기다리는 동안 학생들이 공개 묶음을 미리 받는다(T038). 입장 시각이 서로 달라 몰리지 않으므로 동시 수를 줄인다."""
+    gate = asyncio.Semaphore(20)
+
+    async def one(client: httpx.AsyncClient) -> None:
+        async with gate:
+            index = await client.get(f"/decks/{deck_id}/index.html")
+            index.raise_for_status()
+            for f in deck_files(index.text, deck_id):
+                (await client.get(f)).raise_for_status()
+
+    await asyncio.gather(*(one(s) for s in students))
+
+
+async def run(base: str, setup: dict, prof: httpx.Client, moves: int, drop_one: bool, preload: bool = False) -> dict:
     limits = asyncio.Semaphore(50)  # 입장은 측정 전 단계라 동시 수를 조금 줄인다
 
     async def guarded(email: str) -> httpx.AsyncClient:
@@ -205,6 +222,10 @@ async def run(base: str, setup: dict, prof: httpx.Client, moves: int, drop_one: 
 
     students = await asyncio.gather(*(guarded(e) for e in setup["emails"]))
     try:
+        if preload:
+            await preload_all(base, students, setup["deck_id"])
+            if prof.post(f"/api/classrooms/{setup['cid']}/sessions/{setup['sid']}/start").status_code != 200:
+                raise RuntimeError("수업을 시작하지 못했습니다.")
         # 첫 로딩은 새 연결로 잰다(입장 때 열어 둔 연결을 다시 쓰다 서버가 닫은 연결에 걸리지 않게). 쿠키만 옮긴다
         limits = httpx.Limits(max_connections=BROWSER_CONNECTIONS, max_keepalive_connections=BROWSER_CONNECTIONS)
         fresh = [
@@ -213,7 +234,7 @@ async def run(base: str, setup: dict, prof: httpx.Client, moves: int, drop_one: 
         ]
         try:
             start = asyncio.Event()
-            loads = [asyncio.create_task(first_load(f, setup["deck_id"], start)) for f in fresh]
+            loads = [asyncio.create_task(first_load(f, setup["deck_id"], start, cached=preload)) for f in fresh]
             await asyncio.sleep(0.2)
             start.set()
             load_results = await asyncio.gather(*loads)
@@ -230,6 +251,7 @@ def main() -> int:
     parser.add_argument("--students", type=int, default=200)
     parser.add_argument("--moves", type=int, default=10, help="교수가 넘기는 횟수")
     parser.add_argument("--deck", type=Path, default=DECK, help="올릴 슬라이드 묶음 zip(기본: 테스트용 4장 묶음)")
+    parser.add_argument("--preload", action="store_true", help="기다리는 동안 공개 묶음을 미리 받은 뒤 수업을 시작한다(T038)")
     parser.add_argument("--json", action="store_true", help="결과를 JSON으로 출력")
     parser.add_argument("--self-check-fail", action="store_true", help=argparse.SUPPRESS)  # 유실을 일부러 만든다(스크립트 점검용)
     args = parser.parse_args()
@@ -242,8 +264,8 @@ def main() -> int:
     proc = start_server(port, db)
     try:
         prof = professor(base)
-        setup = setup_class(prof, n, args.deck)
-        result = asyncio.run(run(base, setup, prof, moves, args.self_check_fail))
+        setup = setup_class(prof, n, args.deck, args.preload)
+        result = asyncio.run(run(base, setup, prof, moves, args.self_check_fail, args.preload))
         conn = sqlite3.connect(db)
         row = conn.execute(
             "SELECT current_slide, current_click FROM class_sessions WHERE id = ?", (setup["sid"],)
@@ -268,6 +290,7 @@ def main() -> int:
     report = {
         "students": n,
         "moves": moves,
+        "preload": args.preload,
         "sync_ms": {
             "p50": round(percentile(latencies, 0.5), 1),
             "p95": round(percentile(latencies, 0.95), 1),
@@ -290,7 +313,7 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False))
     else:
         s, f = report["sync_ms"], report["first_load_ms"]
-        print(f"학생 {n}명, 교수가 {moves}번 넘김")
+        print(f"학생 {n}명, 교수가 {moves}번 넘김{' (기다리는 동안 공개 묶음을 미리 받음)' if args.preload else ''}")
         print(f"동기화(넘기기 → 학생 연결에 도착): p50 {s['p50']}ms, p95 {s['p95']}ms, 최대 {s['max']}ms")
         print(f"유실 {lost}건 (받음 {result['got']}/{n * moves}, 마지막 위치 DB 저장 {'예' if saved else '아니오'})")
         print(

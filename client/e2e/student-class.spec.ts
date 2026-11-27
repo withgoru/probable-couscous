@@ -480,3 +480,47 @@ test('끊긴 동안 명단에서 빠져도 입장 화면으로 간다 (AC44)', a
 	await expect(page.getByRole('alert')).toContainText('이 수업을 더 볼 수 없습니다. 이메일로 다시 입장해 주세요.', { timeout: 30_000 });
 	await expect(page.getByLabel('이메일')).toBeVisible();
 });
+
+// 002 T038: 기다리는 동안 다음 수업의 공개 묶음을 미리 받아 두면, 수업이 시작될 때 해시 파일을 다시 받지 않는다(plan 위험 4)
+test('공개 묶음은 대기 화면에서 미리 받아 두고, 수업이 시작되면 캐시에서 연다 (T038)', async ({ page }) => {
+	const pre = student('preload');
+	const room = await classroomWith([pre], `미리 받기 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '13주차' } })).json();
+	const upload = await (
+		await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck?filename=deck.zip`, {
+			headers: { 'Content-Type': 'application/zip' },
+			data: readFileSync(DECK_ZIP)
+		})
+	).json();
+	const deckId = upload.deck.id as number;
+	await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck/visibility`, { data: { public: true } });
+
+	// 네트워크에서 받은 것과 캐시에서 꺼낸 것을 브라우저에게서 직접 듣는다
+	const cdp = await page.context().newCDPSession(page);
+	await cdp.send('Network.enable');
+	const fromNetwork: string[] = [];
+	const fromCache: string[] = [];
+	cdp.on('Network.responseReceived', (e) => {
+		const url = new URL(e.response.url).pathname;
+		if (!/^\/decks\/\d+\/assets\/.+-[\w-]{8,}\.(js|css)$/.test(url)) return;
+		if (e.response.fromDiskCache || e.response.fromPrefetchCache || e.response.fromServiceWorker) fromCache.push(url);
+		else fromNetwork.push(url); // 다시 확인(304)도 요청이다. 미리 받기는 요청 자체를 없앤다
+	});
+
+	await enter(page, room.token, pre.email);
+	await expect(page.getByRole('button', { name: '13주차 미리 보기' })).toBeVisible();
+	// 미리 받기가 끝날 때까지(해시 파일 7개가 네트워크로 왔다)
+	await expect.poll(() => fromNetwork.filter((u) => u.startsWith(`/decks/${deckId}/`)).length).toBeGreaterThanOrEqual(7);
+	await page.waitForTimeout(300);
+	const before = fromNetwork.length;
+
+	// 수업이 시작되면 슬라이드가 열리고, 미리 받은 해시 파일은 다시 받지 않는다
+	expect((await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`)).status()).toBe(200);
+	await expect(page.getByTitle('수업 슬라이드')).toBeVisible();
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/1/);
+	const again = fromNetwork.slice(before).filter((u) => u.startsWith(`/decks/${deckId}/`));
+	const preloaded = new Set(fromNetwork.slice(0, before));
+	expect(again.filter((u) => preloaded.has(u)), '미리 받은 파일을 다시 요청했다(받거나 확인)').toEqual([]);
+	// 슬라이드는 미리 받은 파일을 캐시에서 꺼내 열었다
+	expect(fromCache.filter((u) => preloaded.has(u)).length, '미리 받은 파일을 캐시에서 꺼내지 않았다').toBeGreaterThan(0);
+});

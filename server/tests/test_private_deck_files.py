@@ -127,8 +127,8 @@ def test_refusal_is_not_cached(world):
     assert res.headers["cache-control"] == "no-store"  # 이어서 하기나 공개 뒤에 막힌 응답이 남지 않게
 
 
-def test_students_revalidate_every_file(world):
-    # 수업 중에 받은 파일이 1년 캐시에 남아 수업 뒤 주소로 바로 열리지 않게, 학생에게는 해시 파일도 매번 확인한다
+def test_students_revalidate_every_file_of_a_private_deck(world):
+    # 수업 중에 받은 비공개 묶음 파일이 1년 캐시에 남아 수업 뒤 주소로 바로 열리지 않게, 해시 파일도 매번 확인한다
     prof, cid, sid, deck_id, student = with_student(world)
     asset = asset_path(prof, deck_id)
     act(prof, cid, sid, "start")
@@ -145,3 +145,29 @@ def test_refusal_comes_before_the_missing_files_check(world):
     res = student.get(f"/decks/{deck_id}/index.html")
     assert res.status_code == 404 and res.json()["detail"] == NOT_FOUND
     assert prof.get(f"/decks/{deck_id}/index.html").status_code == 410  # 교수에게는 열 수 없다고 알린다
+
+
+# --- T038: 공개 묶음은 학생도 해시 파일을 오래 캐시한다(미리 받기, plan 위험 4) -------------------------
+
+
+@pytest.mark.parametrize("state", ["scheduled", "live", "ended"])
+def test_students_cache_hashed_files_of_a_public_deck(world, state):
+    prof, cid, sid, deck_id, student = with_student(world)
+    asset = asset_path(prof, deck_id)
+    publish(prof, cid, sid)
+    if state != "scheduled":
+        act(prof, cid, sid, "start")
+    if state == "ended":
+        act(prof, cid, sid, "end")
+    res = student.get(asset)
+    assert res.status_code == 200 and res.headers["cache-control"] == "private, max-age=31536000, immutable"
+    # 첫 화면은 매번 확인한다: 비공개로 바뀌면 여기서 막혀 슬라이드가 열리지 않는다
+    assert student.get(f"/decks/{deck_id}/index.html").headers["cache-control"] == "private, no-cache"
+
+
+def test_unpublishing_blocks_the_first_screen_at_once(world):
+    prof, cid, sid, deck_id, student = with_student(world)
+    publish(prof, cid, sid)
+    assert student.get(f"/decks/{deck_id}/index.html").status_code == 200
+    publish(prof, cid, sid, public=False)
+    assert refused([student.get(f"/decks/{deck_id}/index.html")])
