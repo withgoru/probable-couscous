@@ -18,7 +18,7 @@ updated: 2026-11-27
 
 ## 스펙의 미결정 질문에 대한 답 (사용자 결정 2026-11-27)
 
-스펙을 다시 승인받지 않도록 여기에 적는다. 다음에 스펙을 고칠 때 함께 옮긴다.
+스펙의 미결정 질문에도 옮겼다(2026-11-27 sdd-analyze 반영).
 
 - 보관 기간: 001과 같다. 강좌를 보관하고 6개월이 지나 정리할 때(001 `purge`) 출석 기록, 수기 요청과 사유, 그 처리도 함께 지운다. 교수는 그 전에 CSV를 받아 둔다. 학교 규정 확인은 constitution 미결정과 같이 남는다.
 - 틀린 코드 제한: 1분에 5번(AC13 그대로).
@@ -46,7 +46,7 @@ updated: 2026-11-27
 
 마이그레이션 `0004_attendance.sql`. 새 표는 모두 `classroom_id`를 가진다(C5). 이메일·이름·학번 열이 없다(C7). 학생은 명단 항목 번호(`roster_entry_id`, 001 `events.subject_roster_entry_id`와 같은 뜻)와, 학생이 직접 한 일이면 멤버십 번호로 가리킨다. 학번·이름은 출석 현황과 CSV를 만들 때 `roster_entries`에서 읽는다.
 
-- `classrooms.attendance_minutes INTEGER NOT NULL DEFAULT 10 CHECK (attendance_minutes IN (5, 10, 15))`(`ADD COLUMN`). 분반 만들기·새 학기 복제(001 AC12)는 이 값을 가져간다(강좌 설정이므로, 계획 판단).
+- `classrooms.attendance_minutes INTEGER NOT NULL DEFAULT 10 CHECK (attendance_minutes IN (5, 10, 15))`(`ADD COLUMN`). 분반 만들기·새 학기 복제(001 AC12)는 이 값을 가져간다(스펙 AC1).
 - `attendance_windows`: `id`, `classroom_id`, `session_id`, `nonce`(난수 16바이트, 16진 문자열), `opened_at`, `closes_at`, `closed_at`(비어 있을 수 있음), `opened_by`(`start`/`reopen`). 부분 고유 색인 `(session_id) WHERE closed_at IS NULL`로 회차마다 "아직 닫지 않은 창"이 하나다. 다시 받기는 같은 트랜잭션에서 이전 창의 `closed_at`을 채우고(시간이 지나 이미 닫혔으면 `closes_at`, 아니면 지금) 새 행을 넣는다. 연장은 `closes_at`을 5분 늦춘다(열려 있을 때만). 수업 종료(002)는 같은 트랜잭션에서 열린 창의 `closed_at`을 채운다. 이 표는 상태 표이고, 열기·연장·마감 행동은 `events`에 따로 쌓는다.
 - `attendance_marks`(추가만): `id`, `classroom_id`, `session_id`, `roster_entry_id`, `membership_id`(학생이 코드로 출석했을 때만), `kind`(`code`/`request_approved`/`manual_present`/`manual_absent`), `actor_kind`(`student`/`professor`), `actor_ref`(멤버십 번호 또는 교수 `github_id`), `request_id`(승인일 때), `client_key`(코드 출석일 때, 같은 누름의 재전송 구분), `created_at`. 고유 색인 `(session_id, roster_entry_id) WHERE kind = 'code'`로 코드 출석은 회차마다 한 번(AC16, 다른 기기 포함). 색인 `(session_id, roster_entry_id, id)`.
 - `attendance_requests`(추가만): `id`, `classroom_id`, `session_id`, `roster_entry_id`, `membership_id`, `reason`(1~200자), `created_at`. 고유 `(session_id, roster_entry_id)`(AC17 같은 회차에 한 번).
