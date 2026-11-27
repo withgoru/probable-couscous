@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { expectNoAxeViolations, expectNoHorizontalScroll, noTransitions } from './a11y-helpers';
+import { controlSockets } from './class-helpers';
 import { classroomWith, lastCode, requestCode, student, typeCode } from './helpers';
 
 // 002 T023: 입장한 학생의 수업 화면. 수업이 없으면 대기, 교수가 시작하면 새로 고치지 않고 수업 화면이 되고
@@ -405,36 +406,6 @@ test('공개한 예정 회차를 대기 화면에서 미리 보고, 그 수업�
 });
 
 // 002 T027: 연결이 끊기면 안내하고 다시 붙으면 놓친 것을 채운다(C12). 명단에서 빠지면 입장 화면으로 간다(AC44)
-/** 페이지의 WebSocket을 끊고, 풀어 줄 때까지 다시 붙지 못하게 한다(로컬 연결은 오프라인 흉내로 끊기지 않는다). */
-async function controlSockets(page: Page) {
-	await page.addInitScript(() => {
-		const Real = window.WebSocket;
-		const w = window as unknown as { __sockets: WebSocket[]; __blocked: boolean };
-		w.__sockets = [];
-		w.__blocked = false;
-		class Controlled extends Real {
-			constructor(url: string | URL, protocols?: string | string[]) {
-				super(url, protocols);
-				w.__sockets.push(this);
-				if (w.__blocked) queueMicrotask(() => this.close()); // 막힌 동안에는 열리자마자 닫는다(서버가 받지 않은 것처럼)
-			}
-		}
-		window.WebSocket = Controlled as typeof WebSocket;
-	});
-	return {
-		drop: () =>
-			page.evaluate(() => {
-				const w = window as unknown as { __sockets: WebSocket[]; __blocked: boolean };
-				w.__blocked = true;
-				for (const s of w.__sockets) s.close();
-			}),
-		restore: () =>
-			page.evaluate(() => {
-				(window as unknown as { __blocked: boolean }).__blocked = false;
-			})
-	};
-}
-
 test('끊기면 안내하고, 다시 붙으면 교수 위치와 놓친 자료로 돌아온다 (오류 동작, C12)', async ({ page }) => {
 	test.setTimeout(60_000); // 다시 붙는 간격(1·2·5·10초)을 기다린다
 	const sockets = await controlSockets(page);
