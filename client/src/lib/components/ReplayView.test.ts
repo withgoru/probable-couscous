@@ -385,3 +385,116 @@ describe('다시 받기: 검증 뒤 추가', () => {
 		expect(onAnnounce).not.toHaveBeenCalled();
 	});
 });
+
+describe('미리 보기 (AC49)', () => {
+	const SCHEDULED = () => ({ ...structuredClone(ENDED), session: { ...ENDED.session, status: 'scheduled' as const, title: '4주차 1회차' }, items: [] });
+
+	it('제목·슬라이드 이름·돌아가기가 미리 보기에 맞고, 처음부터 끝까지 넘긴다', async () => {
+		api.fetchClassLive.mockResolvedValue(SCHEDULED());
+		render(ReplayView, { classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true });
+		expect(await screen.findByRole('heading', { level: 1, name: '4주차 1회차 미리 보기' })).toBeTruthy();
+		expect(screen.getByTitle('미리 보는 슬라이드')).toBeTruthy();
+		expect(screen.getByRole('button', { name: '회차 목록으로' })).toBeTruthy();
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 1, click: 0 });
+		expect(screen.queryByRole('heading', { level: 2, name: '자료' })).toBeNull(); // 수업 전이라 받은 자료가 없다
+	});
+
+	it('보는 동안 비공개가 되거나 묶음이 지워져 볼 수 없게 되면 이유와 할 일을 보이고 알린다', async () => {
+		const onAnnounce = vi.fn();
+		api.fetchClassLive.mockResolvedValueOnce(SCHEDULED());
+		const view = render(ReplayView, { classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 0, onAnnounce });
+		await screen.findByTitle('미리 보는 슬라이드');
+		const { ApiError } = await import('#lib/api.js');
+		api.fetchClassLive.mockRejectedValueOnce(new ApiError(404, '찾을 수 없는 회차입니다.'));
+		await view.rerender({ classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 1, onAnnounce });
+		const alert = await screen.findByRole('alert');
+		expect(alert.textContent).toContain('이 회차는 이제 미리 볼 수 없습니다.');
+		expect(alert.textContent).toContain('목록으로 돌아가 주세요.');
+		expect(screen.queryByTitle('미리 보는 슬라이드')).toBeNull();
+		expect(onAnnounce).not.toHaveBeenCalled(); // 경고(role=alert)가 읽는다. 알림 자리로 두 번 읽지 않는다
+	});
+});
+
+describe('미리 보기: 검증 뒤 추가', () => {
+	const SCHEDULED = () => ({ ...structuredClone(ENDED), session: { ...ENDED.session, status: 'scheduled' as const, title: '4주차 1회차' }, items: [] });
+	const gone = async () => (await import('#lib/api.js')).ApiError;
+
+	it('처음 열 때 이미 볼 수 없는 회차면(지워짐 등) 맞는 안내를 보인다', async () => {
+		const ApiError = await gone();
+		api.fetchClassLive.mockRejectedValueOnce(new ApiError(404, '찾을 수 없는 회차입니다.'));
+		render(ReplayView, { classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true });
+		const alert = await screen.findByRole('alert');
+		expect(alert.textContent).toContain('이 회차는 이제 미리 볼 수 없습니다.');
+		expect(alert.textContent).toContain('목록으로 돌아가 주세요.');
+	});
+
+	it('다시 보기(미리 보기가 아님)는 다시 받기가 404여도 보던 화면을 둔다', async () => {
+		const ApiError = await gone();
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 0 });
+		await screen.findByTitle('다시 보는 슬라이드');
+		api.fetchClassLive.mockRejectedValueOnce(new ApiError(404, '찾을 수 없는 회차입니다.'));
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 1 });
+		await act(() => Promise.resolve());
+		expect(screen.getByTitle('다시 보는 슬라이드')).toBeTruthy();
+		expect(screen.queryByText('이 회차는 이제 미리 볼 수 없습니다.')).toBeNull();
+	});
+
+	it('미리 보는 중 다시 받기가 404가 아닌 이유로 실패하면 보던 화면을 둔다', async () => {
+		const ApiError = await gone();
+		api.fetchClassLive.mockResolvedValueOnce(SCHEDULED());
+		const view = render(ReplayView, { classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 0 });
+		await screen.findByTitle('미리 보는 슬라이드');
+		api.fetchClassLive.mockRejectedValueOnce(new ApiError(500, '서버 오류'));
+		await view.rerender({ classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 1 });
+		await act(() => Promise.resolve());
+		expect(screen.getByTitle('미리 보는 슬라이드')).toBeTruthy();
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
+	it('볼 수 없게 되어 초점을 잃었으면 목록으로 버튼에, 다른 곳에 있었으면 그대로 둔다', async () => {
+		const ApiError = await gone();
+		api.fetchClassLive.mockResolvedValueOnce(SCHEDULED());
+		const view = render(ReplayView, { classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 0 });
+		await screen.findByTitle('미리 보는 슬라이드');
+		button('다음').focus();
+		api.fetchClassLive.mockRejectedValueOnce(new ApiError(404, 'x'));
+		await view.rerender({ classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 1 });
+		await screen.findByRole('alert');
+		await waitFor(() => expect(document.activeElement).toBe(button('회차 목록으로')));
+		cleanup();
+		decks.all = [];
+		const other = document.createElement('input');
+		document.body.append(other);
+		api.fetchClassLive.mockResolvedValueOnce(SCHEDULED());
+		const again = render(ReplayView, { classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 0 });
+		await screen.findByTitle('미리 보는 슬라이드');
+		other.focus();
+		api.fetchClassLive.mockRejectedValueOnce(new ApiError(404, 'x'));
+		await again.rerender({ classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 1 });
+		await screen.findByRole('alert');
+		await act(() => Promise.resolve());
+		expect(document.activeElement).toBe(other);
+		other.remove();
+	});
+
+	it('볼 수 없게 된 뒤에는 다시 받아도 그 안내를 지킨다(목록으로 돌아가 다시 연다)', async () => {
+		const ApiError = await gone();
+		api.fetchClassLive.mockResolvedValueOnce(SCHEDULED());
+		const view = render(ReplayView, { classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 0, takeFocus: true });
+		await screen.findByTitle('미리 보는 슬라이드');
+		api.fetchClassLive.mockRejectedValueOnce(new ApiError(404, 'x'));
+		await view.rerender({ classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 1, takeFocus: true });
+		await screen.findByRole('alert');
+		api.fetchClassLive.mockResolvedValueOnce(SCHEDULED()); // 교수가 다시 공개했다
+		await view.rerender({ classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true, refresh: 2, takeFocus: true });
+		await act(() => Promise.resolve());
+		expect(screen.getByText('이 회차는 이제 미리 볼 수 없습니다.')).toBeTruthy();
+	});
+
+	it('미리 보기의 묶음 파일이 없으면 자료 안내 없이 목록으로 돌아가라고 한다', async () => {
+		api.fetchClassLive.mockResolvedValue({ ...SCHEDULED(), deck: { id: 8, slide_count: 4, available: false, public: true } });
+		render(ReplayView, { classroomId: 7, sessionId: 8, onBack: vi.fn(), preview: true });
+		expect(await screen.findByText('슬라이드를 열 수 없습니다. 목록으로 돌아가 주세요.')).toBeTruthy();
+		expect(screen.queryByText(/자료는 계속/)).toBeNull();
+	});
+});
