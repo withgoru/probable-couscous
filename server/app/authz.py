@@ -32,6 +32,9 @@ class Action(StrEnum):
     SESSION_PRESENT = "session.present"  # 시작·종료·이어서·넘기기·보내기·거두기. 진행 중인 강좌만(AC11)
     CLASS_VIEW = "class.view"  # 회차 목록, 현재 상태, 묶음 파일. 소유 교수 또는 입장한 학생(AC44)
     DECK_NOTES = "deck.notes"  # 발표자 노트. 소유 교수만(AC30)
+    # 003 출석. 열기·연장·마감·다시 받기는 session.present를 쓴다
+    ATTENDANCE_MANAGE = "attendance.manage"  # 설정, 현황, CSV, 요청 처리, 직접 바꾸기, 코드 받기. 보관된 강좌도 된다
+    ATTENDANCE_SELF = "attendance.self"  # 학생 본인의 코드 출석과 수기 요청. 입장한 학생만(AC27)
     # 강좌와 무관한 계정 단계 행동. 로그인한 교수만 할 수 있다
     ME_READ = "me.read"
     CLASSROOM_CREATE = "classroom.create"
@@ -83,8 +86,8 @@ _OWNER_ONLY = {
 }
 
 
-# 002 교수 전용 행동. 권한이 없으면 AC43 문구("이 강좌에 대한 권한이 없습니다.")를 쓴다
-_SESSION_OWNER_ONLY = {Action.SESSION_MANAGE, Action.SESSION_PRESENT, Action.DECK_NOTES}
+# 002·003 교수 전용 행동. 권한이 없으면 002 AC43·003 AC26 문구("이 강좌에 대한 권한이 없습니다.")를 쓴다
+_SESSION_OWNER_ONLY = {Action.SESSION_MANAGE, Action.SESSION_PRESENT, Action.DECK_NOTES, Action.ATTENDANCE_MANAGE}
 
 
 _ACCOUNT_LEVEL = {Action.ME_READ, Action.CLASSROOM_CREATE, Action.CLASSROOM_LIST}
@@ -128,6 +131,14 @@ def decide(actor: Actor, action: Action | str, classroom: ClassroomRef | None = 
         if actor.kind == "professor":
             ok = actor.github_id == classroom.owner_github_id
             return Decision(True) if ok else Decision(False, "no_class_permission")
+        if actor.classroom_id != classroom.id:
+            return Decision(False, "not_member")
+        return Decision(True) if classroom.status == "active" else Decision(False, "archived")
+
+    if action is Action.ATTENDANCE_SELF:
+        # 교수는 학생 대신 코드로 출석하거나 요청을 보내지 않는다. 바꾸기는 attendance.manage로 한다
+        if actor.kind != "student":
+            return Decision(False, "forbidden")
         if actor.classroom_id != classroom.id:
             return Decision(False, "not_member")
         return Decision(True) if classroom.status == "active" else Decision(False, "archived")

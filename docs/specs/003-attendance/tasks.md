@@ -36,7 +36,7 @@ updated: 2026-11-27
     - 기존 DB에 두 번 적용해도 같다.
   - 관련 원칙: C5, C6, C7, C13
 
-- [ ] **T002. 권한 행동 `attendance.manage`, `attendance.self`**
+- [x] **T002. 권한 행동 `attendance.manage`, `attendance.self`**
   - 대응 AC: AC26, AC27
   - 의존: T001
   - 먼저 쓸 테스트: 두 행동의 행위자별 허용·거부 표 단위 테스트.
