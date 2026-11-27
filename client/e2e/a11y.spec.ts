@@ -1,7 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { checkFocused, expectNoAxeViolations, expectNoHorizontalScroll, noTransitions, tabTo, unique, type FocusIssue } from './a11y-helpers';
-import { classroomWith, lastCode, student } from './helpers';
+import { classroomWith, lastCode, requestCode, student, typeCode } from './helpers';
 
 // T034(AC50, AC51, C14): 키보드만으로 끝까지 가는지, 지나가는 모든 요소의 포커스 링과 44px, 390px 가로 스크롤,
 // 그리고 axe로 화면마다 WCAG 2.2 AA 자동 점검.
@@ -238,5 +239,207 @@ test.describe('학생 화면 (390px)', () => {
 		await check('닫힌 링크');
 
 		expect(unique(issues), '학생 화면의 포커스 링·크기 문제').toEqual([]);
+	});
+});
+
+// --- 002 T029(AC45, C14): 회차 관리·교수 수업 화면·프로젝터·학생 수업 화면 ----------------------------------------
+// 키보드만으로 수업을 시작하고 넘기고 보내고 거두며, 학생은 이전·다음·교수 화면으로·복사를 키보드로 한다.
+// 지나가는 모든 요소의 포커스 링과 44px, axe, iframe 제목, 학생 화면 390px 가로 넘침을 본다.
+
+async function classroomWithDeck(title: string, publish: boolean) {
+	const kim = student('a11y-class');
+	const room = await classroomWith([kim], `접근성 수업 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title } })).json();
+	const upload = await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck?filename=deck.zip`, {
+		headers: { 'Content-Type': 'application/zip' },
+		data: readFileSync(DECK_ZIP)
+	});
+	expect(upload.status(), await upload.text()).toBe(200);
+	if (publish) await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck/visibility`, { data: { public: true } });
+	const state = async () => (await room.api.get(`/api/class/${room.id}/sessions/${session.id}/live`)).json();
+	return { ...room, sessionId: session.id as number, student: kim, state };
+}
+
+/** 화면의 모든 iframe에 제목이 있다(화면 낭독기가 무엇인지 읽는다). */
+async function expectTitledFrames(page: Page, screen: string) {
+	const untitled = await page.locator('iframe').evaluateAll((frames) => frames.filter((f) => !f.getAttribute('title')?.trim()).length);
+	expect(untitled, `${screen}: 제목 없는 iframe`).toBe(0);
+}
+
+/** 슬라이드가 그 위치를 그려 넘길 수 있게 될 때까지 기다린다(그 전에 누르면 화면이 받지 않는다). */
+async function ready(page: Page, name: string) {
+	await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('aria-disabled', 'false');
+}
+
+test.describe('002 수업 화면 (AC45)', () => {
+	test('교수: 키보드만으로 수업 시작 → 넘기기 → 보내기·거두기 → 프로젝터 열기', async ({ browser }) => {
+		const issues: FocusIssue[] = [];
+		const room = await classroomWithDeck('6주차 1회차', false);
+		const context = await browser.newContext({ viewport: DESKTOP });
+		const prof = await context.newPage();
+		await prof.goto('/api/auth/github/login');
+		await prof.waitForURL('**/courses');
+		await prof.goto(`/courses/${room.id}/admin`);
+		await noTransitions(prof);
+		await expectNoAxeViolations(prof, '회차와 묶음이 있는 관리 페이지');
+		await tabAround(prof, issues, 80); // 회차 선택, 이 회차의 자료, 수업 시작 등 지나가는 모든 요소
+
+		// 회차 관리: 학생에게 공개 스위치와 수업 시작(AC47, AC9)
+		await tabTo(prof, prof.getByRole('switch', { name: '학생에게 공개' }), issues);
+		await prof.keyboard.press('Space');
+		await expect(prof.getByRole('switch', { name: '학생에게 공개' })).toHaveAttribute('aria-checked', 'true');
+		await expect.poll(async () => (await room.state()).deck.public).toBe(true);
+		await tabTo(prof, prof.getByRole('button', { name: '수업 시작' }), issues);
+		await prof.keyboard.press('Enter');
+		await expect(prof).toHaveURL(new RegExp(`/courses/${room.id}/live$`));
+		await noTransitions(prof);
+
+		// 교수 수업 화면: 다음 버튼을 Enter로, 그다음은 →키로 넘긴다(AC13)
+		await ready(prof, '다음');
+		await tabTo(prof, prof.getByRole('button', { name: '다음', exact: true }), issues);
+		await prof.keyboard.press('Enter');
+		await expect.poll(async () => (await room.state()).current).toEqual({ slide: 2, click: 0 });
+		await ready(prof, '다음');
+		await prof.keyboard.press('ArrowRight');
+		await expect.poll(async () => (await room.state()).current).toEqual({ slide: 2, click: 1 });
+		await expectTitledFrames(prof, '교수 수업 화면');
+		await expectNoAxeViolations(prof, '교수 수업 화면');
+
+		// 슬라이드 안으로 Tab해 들어가면 링이 보이고(checkFocused), 그 안에서 →를 눌러도 넘어간다(AC13)
+		await tabTo(prof, prof.getByTitle('현재 슬라이드'), issues);
+		await ready(prof, '다음');
+		await prof.keyboard.press('ArrowRight');
+		await expect.poll(async () => (await room.state()).current).toEqual({ slide: 2, click: 2 });
+
+		// 보내기와 거두기(AC31, AC35). 글 칸에서는 →가 넘기기가 아니다
+		await tabTo(prof, prof.getByLabel('글'), issues);
+		await prof.keyboard.type('키보드로 보낸 안내');
+		await prof.keyboard.press('ArrowRight');
+		await tabTo(prof, prof.getByRole('button', { name: '학생에게 보내기' }), issues);
+		await prof.keyboard.press('Enter');
+		await expect.poll(async () => (await room.state()).items.map((i: { body: string }) => i.body)).toEqual(['키보드로 보낸 안내']);
+		expect((await room.state()).current).toEqual({ slide: 2, click: 2 }); // 글 칸의 →는 넘기지 않았다(보내기가 끝난 뒤에도)
+		await tabTo(prof, prof.getByRole('button', { name: '거두기: 키보드로 보낸 안내' }), issues);
+		await prof.keyboard.press('Enter');
+		const dialog = prof.getByRole('alertdialog');
+		await expect(dialog).toBeVisible();
+		await expectNoAxeViolations(prof, '거두기 확인 창');
+		await tabTo(prof, dialog.getByRole('button', { name: '거두기' }), issues, 10);
+		await prof.keyboard.press('Enter');
+		await expect.poll(async () => (await room.state()).items[0].retracted_at).not.toBeNull();
+		await tabAround(prof, issues, 60);
+
+		// 프로젝터 화면(AC19): Enter로 열고, 슬라이드에 제목이 있으며 전체 화면 버튼에 이름이 있다
+		await tabTo(prof, prof.getByRole('button', { name: '프로젝터 화면 열기' }), issues);
+		const popup = context.waitForEvent('page');
+		await prof.keyboard.press('Enter');
+		const projector = await popup;
+		await noTransitions(projector);
+		await expect(projector.getByTitle('슬라이드')).toBeVisible();
+		await expectTitledFrames(projector, '프로젝터 화면');
+		await expectNoAxeViolations(projector, '프로젝터 화면');
+		await tabTo(projector, projector.getByRole('button', { name: '전체 화면' }), issues, 10);
+
+		// 수업 종료 확인 창(AC37)
+		await tabTo(prof, prof.getByRole('button', { name: '수업 종료' }), issues);
+		await prof.keyboard.press('Enter');
+		await expect(prof.getByRole('alertdialog')).toContainText('수업을 끝낼까요?');
+		await expectNoAxeViolations(prof, '수업 종료 확인 창');
+		await prof.keyboard.press('Escape');
+		await expect(prof.getByRole('button', { name: '수업 종료' })).toBeFocused(); // 초점이 돌아온다
+
+		expect(unique(issues), '교수 수업 화면의 포커스 링·크기 문제').toEqual([]);
+		await context.close();
+	});
+
+	test('학생(390px): 키보드만으로 이전·다음, 교수 화면으로, 복사', async ({ browser }) => {
+		const issues: FocusIssue[] = [];
+		const room = await classroomWithDeck('6주차 2회차', true);
+		await room.api.post(`/api/classrooms/${room.id}/sessions/${room.sessionId}/start`);
+		await room.api.post(`/api/classrooms/${room.id}/sessions/${room.sessionId}/items`, {
+			data: { body: '키보드로 복사할 글', client_key: 'k1' }
+		});
+		const context = await browser.newContext({ viewport: PHONE });
+		await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+		const phone = await context.newPage();
+		await requestCode(phone, room.token, room.student.email);
+		await typeCode(phone, await lastCode(room.student.email));
+		await phone.getByRole('button', { name: '확인하고 입장' }).click();
+		await expect(phone.getByText('교수 화면 따라가는 중')).toBeVisible();
+		await noTransitions(phone);
+		await expectTitledFrames(phone, '학생 수업 화면');
+		await expectNoAxeViolations(phone, '학생 수업 화면');
+		await expectNoHorizontalScroll(phone, '학생 수업 화면');
+
+		// 다음을 Enter로 누르면 따라가기가 풀리고 넘어간다(AC26)
+		await ready(phone, '다음');
+		await tabTo(phone, phone.getByRole('button', { name: '다음', exact: true }), issues);
+		await phone.keyboard.press('Enter');
+		await expect(phone.getByText('직접 넘겨 보는 중 · 교수 화면은 1번 슬라이드입니다.')).toBeVisible();
+		await expect(phone.getByRole('button', { name: '다음', exact: true })).toBeFocused(); // 초점을 잃지 않는다
+		await ready(phone, '이전');
+		await tabTo(phone, phone.getByRole('button', { name: '이전', exact: true }), issues);
+		await phone.keyboard.press('Enter');
+		await expectNoAxeViolations(phone, '직접 넘겨 보는 학생 화면');
+		await expectNoHorizontalScroll(phone, '직접 넘겨 보는 학생 화면');
+
+		// 교수 화면으로(AC28): 누른 버튼이 사라지면 초점은 넘기기 버튼으로 간다
+		await tabTo(phone, phone.getByRole('button', { name: '교수 화면으로' }), issues);
+		await phone.keyboard.press('Enter');
+		await expect(phone.getByText('교수 화면 따라가는 중', { exact: true })).toBeVisible();
+		await expect(phone.getByRole('button', { name: '다음', exact: true })).toBeFocused();
+
+		// 복사(AC34)
+		await tabTo(phone, phone.getByRole('button', { name: '복사: 키보드로 복사할 글' }), issues);
+		await phone.keyboard.press('Enter');
+		await expect(phone.getByRole('list', { name: '자료' }).getByText('복사했습니다.')).toBeVisible();
+		expect(await phone.evaluate(() => navigator.clipboard.readText())).toBe('키보드로 복사할 글');
+		await tabAround(phone, issues, 40);
+
+		expect(unique(issues), '학생 수업 화면의 포커스 링·크기 문제').toEqual([]);
+		await context.close();
+	});
+
+	test('학생(390px): 대기 화면, 미리 보기, 다시 보기', async ({ browser }) => {
+		const issues: FocusIssue[] = [];
+		const room = await classroomWithDeck('7주차 1회차', true); // 공개 묶음이 있는 예정 회차 → 미리 보기
+		const ended = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '6주차 3회차' } })).json();
+		await room.api.post(`/api/classrooms/${room.id}/sessions/${ended.id}/start`);
+		await room.api.post(`/api/classrooms/${room.id}/sessions/${ended.id}/items`, { data: { body: '지난 자료', client_key: 'p1' } });
+		await room.api.post(`/api/classrooms/${room.id}/sessions/${ended.id}/end`);
+		const context = await browser.newContext({ viewport: PHONE });
+		const phone = await context.newPage();
+		await requestCode(phone, room.token, room.student.email);
+		await typeCode(phone, await lastCode(room.student.email));
+		await phone.getByRole('button', { name: '확인하고 입장' }).click();
+		await expect(phone.getByRole('heading', { name: '미리 볼 수 있는 회차' })).toBeVisible();
+		await noTransitions(phone);
+		await expectNoAxeViolations(phone, '미리 볼 수 있는 회차와 지난 회차가 있는 대기 화면');
+		await expectNoHorizontalScroll(phone, '대기 화면');
+		await tabAround(phone, issues, 30);
+
+		// 미리 보기: 키보드로 열고, 슬라이드 안으로 들어가면 링이 보인다
+		await tabTo(phone, phone.getByRole('button', { name: '7주차 1회차 미리 보기' }), issues);
+		await phone.keyboard.press('Enter');
+		await expect(phone.getByRole('heading', { level: 1, name: '7주차 1회차 미리 보기' })).toBeFocused();
+		await expectTitledFrames(phone, '미리 보기');
+		await expectNoAxeViolations(phone, '미리 보기');
+		await expectNoHorizontalScroll(phone, '미리 보기');
+		await tabTo(phone, phone.getByTitle('미리 보는 슬라이드'), issues);
+		await tabTo(phone, phone.getByRole('button', { name: '회차 목록으로' }), issues);
+		await phone.keyboard.press('Enter');
+
+		// 다시 보기
+		await tabTo(phone, phone.getByRole('button', { name: '6주차 3회차 다시 보기' }), issues);
+		await phone.keyboard.press('Enter');
+		await expect(phone.getByRole('heading', { level: 1, name: '6주차 3회차 다시 보기' })).toBeFocused();
+		await expect(phone.getByText('이 회차는 슬라이드 없이 진행했습니다.')).toBeVisible(); // 묶음 없이 진행한 회차
+		await expect(phone.getByRole('list', { name: '자료' })).toContainText('지난 자료');
+		await expectNoAxeViolations(phone, '다시 보기');
+		await expectNoHorizontalScroll(phone, '다시 보기');
+		await tabAround(phone, issues, 30);
+
+		expect(unique(issues), '대기·미리 보기·다시 보기의 포커스 링·크기 문제').toEqual([]);
+		await context.close();
 	});
 });

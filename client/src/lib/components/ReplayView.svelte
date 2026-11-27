@@ -2,6 +2,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { ApiError, fetchClassLive } from '#lib/api.js';
+	import { frameFocus } from '#lib/frameFocus.js';
 	import type { LiveState } from '#lib/classLive.js';
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
 	import MaterialsPanel from '#lib/components/MaterialsPanel.svelte';
@@ -241,7 +242,9 @@
 		{:else}
 			{#key deck.id}
 				<div class="relative -mx-6 aspect-video overflow-hidden bg-foreground">
-					<iframe bind:this={frame} title={preview ? '미리 보는 슬라이드' : '다시 보는 슬라이드'} src="/decks/{deck.id}/" class="h-full w-full border-0"></iframe>
+					<iframe bind:this={frame} use:frameFocus title={preview ? '미리 보는 슬라이드' : '다시 보는 슬라이드'} src="/decks/{deck.id}/" class="peer h-full w-full border-0"></iframe>
+					<!-- 키보드로 슬라이드에 들어가면 보이는 링(primary 2px + 간격 2px, C14). iframe은 :focus가 걸리지 않아 표시로 그린다 -->
+					<div data-frame-ring aria-hidden="true" class="pointer-events-none absolute inset-0 z-10 hidden rounded-[inherit] peer-data-[focused]:block" style="box-shadow: inset 0 0 0 2px var(--ring), inset 0 0 0 4px var(--background)"></div>
 					{#if !mainDeck.ready}
 						<!-- 느린 휴대폰: 슬라이드를 받는 동안. 그 사이에도 자료는 쓸 수 있다(오류 동작 "학생 휴대폰이 느림").
 						     슬라이드 위를 가려 글자가 겹치지 않게 한다. 끝내 준비되지 않으면 열 수 없다고 알린다 -->
