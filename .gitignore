@@ -68,3 +68,6 @@ tmp/
 # --- 슬라이드 템플릿(002) ---
 slides-template/.build/
 slides-template/*.zip
+
+# --- uv (server/ uses pip + constraints.txt; uv.lock is a local by-product) ---
+server/uv.lock
