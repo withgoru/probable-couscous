@@ -219,7 +219,7 @@ def test_upgrading_from_0002_keeps_sessions_decks_and_items(tmp_path):
     ended = make_session(conn, c, "2회차", 2, "ended")
     deck = make_deck(conn, c, live)
     item = make_item(conn, c, live)
-    assert migrate(conn, MIGRATIONS_DIR, clock) == ["0003_deck_visibility"]
+    assert migrate(conn, MIGRATIONS_DIR, clock)[0] == "0003_deck_visibility"  # 뒤 마이그레이션도 이어서 적용된다
     row = conn.execute("SELECT * FROM class_sessions WHERE id = ?", (live,)).fetchone()
     assert (row["status"], row["current_slide"], row["current_click"], row["version"]) == ("live", 2, 1, 7)
     assert conn.execute("SELECT status FROM class_sessions WHERE id = ?", (ended,)).fetchone()["status"] == "ended"
