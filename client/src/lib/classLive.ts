@@ -279,6 +279,7 @@ export function connectClass(classroomId: number, options: Options) {
 		};
 		s.onclose = (closing) => {
 			if (stopped || socket !== s) return;
+			const wasReady = ready;
 			socket = null;
 			ready = false;
 			failPending();
@@ -287,10 +288,37 @@ export function connectClass(classroomId: number, options: Options) {
 				return; // 내보냈다: 다시 붙지 않는다
 			}
 			update({ status: 'reconnecting' });
-			const wait = RETRY_DELAYS[Math.min(failures, RETRY_DELAYS.length - 1)];
-			failures += 1;
-			timer = setTimeout(open, wait);
+			// 붙기 전에 닫혔다. 끊긴 동안 명단에서 빠졌거나 로그인이 끊긴 학생은 서버가 연결을 받지 않아(코드 없이 닫힘)
+			// goodbye를 받지 못한다. HTTP로 물어 거절(401·403)이면 내보낸 것으로 본다(AC44)
+			if (!wasReady && role === 'student') {
+				void refused().then((no) => {
+					if (stopped || socket) return;
+					if (no) update({ status: 'gone' });
+					else retryLater();
+				});
+				return;
+			}
+			retryLater();
 		};
+	}
+
+	function retryLater() {
+		const wait = RETRY_DELAYS[Math.min(failures, RETRY_DELAYS.length - 1)];
+		failures += 1;
+		timer = setTimeout(open, wait);
+	}
+
+	/** 이 강좌를 볼 수 없게 됐는가(401·403). 연결 문제로 묻지 못하면 아니라고 보고 다시 붙는다. */
+	async function refused(): Promise<boolean> {
+		try {
+			const res = await fetchFn(`/api/class/${classroomId}/sessions`, {
+				credentials: 'same-origin',
+				headers: { Accept: 'application/json' }
+			});
+			return res.status === 401 || res.status === 403;
+		} catch {
+			return false;
+		}
 	}
 
 	function onVisible() {

@@ -1076,3 +1076,124 @@ describe('미리 볼 수 있는 회차: 검증 뒤 추가', () => {
 		await waitFor(() => expect(screen.queryByRole('list', { name: '미리 볼 수 있는 회차' })).toBeNull());
 	});
 });
+
+describe('연결 끊김과 느린 로딩 (오류 동작, C12)', () => {
+	const OFFLINE = '연결이 끊겼습니다. 다시 연결하는 중…';
+	const banner = () => document.querySelector('[data-connection]') as HTMLElement;
+
+	it('끊기면 슬라이드는 그대로이고 위쪽에 안내가 보이며 읽힌다', async () => {
+		await classAt();
+		const sent = deck().goto.mock.calls.length;
+		await server(snapshot({ status: 'reconnecting' }));
+		expect(banner().getAttribute('role')).toBe('status'); // 늘 있는 알림 자리
+		expect(banner().textContent).toContain(OFFLINE);
+		expect(screen.getByTitle('수업 슬라이드')).toBeTruthy();
+		expect(deck().goto.mock.calls.length).toBe(sent); // 슬라이드는 마지막 화면 그대로
+		const heading = screen.getByRole('heading', { level: 1 });
+		expect(banner().compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // 위쪽
+	});
+
+	it('다시 붙으면 안내가 사라지고, 따라가던 학생은 교수 위치로 가며 놓친 항목이 나타나고 거둔 항목은 사라진다', async () => {
+		await classAt();
+		await server(snapshot({ status: 'reconnecting' }));
+		const missed = { id: 3, body: '끊긴 동안 보낸 자료', url: null, created_at: '2026-03-04T05:03:00+00:00' };
+		await server(snapshot({ state: { ...STATE, current: { slide: 4, click: 0 }, items: [STATE.items[0], missed] } }));
+		expect(banner().textContent?.trim()).toBe('');
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 4, click: 0 });
+		const list = screen.getByRole('list', { name: '자료' });
+		expect(within(list).getByText('끊긴 동안 보낸 자료')).toBeTruthy();
+		expect(within(list).queryByText('https://example.com/b')).toBeNull(); // 끊긴 동안 거뒀다
+	});
+
+	it('직접 넘겨 보던 학생은 다시 붙어도 보던 곳에 머문다', async () => {
+		await classAt();
+		await act(() => button('다음').click()); // (2,2)
+		await server(snapshot({ status: 'reconnecting' }));
+		await server(snapshot({ state: { ...STATE, current: { slide: 4, click: 0 } } }));
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 2, click: 2 });
+		expect(screen.getByText('직접 넘겨 보는 중 · 교수 화면은 4번 슬라이드입니다.')).toBeTruthy();
+	});
+
+	it('처음 연결하는 중이나 입장이 끝난 뒤에는 끊김 안내가 없다', async () => {
+		mount();
+		await server(snapshot({ status: 'connecting', state: null, liveSessionId: null, loaded: false }));
+		expect(banner().textContent?.trim()).toBe('');
+		await server(snapshot({ status: 'gone', goodbye: { reason: 'removed', message: 'x' } }));
+		expect(banner().textContent?.trim()).toBe('');
+	});
+
+	it('대기 화면이나 다시 보기에서도 끊기면 안내가 보인다', async () => {
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await server(snapshot({ state: null, liveSessionId: null, status: 'reconnecting' }));
+		expect(banner().textContent).toContain(OFFLINE);
+	});
+
+	it('슬라이드를 받는 중에는 그 자리에 불러오는 중이 보이고, 자료는 쓸 수 있다', async () => {
+		mount();
+		await server(snapshot());
+		expect(screen.getByText('슬라이드를 불러오는 중…')).toBeTruthy();
+		expect(screen.getByRole('list', { name: '자료' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: /^복사/ })).toBeTruthy();
+		await drawn(STATE.current, 3); // 준비됐다
+		expect(screen.queryByText('슬라이드를 불러오는 중…')).toBeNull();
+	});
+
+	it('끊김으로 입장이 끝나면(goodbye) 화면을 연 쪽에 알린다', async () => {
+		const onGone = vi.fn();
+		render(StudentClass, { classroomId: 7, title: '웹', nickname: '고래', onGone });
+		await server(snapshot());
+		await server(snapshot({ status: 'gone', goodbye: { reason: 'removed', message: '명단에서 빠졌습니다.' } }));
+		expect(onGone).toHaveBeenCalledWith('명단에서 빠졌습니다.');
+		await server(snapshot({ status: 'gone', goodbye: { reason: 'removed', message: '명단에서 빠졌습니다.' } }));
+		expect(onGone).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('연결과 로딩: 검증 뒤 추가', () => {
+	const banner = () => document.querySelector('[data-connection]') as HTMLElement;
+
+	it('끊김 안내 자리는 비어 있을 때 화면 흐름을 차지하지 않는다', async () => {
+		await classAt();
+		expect(banner().className).toContain('sr-only');
+		await server(snapshot({ status: 'reconnecting' }));
+		expect(banner().className).not.toContain('sr-only');
+	});
+
+	it('다시 붙으면 다시 연결되었다고 읽힌다', async () => {
+		await classAt();
+		await server(snapshot({ status: 'reconnecting' }));
+		await server(snapshot());
+		await waitFor(() => expect((document.querySelector('[data-class-status]') as HTMLElement).textContent).toBe('다시 연결되었습니다.'));
+	});
+
+	it('처음 연결될 때는 다시 연결되었다고 하지 않는다', async () => {
+		mount();
+		await server(snapshot({ status: 'connecting', state: null, liveSessionId: null, loaded: false }));
+		await server(snapshot());
+		await act(() => Promise.resolve());
+		expect((document.querySelector('[data-class-status]') as HTMLElement).textContent).not.toBe('다시 연결되었습니다.');
+	});
+
+	it('슬라이드가 15초 안에 준비되지 않으면 열 수 없다고 알리고, 자료는 쓸 수 있다', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		try {
+			mount();
+			await server(snapshot());
+			expect(screen.getByText('슬라이드를 불러오는 중…')).toBeTruthy();
+			await act(() => vi.advanceTimersByTime(15_000));
+			expect(screen.getByText('슬라이드를 열 수 없습니다. 자료는 계속 볼 수 있습니다.')).toBeTruthy();
+			expect(screen.queryByText('슬라이드를 불러오는 중…')).toBeNull();
+			await drawn(STATE.current, 3); // 늦게라도 준비되면 슬라이드가 보인다
+			expect(screen.queryByText('슬라이드를 열 수 없습니다. 자료는 계속 볼 수 있습니다.')).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('불러오는 중 안내는 슬라이드 위를 가린다(글자가 슬라이드와 겹치지 않게)', async () => {
+		mount();
+		await server(snapshot());
+		expect(screen.getByText('슬라이드를 불러오는 중…').className).toContain('bg-foreground');
+	});
+});

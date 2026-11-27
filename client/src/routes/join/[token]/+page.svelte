@@ -36,6 +36,15 @@
 	let answer = $state<(Notice & { canRequest: boolean }) | null>(null); // 이메일 단계에서 받은 안내
 	let result = $state<(Notice & { canGoBack: boolean }) | null>(null); // 입장 요청 뒤의 안내
 	let emailInput = $state<HTMLInputElement | null>(null);
+	// 수업 중에 입장이 끝났다(명단에서 빠짐, 로그인 끊김, 002 AC44). 입장 화면에서 그 이유를 보인다
+	let goneMessage = $state<string | null>(null);
+	const GONE_DEFAULT = '이 수업을 더 볼 수 없습니다. 이메일로 다시 입장해 주세요.';
+
+	function onGone(message: string | null) {
+		goneMessage = message ?? GONE_DEFAULT;
+		classroomId = null;
+		void go('email');
+	}
 
 	const closedMessage = $derived(closedLater ?? (data.invite.open ? null : data.invite.message));
 	const classroom = $derived(data.invite.open ? data.invite.classroom : null);
@@ -56,6 +65,7 @@
 	function onEmailInput() {
 		emailError = null;
 		formError = null;
+		goneMessage = null;
 		answer = null; // 이전 이메일에 대한 안내는 더 이상 맞지 않는다
 	}
 
@@ -170,6 +180,12 @@
 			<p class="text-sm text-muted-foreground">수강생 명단에 있는 이메일로 입장합니다. 가입은 필요 없습니다.</p>
 		</div>
 
+		{#if goneMessage}
+			<div role="alert" class="alert alert-warning">
+				<Icon name="warning-circle" />
+				<div class="alert-title leading-6 font-medium">{goneMessage}</div>
+			</div>
+		{/if}
 		<!-- novalidate: 브라우저 기본 말풍선 대신 칸 옆에 한국어 안내를 보인다 -->
 		<form class="flex flex-col gap-6" onsubmit={submitEmail} novalidate>
 			<div class="flex flex-col gap-2">
@@ -250,7 +266,7 @@
 		/>
 	{:else if step === 'entered' && classroomId !== null}
 		<!-- 입장 완료(001 AC28) 뒤는 수업 화면이다: 수업이 없으면 대기, 있으면 슬라이드와 자료(002) -->
-		<StudentClass {classroomId} title={title ?? ''} {nickname} />
+		<StudentClass {classroomId} title={title ?? ''} {nickname} {onGone} />
 	{:else if step === 'result' && result}
 		<h1 tabindex="-1" class="text-2xl leading-tight font-bold outline-none">입장 요청</h1>
 		{@render noticeBox(result)}

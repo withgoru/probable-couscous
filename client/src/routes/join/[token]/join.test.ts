@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ submitJoinEmail: vi.fn(), requestAccess: vi.fn(), verifyCode: vi.fn(), enterClassroom: vi.fn() }));
@@ -12,11 +12,20 @@ vi.mock('#lib/api.js', async (original) => ({
 }));
 
 // 입장 뒤 수업 화면의 수업 연결은 열지 않는다(연결 없이 대기 머리말만 그려진다)
-const classLive = vi.hoisted(() => ({ connectClass: vi.fn() }));
+const classLive = vi.hoisted(() => ({ connectClass: vi.fn(), listener: null as ((s: unknown) => void) | null }));
 vi.mock('#lib/classLive.js', () => ({
 	connectClass: (id: number, options: unknown) => {
 		classLive.connectClass(id, options);
-		return { subscribe: () => () => {}, goto: vi.fn(), setMode: vi.fn(), reload: vi.fn(), stop: vi.fn() };
+		return {
+			subscribe: (fn: (s: unknown) => void) => {
+				classLive.listener = fn;
+				return () => {};
+			},
+			goto: vi.fn(),
+			setMode: vi.fn(),
+			reload: vi.fn(),
+			stop: vi.fn()
+		};
 	}
 }));
 
@@ -507,5 +516,48 @@ describe('로그인 유지와 다른 강좌 (AC35, AC37)', () => {
 	it('인증하지 않은 기기는 이메일 단계부터 시작한다', () => {
 		render(JoinPage, { params: { token: 'tok' }, data: open('월수반', { state: 'login' }) });
 		expect(box('이메일')).toBeTruthy();
+	});
+});
+
+describe('수업 중 입장이 끊기면 (002 AC44)', () => {
+	const entered = () =>
+		render(JoinPage, {
+			params: { token: 'tok' },
+			data: open('월수반', { state: 'entered', nickname: '느긋한 고래', classroom: '웹 프로그래밍', classroom_id: 7 })
+		});
+	const gone = (goodbye: { reason: string; message: string } | null) =>
+		act(() =>
+			classLive.listener?.({ status: 'gone', liveSessionId: null, state: null, presence: null, goodbye, loadError: null, loaded: true })
+		);
+
+	it('명단에서 빠지면 수업 화면 대신 입장 화면으로 가고 그 이유를 보인다', async () => {
+		entered();
+		await gone({ reason: 'removed', message: '수강생 명단에서 빠져 이 수업을 볼 수 없습니다. 교수님께 문의해 주세요.' });
+		expect(screen.queryByText('느긋한 고래')).toBeNull();
+		expect(box('이메일')).toBeTruthy();
+		const alert = screen.getByRole('alert');
+		expect(alert.textContent).toContain('수강생 명단에서 빠져 이 수업을 볼 수 없습니다. 교수님께 문의해 주세요.');
+		expect(alert.compareDocumentPosition(box('이메일')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // 이메일 칸 위
+		await waitFor(() => expect(document.activeElement?.tagName).toBe('H1'));
+	});
+
+	it('로그인이 끊기면 다시 이메일 인증부터 하라고 알린다', async () => {
+		entered();
+		await gone({ reason: 'signed_out', message: '이 강좌에서 로그아웃되었습니다. 강좌 링크를 다시 열어 이메일 인증부터 해 주세요.' });
+		expect(screen.getByRole('alert').textContent).toContain('이메일 인증부터 해 주세요.');
+	});
+
+	it('이유 없이 닫혀도(연결이 4403으로 끊김) 입장 화면으로 가고 할 일을 알린다', async () => {
+		entered();
+		await gone(null);
+		expect(box('이메일')).toBeTruthy();
+		expect(screen.getByRole('alert').textContent).toContain('이 수업을 더 볼 수 없습니다. 이메일로 다시 입장해 주세요.');
+	});
+
+	it('이메일을 고치기 시작하면 그 안내는 사라진다', async () => {
+		entered();
+		await gone(null);
+		await typeEmail('kim@x.kr');
+		expect(screen.queryByText('이 수업을 더 볼 수 없습니다. 이메일로 다시 입장해 주세요.')).toBeNull();
 	});
 });
