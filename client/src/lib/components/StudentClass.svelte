@@ -25,6 +25,8 @@
 
 	let snapshot = $state<ClassSnapshot | null>(null);
 	let past = $state<ClassSessionSummary[] | null>(null);
+	// 미리 볼 수 있는 회차: 공개 묶음이 있는 예정 회차(AC49). 서버가 회차 순서로 준다
+	let previews = $state<ClassSessionSummary[]>([]);
 	let pastFailed = $state(false);
 	let pastRequest = 0; // 늦게 온 예전 응답이 새 목록을 덮지 않게 요청마다 번호를 붙인다
 	let announcement = $state(''); // 화면이 바뀐 것을 화면 낭독기에 알린다(늘 있는 알림 자리)
@@ -42,7 +44,9 @@
 	let prevButton = $state<HTMLButtonElement | null>(null);
 	let waitingHeading = $state<HTMLElement | null>(null);
 	// 다시 보는 회차. 끝나서 이어 보면 보던 곳에서, 목록에서 열면 처음부터. 수업이 시작되면 비운다
-	let replay = $state<{ id: number; start: 'first' | 'last'; ended: boolean; takeFocus: boolean } | null>(null);
+	let replay = $state<{ id: number; start: 'first' | 'last'; ended: boolean; takeFocus: boolean; preview?: boolean } | null>(
+		null
+	);
 	// 초점이 수업 화면 안에 있었는가. 수업이 끝나 그 화면이 사라지면 초점을 다시 보기 제목으로 옮긴다
 	let liveBox = $state<HTMLElement | null>(null);
 	let focusInLive = false;
@@ -113,6 +117,10 @@
 	// 다시 보는 회차의 묶음이 바뀌거나(올리기·지우기 → session.updated) 공개 여부가 바뀌면(deck.updated) 다시 받는다(AC41)
 	let replayRefresh = $state(0);
 	function onClassEvent(event: Record<string, unknown>) {
+		// 기다리는 동안 교수가 예정 회차를 공개하거나 묶음을 바꾸면 목록(미리 볼 수 있는 회차)을 다시 받는다.
+		// 다시 연결되거나(ready) resync가 오면 그 사이 놓친 바뀜이 있을 수 있어 다시 받는다
+		if (waiting && ['deck.updated', 'session.updated', 'ready', 'resync'].includes(event.type as string))
+			loadSessions(false);
 		if (!replay) return;
 		// 다시 연결되거나(ready) 서버가 놓친 알림 대신 resync를 보내면 놓친 것이 있을 수 있어 다시 받는다
 		if (event.type === 'ready' || event.type === 'resync') replayRefresh += 1;
@@ -188,6 +196,7 @@
 
 	async function closeReplay() {
 		replay = null;
+		if (waiting) loadSessions(false); // 보는 동안 지워지거나 바뀐 회차가 목록에 남지 않게
 		await tick();
 		waitingHeading?.focus(); // 누른 버튼이 사라진다. 대기 화면의 제목으로 초점을 옮긴다
 	}
@@ -252,22 +261,32 @@
 		};
 	});
 
-	// 대기 화면이 될 때마다 지난 회차 목록을 받는다(수업이 끝나 돌아와도 새 목록)
+	// 대기 화면이 될 때마다 회차 목록을 받는다(수업이 끝나 돌아와도 새 목록)
 	$effect(() => {
 		if (!waiting) return;
-		untrack(() => {
-			const request = ++pastRequest;
-			past = null;
-			pastFailed = false;
-			fetchClassSessions(classroomId)
-				.then((list) => {
-					if (request === pastRequest) past = list.items.filter((s) => s.status === 'ended');
-				})
-				.catch(() => {
-					if (request === pastRequest) pastFailed = true;
-				});
-		});
+		untrack(() => loadSessions(true));
 	});
+
+	/** 회차 목록을 받는다. 처음이면 비우고, 다시 받을 때는 보던 목록을 그대로 둔다(깜빡이지 않게). */
+	function loadSessions(fresh: boolean) {
+		const request = ++pastRequest;
+		if (fresh) {
+			past = null;
+			previews = [];
+			pastFailed = false;
+		}
+		fetchClassSessions(classroomId)
+			.then((list) => {
+				if (request !== pastRequest) return;
+				past = list.items.filter((s) => s.status === 'ended');
+				previews = list.items.filter((s) => s.status === 'scheduled' && !!s.deck?.public && s.deck.available);
+				pastFailed = false;
+			})
+			.catch(() => {
+				// 보던 목록이 있으면 그대로 두고, 아직 아무것도 없으면 실패를 알린다(불러오는 중에 머물지 않게)
+				if (request === pastRequest && past === null) pastFailed = true;
+			});
+	}
 
 	onMount(() => {
 		const live = connectClass(classroomId, { role: 'student', onEvent: onClassEvent });
@@ -360,7 +379,17 @@
 	</div>
 {:else if replay}
 	{#key replay.id}
-		<ReplayView {classroomId} sessionId={replay.id} start={replay.start} ended={replay.ended} takeFocus={replay.takeFocus} refresh={replayRefresh} onAnnounce={announce} onBack={closeReplay} />
+		<ReplayView
+			{classroomId}
+			sessionId={replay.id}
+			start={replay.start}
+			ended={replay.ended}
+			takeFocus={replay.takeFocus}
+			refresh={replayRefresh}
+			preview={replay.preview}
+			onAnnounce={announce}
+			onBack={closeReplay}
+		/>
 	{/key}
 {:else}
 	<!-- 입장 완료와 대기(AC23, 001 AC28) -->
@@ -377,6 +406,26 @@
 		<p class="text-sm text-muted-foreground">수업을 불러오는 중…</p>
 	{:else}
 		<p>지금 진행 중인 수업이 없습니다. 수업이 시작되면 이 화면이 바뀝니다.</p>
+		{#if previews.length > 0}
+			<!-- 미리 볼 수 있는 회차(AC49): 공개 묶음이 있는 예정 회차. 없으면 이 목록은 보이지 않는다 -->
+			<section class="flex flex-col gap-2" aria-labelledby="preview-heading">
+				<h2 id="preview-heading" class="text-base font-semibold">미리 볼 수 있는 회차</h2>
+				<ul class="flex flex-col gap-2" aria-labelledby="preview-heading">
+					{#each previews as s (s.id)}
+						<li class="flex items-center justify-between gap-2 rounded-md border border-border p-3 text-sm">
+							<span class="font-medium">{s.title}</span>
+							<button
+								type="button"
+								class="btn btn-outline shrink-0"
+								aria-label="{s.title} 미리 보기"
+								onclick={() => (replay = { id: s.id, start: 'first', ended: false, takeFocus: true, preview: true })}
+								>미리 보기</button
+							>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
 		<section class="flex flex-col gap-2" aria-labelledby="past-heading">
 			<h2 id="past-heading" class="text-base font-semibold">지난 회차</h2>
 			{#if pastFailed}

@@ -876,3 +876,203 @@ describe('다시 보기: 검증 뒤 추가', () => {
 		);
 	});
 });
+
+describe('미리 볼 수 있는 회차 (AC49)', () => {
+	const PREVIEW = [
+		{ id: 8, title: '4주차 1회차', status: 'scheduled', started_at: null, ended_at: null, deck: { id: 21, slide_count: 4, available: true, public: true } },
+		{ id: 9, title: '4주차 2회차', status: 'scheduled', started_at: null, ended_at: null, deck: { id: 22, slide_count: 4, available: true, public: true } }
+	];
+	const event = (e: Record<string, unknown>) => act(() => (live.options as { onEvent?: (e: unknown) => void }).onEvent?.(e));
+
+	it('지난 회차 위에 공개 묶음이 있는 예정 회차가 회차 순서대로 보인다', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [...PREVIEW, ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '미리 볼 수 있는 회차' });
+		expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+			expect.stringContaining('4주차 1회차'),
+			expect.stringContaining('4주차 2회차')
+		]);
+		const previewHeading = screen.getByRole('heading', { level: 2, name: '미리 볼 수 있는 회차' });
+		const pastHeading = screen.getByRole('heading', { level: 2, name: '지난 회차' });
+		expect(previewHeading.compareDocumentPosition(pastHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		// 지난 회차에는 끝난 회차만
+		expect(within(screen.getByRole('list', { name: '지난 회차' })).queryByText('4주차 1회차')).toBeNull();
+	});
+
+	it('그런 회차가 없으면 목록이 보이지 않는다', async () => {
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('list', { name: '지난 회차' });
+		expect(screen.queryByRole('heading', { name: '미리 볼 수 있는 회차' })).toBeNull();
+	});
+
+	it('공개 묶음이 아닌 예정 회차는 서버가 보내도 보이지 않는다', async () => {
+		const closed = { ...PREVIEW[0], deck: { ...PREVIEW[0].deck, public: false } };
+		api.fetchClassSessions.mockResolvedValue({ items: [closed, ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('list', { name: '지난 회차' });
+		expect(screen.queryByText('4주차 1회차')).toBeNull();
+	});
+
+	it('열면 그 회차를 처음부터 미리 본다', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [...PREVIEW, ...PAST], live_session_id: null });
+		api.fetchClassLive.mockImplementation(async (_c: number, sid: number) => ({
+			...STATE,
+			session: { ...STATE.session, id: sid, title: '4주차 1회차', status: 'scheduled' }
+		}));
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '미리 볼 수 있는 회차' });
+		await act(() => within(list).getByRole('button', { name: '4주차 1회차 미리 보기' }).click());
+		const heading = await screen.findByRole('heading', { level: 1, name: '4주차 1회차 미리 보기' });
+		expect(api.fetchClassLive).toHaveBeenCalledWith(7, 8);
+		await waitFor(() => expect(document.activeElement).toBe(heading));
+		expect(screen.getByTitle('미리 보는 슬라이드')).toBeTruthy();
+		expect(decks.all.at(-1)!.goto).toHaveBeenLastCalledWith({ slide: 1, click: 0 });
+		expect(screen.queryByText('수업이 끝났습니다.', { selector: ':not([data-class-status])' })).toBeNull();
+	});
+
+	it('목록으로 돌아갈 수 있다', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [...PREVIEW, ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '미리 볼 수 있는 회차' });
+		await act(() => within(list).getByRole('button', { name: '4주차 1회차 미리 보기' }).click());
+		await act(async () => (await screen.findByRole('button', { name: '회차 목록으로' })).click());
+		expect(screen.getByText(WAITING)).toBeTruthy();
+	});
+
+	it('미리 보는 중에 그 회차의 수업이 시작되면 수업 화면으로 바뀐다 (AC23)', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [...PREVIEW, ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '미리 볼 수 있는 회차' });
+		await act(() => within(list).getByRole('button', { name: '4주차 1회차 미리 보기' }).click());
+		await screen.findByTitle('미리 보는 슬라이드');
+		await server(snapshot({ state: { ...STATE, session: { ...STATE.session, id: 8, title: '4주차 1회차' } }, liveSessionId: 8 }));
+		expect(screen.getByTitle('수업 슬라이드')).toBeTruthy();
+		expect((document.querySelector('[data-class-status]') as HTMLElement).textContent).toBe('수업이 시작되었습니다.');
+	});
+
+	it('기다리는 동안 교수가 예정 회차를 공개하거나 묶음을 바꾸면 목록을 다시 받는다', async () => {
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('list', { name: '지난 회차' });
+		expect(api.fetchClassSessions).toHaveBeenCalledTimes(1);
+		api.fetchClassSessions.mockResolvedValue({ items: [PREVIEW[0], ...PAST], live_session_id: null });
+		await event({ type: 'deck.updated', session_id: 8, deck: PREVIEW[0].deck, version: 1 });
+		expect(await screen.findByRole('list', { name: '미리 볼 수 있는 회차' })).toBeTruthy();
+		await event({ type: 'session.updated', session_id: 8, status: 'scheduled', version: 1 });
+		await waitFor(() => expect(api.fetchClassSessions).toHaveBeenCalledTimes(3));
+	});
+
+	it('목록을 다시 받는 동안에도 보던 목록을 그대로 둔다(깜빡이지 않게)', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [...PREVIEW, ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('list', { name: '미리 볼 수 있는 회차' });
+		api.fetchClassSessions.mockReturnValue(new Promise(() => {}));
+		await event({ type: 'deck.updated', session_id: 9, deck: PREVIEW[1].deck, version: 1 });
+		expect(screen.getByRole('list', { name: '미리 볼 수 있는 회차' })).toBeTruthy();
+		expect(screen.queryByText('목록을 불러오는 중…')).toBeNull();
+	});
+});
+
+describe('미리 볼 수 있는 회차: 검증 뒤 추가', () => {
+	const preview = (id: number, title: string, extra = {}) => ({
+		id, title, status: 'scheduled', started_at: null, ended_at: null,
+		deck: { id: id + 20, slide_count: 4, available: true, public: true }, ...extra
+	});
+	const event = (e: Record<string, unknown>) => act(() => (live.options as { onEvent?: (e: unknown) => void }).onEvent?.(e));
+	const publicDeck = { id: 30, slide_count: 4, available: true, public: true };
+
+	it('진행 중·끝난 회차는 공개 묶음이어도 미리 보기에 없다', async () => {
+		api.fetchClassSessions.mockResolvedValue({
+			items: [preview(8, '4주차 1회차'), { ...PAST[0], deck: publicDeck }, { ...PAST[1], status: 'live', ended_at: null, deck: publicDeck }],
+			live_session_id: null
+		});
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '미리 볼 수 있는 회차' });
+		expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+		expect(within(screen.getByRole('list', { name: '지난 회차' })).getByText('2주차 2회차')).toBeTruthy();
+	});
+
+	it('열 수 없는 공개 묶음의 예정 회차는 미리 보기에 없다', async () => {
+		api.fetchClassSessions.mockResolvedValue({
+			items: [preview(8, '4주차 1회차', { deck: { id: 28, slide_count: 4, available: false, public: true } }), ...PAST],
+			live_session_id: null
+		});
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('list', { name: '지난 회차' });
+		expect(screen.queryByRole('list', { name: '미리 볼 수 있는 회차' })).toBeNull();
+	});
+
+	it('기다리는 동안 다시 연결되거나 resync가 오면 목록을 다시 받고, 다른 알림에는 받지 않는다', async () => {
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('list', { name: '지난 회차' });
+		await event({ type: 'presence', follow: 1, browse: 0 });
+		await event({ type: 'item.created', session_id: 4, version: 3 });
+		expect(api.fetchClassSessions).toHaveBeenCalledTimes(1);
+		await event({ type: 'ready' });
+		await waitFor(() => expect(api.fetchClassSessions).toHaveBeenCalledTimes(2));
+		await event({ type: 'resync' });
+		await waitFor(() => expect(api.fetchClassSessions).toHaveBeenCalledTimes(3));
+	});
+
+	it('수업 중에는 묶음 알림이 와도 목록을 받지 않는다', async () => {
+		mount();
+		await server(snapshot());
+		const calls = api.fetchClassSessions.mock.calls.length;
+		await event({ type: 'deck.updated', session_id: 8, deck: publicDeck, version: 1 });
+		await event({ type: 'session.updated', session_id: 8, status: 'scheduled', version: 1 });
+		expect(api.fetchClassSessions.mock.calls.length).toBe(calls);
+	});
+
+	it('다시 받기가 실패하면 보던 목록을 그대로 두고 실패 안내를 하지 않는다', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [preview(8, '4주차 1회차'), ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('list', { name: '미리 볼 수 있는 회차' });
+		api.fetchClassSessions.mockRejectedValueOnce(new Error('down'));
+		await event({ type: 'deck.updated', session_id: 8, deck: publicDeck, version: 1 });
+		await act(() => Promise.resolve());
+		expect(screen.getByRole('list', { name: '미리 볼 수 있는 회차' })).toBeTruthy();
+		expect(screen.queryByText(/지난 회차를 불러오지 못했습니다/)).toBeNull();
+	});
+
+	it('처음 목록을 받는 중에 다시 받기가 끼어들어 실패해도 불러오는 중에 머물지 않는다', async () => {
+		api.fetchClassSessions.mockReturnValueOnce(new Promise(() => {})).mockRejectedValueOnce(new Error('down'));
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await event({ type: 'deck.updated', session_id: 8, deck: publicDeck, version: 1 });
+		expect(await screen.findByText('지난 회차를 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요.')).toBeTruthy();
+	});
+
+	it('수업이 끝나 대기로 돌아오면 새 목록이 오기 전까지 예전 미리 보기를 보이지 않는다', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [preview(8, '4주차 1회차'), ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await screen.findByRole('list', { name: '미리 볼 수 있는 회차' });
+		await server(snapshot({ state: { ...STATE, session: { ...STATE.session, id: 8 } }, liveSessionId: 8 }));
+		api.fetchClassSessions.mockReturnValue(new Promise(() => {}));
+		await server(snapshot({ state: null, liveSessionId: null }));
+		await act(async () => (await screen.findByRole('button', { name: '지난 회차 목록으로' })).click());
+		expect(screen.queryByRole('list', { name: '미리 볼 수 있는 회차' })).toBeNull();
+	});
+
+	it('미리 보기에서 목록으로 돌아오면 목록을 다시 받는다(지워진 회차가 남지 않게)', async () => {
+		api.fetchClassSessions.mockResolvedValue({ items: [preview(8, '4주차 1회차'), ...PAST], live_session_id: null });
+		mount();
+		await server(snapshot({ state: null, liveSessionId: null }));
+		const list = await screen.findByRole('list', { name: '미리 볼 수 있는 회차' });
+		await act(() => within(list).getByRole('button', { name: '4주차 1회차 미리 보기' }).click());
+		api.fetchClassSessions.mockResolvedValue({ items: [...PAST], live_session_id: null });
+		await act(async () => (await screen.findByRole('button', { name: '회차 목록으로' })).click());
+		await waitFor(() => expect(screen.queryByRole('list', { name: '미리 볼 수 있는 회차' })).toBeNull());
+	});
+});

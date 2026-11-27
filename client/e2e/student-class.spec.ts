@@ -363,3 +363,43 @@ test('비공개 회차는 자료만 다시 보고, 공개하면 바로 슬라이
 	await expect(next).toHaveAttribute('aria-disabled', 'true'); // 묶음의 끝
 	await expectNoAxeViolations(page, '공개된 회차 다시 보기');
 });
+
+// 002 T036: 공개 묶음이 있는 예정 회차는 대기 화면에서 미리 본다(AC49). 공개 전에는 없고, 공개하면 새로 고치지 않고 나타난다
+test('공개한 예정 회차를 대기 화면에서 미리 보고, 그 수업이 시작되면 수업 화면이 된다 (AC49, AC23)', async ({ page }) => {
+	const jang = student('preview');
+	const room = await classroomWith([jang], `미리 보기 ${Date.now()}`);
+	const session = await (await room.api.post(`/api/classrooms/${room.id}/sessions`, { data: { title: '9주차' } })).json();
+	await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck?filename=deck.zip`, {
+		headers: { 'Content-Type': 'application/zip' },
+		data: readFileSync(DECK_ZIP)
+	});
+
+	await enter(page, room.token, jang.email);
+	await noTransitions(page);
+	await expect(page.getByText('지금 진행 중인 수업이 없습니다. 수업이 시작되면 이 화면이 바뀝니다.')).toBeVisible();
+	await expect(page.getByRole('heading', { name: '미리 볼 수 있는 회차' })).toHaveCount(0); // 비공개라 없다
+
+	// 교수가 공개한다: 새로 고치지 않아도 목록에 나타난다
+	expect(
+		(await room.api.put(`/api/classrooms/${room.id}/sessions/${session.id}/deck/visibility`, { data: { public: true } })).status()
+	).toBe(200);
+	const open = page.getByRole('button', { name: '9주차 미리 보기' });
+	await expect(open).toBeVisible();
+	await expectNoAxeViolations(page, '미리 볼 수 있는 회차가 있는 대기 화면');
+	await expectNoHorizontalScroll(page, '미리 볼 수 있는 회차가 있는 대기 화면');
+	await open.click();
+	await expect(page.getByRole('heading', { level: 1, name: '9주차 미리 보기' })).toBeFocused();
+	const previewHash = () => page.frameLocator('iframe[title="미리 보는 슬라이드"]').locator('body').evaluate(() => location.hash);
+	await expect.poll(previewHash).toMatch(/^#\/1/);
+	const next = page.getByRole('button', { name: '다음' });
+	await expect(next).toHaveAttribute('aria-disabled', 'false');
+	await next.click();
+	await expect.poll(previewHash).toMatch(/^#\/2/);
+	await expectNoAxeViolations(page, '미리 보기');
+
+	// 미리 보는 중에 그 회차의 수업이 시작되면 수업 화면으로 바뀐다(AC23)
+	expect((await room.api.post(`/api/classrooms/${room.id}/sessions/${session.id}/start`)).status()).toBe(200);
+	await expect(page.getByTitle('수업 슬라이드')).toBeVisible();
+	await expect(page.getByText('교수 화면 따라가는 중')).toBeVisible();
+	await expect.poll(() => slideOf(page)).toMatch(/^#\/1/);
+});
