@@ -2,6 +2,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { ApiError, endSession, fetchDeckNotes, type DeckNotes } from '#lib/api.js';
+	import { frameFocus } from '#lib/frameFocus.js';
 	import { connectClass, type ClassLive, type ClassSnapshot, type GotoFailure } from '#lib/classLive.js';
 	import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
 	import ErrorNotice from '#lib/components/ErrorNotice.svelte';
@@ -304,8 +305,10 @@
 					{@render presenceLine()}
 				{:else}
 					{#key deck.id}
-						<div class="aspect-video w-full overflow-hidden rounded-md bg-foreground">
-							<iframe bind:this={currentFrame} title="현재 슬라이드" src="/decks/{deck.id}/" class="h-full w-full border-0"></iframe>
+						<div class="relative aspect-video w-full overflow-hidden rounded-md bg-foreground">
+							<iframe bind:this={currentFrame} use:frameFocus title="현재 슬라이드" src="/decks/{deck.id}/" class="peer h-full w-full border-0"></iframe>
+							<!-- 키보드로 슬라이드에 들어가면 보이는 링(primary 2px + 간격 2px, C14). iframe은 :focus가 걸리지 않아 표시로 그린다 -->
+							<div data-frame-ring aria-hidden="true" class="pointer-events-none absolute inset-0 z-10 hidden rounded-[inherit] peer-data-[focused]:block" style="box-shadow: inset 0 0 0 2px var(--ring), inset 0 0 0 4px var(--background)"></div>
 						</div>
 					{/key}
 					<div class="flex flex-wrap items-center gap-3">

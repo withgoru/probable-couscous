@@ -14,6 +14,19 @@ export type FocusIssue = { element: string; problem: string };
  * - 크기: 버튼·입력·버튼 모양 링크는 높이 44px 이상. 체크 상자와 스위치는 눌리는 범위(label)가 44px 이상
  */
 export async function checkFocused(page: Page): Promise<FocusIssue[]> {
+	// 슬라이드 iframe은 :focus가 걸리지 않아, 화면이 초점을 알아보고 옆의 덮개([data-frame-ring])로 링을 그린다.
+	// 덮개가 보일 때까지 잠깐(최대 1초) 기다린 뒤 그 덮개의 링을 본다
+	if (await page.evaluate(() => document.activeElement?.tagName === 'IFRAME'))
+		await page
+			.waitForFunction(
+				() => {
+					const ring = document.activeElement?.parentElement?.querySelector('[data-frame-ring]');
+					return !!ring && getComputedStyle(ring).display !== 'none';
+				},
+				undefined,
+				{ timeout: 1_000 }
+			)
+			.catch(() => {});
 	return page.evaluate(() => {
 		const el = document.activeElement as HTMLElement | null;
 		if (!el || el === document.body) return [];
@@ -23,7 +36,9 @@ export async function checkFocused(page: Page): Promise<FocusIssue[]> {
 			.trim()
 			.slice(0, 40);
 		const element = `<${el.tagName.toLowerCase()}${el.getAttribute('type') ? ` type=${el.getAttribute('type')}` : ''}> ${name}`;
-		const style = getComputedStyle(el);
+		// 슬라이드 iframe의 링은 옆의 덮개가 그린다(보이지 않으면 링이 없는 것이다)
+		const ringBox = el.tagName === 'IFRAME' ? el.parentElement?.querySelector<HTMLElement>('[data-frame-ring]') : null;
+		const style = getComputedStyle(ringBox && getComputedStyle(ringBox).display !== 'none' ? ringBox : el);
 
 		// 링: box-shadow 중 링 색이고 퍼짐이 2px 이상인 것, 또는 2px 이상 실선 outline
 		const RING = 'rgb(10, 36, 99)';
