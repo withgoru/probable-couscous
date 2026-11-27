@@ -7,6 +7,10 @@
 - 강좌에서 진행 중인 회차는 하나다. DB 색인이 막고, 막히면 그 회차를 알려 준다(AC10).
 - 바뀔 때마다 `version`을 1 올리고, 기록(C6)과 함께 커밋한 **뒤에** 수업 방에 `session.updated`를 발행한다(C13).
 
+출석(003): 시작은 같은 트랜잭션에서 강좌의 출석 받는 시간만큼 출석을 연다(AC2). 이어서 하기는 열지 않는다(AC7).
+종료는 열린 출석을 닫는다. 발행은 `session.updated` 하나다. 화면은 이것을 받으면 `live`를 통째로 다시 받고,
+거기에 출석 창이 들어 있다(notes/T005.md).
+
 시작·이어서 하기는 `session.present`(보관된 강좌 거절, AC11)다. 종료는 `session.manage`다. 수업 중에 강좌를
 보관해도 그 수업을 끝낼 수 있어야 진행 중으로 묶여 남지 않는다(notes/T007.md).
 """
@@ -17,6 +21,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from app import attendance_state
 from app.authz import Action, Granted, guard
 from app.classrooms import load_classroom
 from app.db import get_db, transaction
@@ -66,13 +71,13 @@ def _conflict(db: sqlite3.Connection, classroom_id: int) -> JSONResponse | None:
 def _change(
     request: Request, db: sqlite3.Connection, granted: Granted, session_id: int, event: str, apply
 ) -> JSONResponse | dict:
-    """`apply(row, now)`가 참을 돌려주면 바뀐 것이다. 기록하고 커밋한 뒤 발행한다."""
+    """`apply(row, now)`가 참을 돌려주면 바뀐 것이다. 기록하고 커밋한 뒤 발행한다. `now`는 `datetime`이다."""
     classroom_id = granted.resource.id
     clock = request.app.state.clock
     try:
         with transaction(db):
             row = load_session(db, classroom_id, session_id)
-            changed = apply(row, clock.now().isoformat())
+            changed = apply(row, clock.now())
             if changed:
                 record_event(
                     db, classroom_id, event, "professor", granted.actor.github_id, None,
@@ -106,9 +111,12 @@ def start_session(session_id: int, granted: PresentGuard, db: Db, request: Reque
             # 예정 회차는 위치가 기본값(1번·0단계)이고 시작·종료 시각이 비어 있다(넘기기는 진행 중에만 된다)
             "UPDATE class_sessions SET status = 'live', first_started_at = ?, started_at = ?, version = version + 1 "
             "WHERE id = ? AND classroom_id = ?" + _STILL_ACTIVE,
-            (now, now, session_id, granted.resource.id, granted.resource.id),
+            (now.isoformat(), now.isoformat(), session_id, granted.resource.id, granted.resource.id),
         )
-        return _went_live(db)
+        _went_live(db)
+        # 출석은 수업 시작과 함께 열린다(003 AC2). 같은 트랜잭션이라 기록이 실패하면 수업도 시작하지 않는다
+        attendance_state.open_window(db, granted.resource.id, session_id, "start", granted.actor.github_id, now)
+        return True
 
     return _change(request, db, granted, session_id, "session_started", apply)
 
@@ -123,7 +131,7 @@ def resume_session(session_id: int, granted: PresentGuard, db: Db, request: Requ
         db.execute(
             "UPDATE class_sessions SET status = 'live', started_at = ?, ended_at = NULL, version = version + 1 "
             "WHERE id = ? AND classroom_id = ?" + _STILL_ACTIVE,
-            (now, session_id, granted.resource.id, granted.resource.id),
+            (now.isoformat(), session_id, granted.resource.id, granted.resource.id),
         )
         return _went_live(db)
 
@@ -140,8 +148,10 @@ def end_session(session_id: int, granted: ManageGuard, db: Db, request: Request)
         db.execute(
             "UPDATE class_sessions SET status = 'ended', ended_at = ?, version = version + 1 "
             "WHERE id = ? AND classroom_id = ?",
-            (now, session_id, granted.resource.id),
+            (now.isoformat(), session_id, granted.resource.id),
         )
+        # 수업이 끝나면 출석도 닫는다(003). 이어서 하기로 다시 열어도 저절로 열리지 않는다(AC7)
+        attendance_state.close_window(db, granted.resource.id, session_id, "session_end", granted.actor.github_id, now)
         return True
 
     return _change(request, db, granted, session_id, "session_ended", apply)

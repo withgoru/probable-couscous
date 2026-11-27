@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from app import attendance_state
 from app.authz import Action, Granted
 from app.class_access import guard_class
 from app.classrooms import load_classroom
@@ -119,5 +120,10 @@ def session_live_state(session_id: int, granted: ViewGuard, db: Db, request: Req
         "deck": _deck(row, request.app.state.deck_store, classroom_id),
         "current": {"slide": row["current_slide"], "click": row["current_click"]},
         "items": _items(db, classroom_id, session_id, student),
+        # 003: 출석 창과, 교수에게는 출석·요청 수, 학생에게는 자기 상태만
+        "attendance": attendance_state.live_attendance(
+            db, classroom_id, session_id, request.app.state.clock.now(),
+            granted.actor.membership_id if student else None,
+        ),
     }
     return JSONResponse(body, headers=NO_STORE)

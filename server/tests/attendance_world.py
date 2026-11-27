@@ -36,3 +36,20 @@ def entered_student(world, prof, classroom_id, email, no=None, name="김철수")
     assert res.status_code == 200, res.text
     assert student.post(f"/api/join/{token}/enter", headers=ORIGIN).status_code == 200
     return student
+
+
+def make_session(prof, classroom_id, title="1회차"):
+    res = prof.post(f"/api/classrooms/{classroom_id}/sessions", json={"title": title}, headers=ORIGIN)
+    assert res.status_code == 201, res.text
+    return res.json()["id"]
+
+
+def act(prof, classroom_id, session_id, what):
+    """수업 시작·종료·이어서 하기(start / end / resume)."""
+    return prof.post(f"/api/classrooms/{classroom_id}/sessions/{session_id}/{what}", headers=ORIGIN)
+
+
+def live(client, classroom_id, session_id):
+    res = client.get(f"/api/class/{classroom_id}/sessions/{session_id}/live")
+    assert res.status_code == 200, res.text
+    return res.json()
