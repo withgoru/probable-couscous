@@ -17,6 +17,8 @@
 		start = 'first',
 		ended = false,
 		takeFocus = false,
+		refresh = 0,
+		onAnnounce = () => {},
 		onBack
 	}: {
 		classroomId: number;
@@ -24,6 +26,10 @@
 		start?: 'first' | 'last';
 		ended?: boolean;
 		takeFocus?: boolean;
+		/** 바뀌면 상태를 다시 받는다(그 회차의 묶음이나 공개 여부가 바뀜, AC41). */
+		refresh?: number;
+		/** 화면 낭독기에 알릴 글(학생 수업 화면의 늘 있는 알림 자리로 간다). 공개·비공개가 바뀔 때 쓴다. */
+		onAnnounce?: (text: string) => void;
 		onBack: () => void;
 	} = $props();
 
@@ -54,6 +60,15 @@
 
 	$effect(() => {
 		if (mainDeck.position && mainDeck.clicksTotal !== null) seenClicks.set(mainDeck.position.slide, mainDeck.clicksTotal);
+	});
+
+	// 묶음이 바뀌면 예전 묶음의 단계 수를 버린다(이전 슬라이드의 마지막 단계를 새 묶음으로 계산한다)
+	let deckId: number | null = null;
+	$effect(() => {
+		const id = deck?.id ?? null;
+		if (id === deckId) return;
+		deckId = id;
+		untrack(() => seenClicks.clear());
 	});
 
 	// 넘긴 위치를 슬라이드에 보낸다. 같으면 다시 보내지 않는다
@@ -105,22 +120,62 @@
 		else if (event.key === 'ArrowLeft') turn('prev');
 	}
 
-	onMount(() => {
-		let alive = true;
+	// 상태 받기. 처음 받기와 다시 받기(refresh)가 같은 길을 지나고, 늦게 온 예전 응답은 버린다(요청마다 번호).
+	// - 처음 보이는 응답(먼저 온 다시 받기 포함): 시작 위치를 정하고, 받으라고 했으면 제목으로 초점을 옮긴다
+	// - 같은 묶음: 보던 곳을 지키되 묶음 밖이면 마지막 슬라이드로 당긴다. 다른 묶음: 처음부터 본다(AC41)
+	// - 공개·비공개가 바뀌면 알리고, 슬라이드가 사라져 초점을 잃었으면 제목으로 옮긴다
+	// - 받지 못하면: 보던 화면이 있으면 그대로 두고, 없으면 이유와 할 일을 보인다
+	const SHOWN = '슬라이드가 공개되었습니다.';
+	const HIDDEN = '이 회차의 슬라이드는 공개되지 않았습니다.';
+	let request = 0;
+	let alive = true;
+
+	function load() {
+		const ticket = ++request;
 		fetchClassLive(classroomId, sessionId)
 			.then((s) => {
-				if (!alive) return;
+				if (!alive || ticket !== request) return;
+				const before = replayState;
 				replayState = s;
-				// 일부러 연 회차는 처음부터, 수업이 끝나 이어 보면 보던 곳(교수의 마지막 위치)에서
-				mine = start === 'last' ? startAt(s) : { slide: 1, click: 0 };
-				// 누른 버튼이나 보던 수업 화면이 사라졌다면 초점을 제목으로 옮긴다
-				if (takeFocus) tick().then(() => heading?.focus());
+				problem = null;
+				if (!before) {
+					// 일부러 연 회차는 처음부터, 수업이 끝나 이어 보면 보던 곳(교수의 마지막 위치)에서
+					mine = start === 'last' ? startAt(s) : { slide: 1, click: 0 };
+					if (takeFocus) tick().then(() => heading?.focus()); // 누른 버튼이나 보던 수업 화면이 사라졌다
+					return;
+				}
+				if (before.deck?.id !== s.deck?.id) mine = { slide: 1, click: 0 };
+				else if (mine && s.deck && mine.slide > s.deck.slide_count)
+					mine = { slide: Math.max(1, s.deck.slide_count), click: 0 };
+				const wasShown = showsSlides(before);
+				const nowShown = showsSlides(s);
+				if (wasShown !== nowShown && s.deck) onAnnounce(nowShown ? SHOWN : HIDDEN);
+				if (wasShown && !nowShown)
+					tick().then(() => {
+						if (!document.activeElement || document.activeElement === document.body) heading?.focus();
+					});
 			})
 			.catch((e) => {
-				if (!alive) return;
+				if (!alive || ticket !== request || replayState) return;
 				problem = e instanceof ApiError ? e.message : '회차를 불러오지 못했습니다.';
 				if (takeFocus) tick().then(() => backButton?.focus());
 			});
+	}
+
+	function showsSlides(s: LiveState): boolean {
+		return !!s.deck?.available && s.deck.public;
+	}
+
+	let lastRefresh = untrack(() => refresh);
+	$effect(() => {
+		const now = refresh;
+		if (now === lastRefresh) return;
+		lastRefresh = now;
+		untrack(load);
+	});
+
+	onMount(() => {
+		load();
 		return () => {
 			alive = false;
 		};
@@ -143,7 +198,7 @@
 			<p class="rounded-md bg-foreground p-4 text-background">슬라이드를 열 수 없습니다. 자료는 계속 볼 수 있습니다.</p>
 		{:else if !deck.public}
 			<!-- 비공개 묶음은 서버가 학생에게 내주지 않는다(AC50) -->
-			<p class="rounded-md bg-foreground p-4 text-background">이 회차의 슬라이드는 공개되지 않았습니다.</p>
+			<p class="rounded-md bg-foreground p-4 text-background">{HIDDEN}</p>
 		{:else}
 			{#key deck.id}
 				<div class="-mx-6 aspect-video overflow-hidden bg-foreground">

@@ -110,6 +110,16 @@
 		});
 	});
 
+	// 다시 보는 회차의 묶음이 바뀌거나(올리기·지우기 → session.updated) 공개 여부가 바뀌면(deck.updated) 다시 받는다(AC41)
+	let replayRefresh = $state(0);
+	function onClassEvent(event: Record<string, unknown>) {
+		if (!replay) return;
+		// 다시 연결되거나(ready) 서버가 놓친 알림 대신 resync를 보내면 놓친 것이 있을 수 있어 다시 받는다
+		if (event.type === 'ready' || event.type === 'resync') replayRefresh += 1;
+		else if (event.session_id === replay.id && (event.type === 'deck.updated' || event.type === 'session.updated'))
+			replayRefresh += 1;
+	}
+
 	/** 늘 있는 알림 자리에 쓴다. 같은 글이 다시 와도 바뀐 것으로 읽히게 비웠다가 쓴다. */
 	function announce(text: string) {
 		announcement = '';
@@ -260,7 +270,7 @@
 	});
 
 	onMount(() => {
-		const live = connectClass(classroomId, { role: 'student' });
+		const live = connectClass(classroomId, { role: 'student', onEvent: onClassEvent });
 		classLive = live;
 		const unsubscribe = live.subscribe((s) => (snapshot = s));
 		return () => {
@@ -350,7 +360,7 @@
 	</div>
 {:else if replay}
 	{#key replay.id}
-		<ReplayView {classroomId} sessionId={replay.id} start={replay.start} ended={replay.ended} takeFocus={replay.takeFocus} onBack={closeReplay} />
+		<ReplayView {classroomId} sessionId={replay.id} start={replay.start} ended={replay.ended} takeFocus={replay.takeFocus} refresh={replayRefresh} onAnnounce={announce} onBack={closeReplay} />
 	{/key}
 {:else}
 	<!-- 입장 완료와 대기(AC23, 001 AC28) -->

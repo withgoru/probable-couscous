@@ -462,7 +462,7 @@ describe('채팅 이용 안내에서 입장까지 (AC27, AC28)', () => {
 		await waitFor(() => expect(document.activeElement).toBe(h1));
 		expect(screen.queryByRole('button')).toBeNull(); // 수업을 불러오는 동안은 할 일이 없다
 		expect(screen.getByText('수업을 불러오는 중…')).toBeTruthy(); // 입장 뒤는 수업 화면이다(002)
-		expect(classLive.connectClass).toHaveBeenLastCalledWith(7, { role: 'student' }); // 서버가 알려 준 강좌로 붙는다
+		expect(classLive.connectClass).toHaveBeenLastCalledWith(7, expect.objectContaining({ role: 'student', onEvent: expect.any(Function) })); // 서버가 알려 준 강좌로 붙는다
 	});
 
 	it('입장 확정 때 인증이 끝나 있으면 이메일 단계에서 이유를 보인다', async () => {
@@ -491,7 +491,7 @@ describe('로그인 유지와 다른 강좌 (AC35, AC37)', () => {
 		expect(screen.getByRole('heading', { level: 1, name: '웹 프로그래밍 · 월수반' })).toBeTruthy(); // 안내 화면과 같은 이름(분반 포함)
 		expect(screen.getByText('느긋한 고래')).toBeTruthy();
 		expect(screen.queryByLabelText('이메일')).toBeNull();
-		expect(classLive.connectClass).toHaveBeenLastCalledWith(7, { role: 'student' });
+		expect(classLive.connectClass).toHaveBeenLastCalledWith(7, expect.objectContaining({ role: 'student', onEvent: expect.any(Function) }));
 	});
 
 	it('다른 강좌에서 인증한 기기면 이메일·코드 없이 이 강좌의 채팅 이용 안내가 바로 보인다 (AC37)', () => {

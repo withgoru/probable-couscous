@@ -59,6 +59,8 @@ type Options = {
 	location?: Where;
 	Socket?: typeof WebSocket;
 	document?: Doc;
+	/** 받은 알림을 그대로 알려 준다. 따라가는 회차가 아닌 회차의 알림도 온다(학생 다시 보기가 쓴다). */
+	onEvent?: (event: Record<string, unknown> & { type: string }) => void;
 };
 type Incoming = Record<string, unknown> & { type: string };
 
@@ -206,6 +208,16 @@ export function connectClass(classroomId: number, options: Options) {
 	}
 
 	function onEvent(event: Incoming) {
+		handle(event);
+		// 받은 알림을 그대로 알린다. 이 모듈이 먼저 처리한 뒤에, 받는 쪽이 실패해도 연결은 그대로 이어 간다
+		try {
+			options.onEvent?.(event);
+		} catch {
+			/* 받는 쪽의 실패는 연결과 무관하다 */
+		}
+	}
+
+	function handle(event: Incoming) {
 		switch (event.type) {
 			case 'ready':
 				ready = true;

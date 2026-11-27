@@ -225,3 +225,163 @@ describe('넘기기 규칙 (변형 검사 뒤 추가)', () => {
 		expect(button('이전').getAttribute('aria-disabled')).toBe('true');
 	});
 });
+
+describe('보는 동안 교수가 묶음을 바꾸거나 공개 여부를 바꾸면 (AC41, T037)', () => {
+	const privateEnded = () => ({ ...structuredClone(ENDED), deck: { ...ENDED.deck!, public: false } });
+
+	it('다시 받으라는 신호(refresh)가 오면 상태를 다시 받고, 공개되면 슬라이드가 나타난다', async () => {
+		api.fetchClassLive.mockResolvedValueOnce(privateEnded());
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 0 });
+		expect(await screen.findByText('이 회차의 슬라이드는 공개되지 않았습니다.')).toBeTruthy();
+		api.fetchClassLive.mockResolvedValueOnce(structuredClone(ENDED));
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 1 });
+		expect(await screen.findByTitle('다시 보는 슬라이드')).toBeTruthy();
+		expect(api.fetchClassLive).toHaveBeenCalledTimes(2);
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 1, click: 0 }); // 처음부터
+	});
+
+	it('비공개로 바뀌면 슬라이드를 내리고 안내와 자료를 보인다', async () => {
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 0 });
+		await screen.findByTitle('다시 보는 슬라이드');
+		api.fetchClassLive.mockResolvedValueOnce(privateEnded());
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 1 });
+		expect(await screen.findByText('이 회차의 슬라이드는 공개되지 않았습니다.')).toBeTruthy();
+		expect(screen.queryByTitle('다시 보는 슬라이드')).toBeNull();
+		expect(screen.getByRole('list', { name: '자료' })).toBeTruthy();
+	});
+
+	it('같은 묶음이면 보던 곳을 지키고, 다른 묶음(더 짧은)으로 바뀌면 처음부터 본다', async () => {
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), start: 'last', refresh: 0 });
+		await screen.findByTitle('다시 보는 슬라이드');
+		await drawn({ slide: 2, click: 1 }, 1);
+		await act(() => button('다음').click()); // (3, 0)
+		api.fetchClassLive.mockResolvedValueOnce(structuredClone(ENDED));
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), start: 'last', refresh: 1 });
+		await waitFor(() => expect(api.fetchClassLive).toHaveBeenCalledTimes(2));
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 3, click: 0 });
+		api.fetchClassLive.mockResolvedValueOnce({ ...structuredClone(ENDED), deck: { id: 11, slide_count: 2, available: true, public: true } });
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), start: 'last', refresh: 2 });
+		await waitFor(() => expect(decks.all.at(-1)!.goto).toHaveBeenLastCalledWith({ slide: 1, click: 0 }));
+	});
+
+	it('다시 받지 못하면 보던 화면을 그대로 둔다', async () => {
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 0 });
+		await screen.findByTitle('다시 보는 슬라이드');
+		api.fetchClassLive.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 1 });
+		await act(() => Promise.resolve());
+		expect(screen.getByTitle('다시 보는 슬라이드')).toBeTruthy();
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
+	it('늦게 온 예전 응답이 새 응답을 덮지 않는다', async () => {
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 0 });
+		await screen.findByTitle('다시 보는 슬라이드');
+		let late: (s: LiveState) => void = () => {};
+		api.fetchClassLive.mockReturnValueOnce(new Promise((r) => (late = r)));
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 1 });
+		api.fetchClassLive.mockResolvedValueOnce(privateEnded());
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 2 });
+		await screen.findByText('이 회차의 슬라이드는 공개되지 않았습니다.');
+		await act(async () => late(structuredClone(ENDED)));
+		expect(screen.getByText('이 회차의 슬라이드는 공개되지 않았습니다.')).toBeTruthy();
+	});
+
+	it('다시 받아도 초점을 옮기지 않는다', async () => {
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 0, takeFocus: false });
+		await screen.findByTitle('다시 보는 슬라이드');
+		api.fetchClassLive.mockResolvedValueOnce(structuredClone(ENDED));
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 1, takeFocus: true });
+		await act(() => Promise.resolve());
+		expect(document.activeElement).toBe(document.body);
+	});
+});
+
+describe('다시 받기: 검증 뒤 추가', () => {
+	const privateEnded = () => ({ ...structuredClone(ENDED), deck: { ...ENDED.deck!, public: false } });
+	const pending = () => {
+		let answer: (s: LiveState) => void = () => {};
+		let fail: (e: unknown) => void = () => {};
+		api.fetchClassLive.mockReturnValueOnce(new Promise<LiveState>((r, j) => ((answer = r), (fail = j))));
+		return { answer: (s: LiveState) => answer(s), fail: (e: unknown) => fail(e) };
+	};
+
+	it('처음 응답보다 다시 받기가 먼저 오면 그것으로 처음처럼 정하고, 늦은 처음 응답은 버린다', async () => {
+		const first = pending();
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), start: 'last', ended: true, refresh: 0, takeFocus: true });
+		api.fetchClassLive.mockResolvedValueOnce({ ...structuredClone(ENDED), current: { slide: 3, click: 0 } });
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), start: 'last', ended: true, refresh: 1, takeFocus: true });
+		const heading = await screen.findByRole('heading', { level: 1 });
+		await screen.findByTitle('다시 보는 슬라이드');
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 3, click: 0 }); // 보던 곳(교수의 마지막 위치)에서
+		await waitFor(() => expect(document.activeElement).toBe(heading)); // 처음 열 때처럼 초점
+		await act(async () => first.answer(privateEnded()));
+		expect(screen.getByTitle('다시 보는 슬라이드')).toBeTruthy(); // 늦게 온 처음 응답이 덮지 않는다
+	});
+
+	it('처음 응답 전에 다시 받기가 실패해도 불러오는 중에 머물지 않고 이유와 할 일을 보인다', async () => {
+		const first = pending();
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 0 });
+		api.fetchClassLive.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 1 });
+		await act(async () => first.answer(structuredClone(ENDED))); // 버려진다
+		const alert = await screen.findByRole('alert');
+		expect(alert.textContent).toContain('회차를 불러오지 못했습니다.');
+		expect(screen.queryByText('회차를 불러오는 중…')).toBeNull();
+	});
+
+	it('마지막 슬라이드의 단계에서 같은 묶음으로 다시 받으면 단계를 지킨다', async () => {
+		api.fetchClassLive.mockResolvedValueOnce({ ...structuredClone(ENDED), current: { slide: 4, click: 1 } });
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), start: 'last', refresh: 0 });
+		await screen.findByTitle('다시 보는 슬라이드');
+		api.fetchClassLive.mockResolvedValueOnce({ ...structuredClone(ENDED), current: { slide: 4, click: 1 } });
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), start: 'last', refresh: 1 });
+		await waitFor(() => expect(api.fetchClassLive).toHaveBeenCalledTimes(2));
+		expect(deck().goto).toHaveBeenLastCalledWith({ slide: 4, click: 1 });
+	});
+
+	it('다른 묶음으로 바뀌면 처음부터 보고, 예전 묶음의 단계 수를 버린다', async () => {
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), start: 'last', refresh: 0 });
+		await screen.findByTitle('다시 보는 슬라이드');
+		await drawn({ slide: 2, click: 1 }, 1);
+		await act(() => button('다음').click());
+		await drawn({ slide: 3, click: 0 }, 0); // 2번 슬라이드의 단계 수(1)를 기억한다
+		api.fetchClassLive.mockResolvedValueOnce({ ...structuredClone(ENDED), deck: { id: 12, slide_count: 4, available: true, public: true } });
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), start: 'last', refresh: 1 });
+		const fresh = () => decks.all.at(-1)!;
+		await waitFor(() => expect(fresh().goto).toHaveBeenLastCalledWith({ slide: 1, click: 0 }));
+		await act(() => fresh().listener?.({ ready: true, total: 4, position: { slide: 1, click: 0 }, clicksTotal: 0 }));
+		await act(() => button('다음').click());
+		await act(() => fresh().listener?.({ ready: true, total: 4, position: { slide: 2, click: 0 }, clicksTotal: 0 }));
+		await act(() => button('다음').click());
+		await act(() => fresh().listener?.({ ready: true, total: 4, position: { slide: 3, click: 0 }, clicksTotal: 0 }));
+		await act(() => button('이전').click());
+		expect(fresh().goto).toHaveBeenLastCalledWith({ slide: 2, click: 0 }); // 새 묶음의 2번은 단계가 없다
+	});
+
+	it('공개·비공개가 바뀌면 알리고, 비공개로 바뀌어 초점을 잃으면 제목으로 옮긴다', async () => {
+		const onAnnounce = vi.fn();
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 0, onAnnounce });
+		await screen.findByTitle('다시 보는 슬라이드');
+		button('다음').focus();
+		api.fetchClassLive.mockResolvedValueOnce(privateEnded());
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 1, onAnnounce });
+		await screen.findByText('이 회차의 슬라이드는 공개되지 않았습니다.');
+		expect(onAnnounce).toHaveBeenLastCalledWith('이 회차의 슬라이드는 공개되지 않았습니다.');
+		await waitFor(() => expect(document.activeElement?.tagName).toBe('H1'));
+		api.fetchClassLive.mockResolvedValueOnce(structuredClone(ENDED));
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 2, onAnnounce });
+		await screen.findByTitle('다시 보는 슬라이드');
+		expect(onAnnounce).toHaveBeenLastCalledWith('슬라이드가 공개되었습니다.');
+	});
+
+	it('공개 여부가 그대로면 알리지 않는다', async () => {
+		const onAnnounce = vi.fn();
+		const view = render(ReplayView, { classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 0, onAnnounce });
+		await screen.findByTitle('다시 보는 슬라이드');
+		api.fetchClassLive.mockResolvedValueOnce(structuredClone(ENDED));
+		await view.rerender({ classroomId: 7, sessionId: 4, onBack: vi.fn(), refresh: 1, onAnnounce });
+		await waitFor(() => expect(api.fetchClassLive).toHaveBeenCalledTimes(2));
+		expect(onAnnounce).not.toHaveBeenCalled();
+	});
+});
