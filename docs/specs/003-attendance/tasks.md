@@ -1,6 +1,6 @@
 ---
 spec: 003-attendance
-status: draft        # draft | approved | stale
+status: approved        # draft | approved | stale
 updated: 2026-11-27
 ---
 
