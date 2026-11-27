@@ -2,7 +2,7 @@
 id: 003-attendance
 title: 출석 (코드, 수기 보정)
 milestone: M1
-status: draft        # draft | approved | stale
+status: approved        # draft | approved | stale
 depends_on: [001-classroom-entry, 002-slide-sync]
 screens: [교수 수업 화면(Main), 프로젝터 화면(Projector), 학생 모바일 화면(Student), 교수 관리 페이지(Admin)]
 updated: 2026-11-27
