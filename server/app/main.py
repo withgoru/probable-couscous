@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
+from app.attendance import router as attendance_router
 from app.auth import AuthProvider, GitHubProvider
 from app.class_state import router as class_state_router
 from app.classrooms import router as classrooms_router
@@ -126,6 +127,7 @@ def create_app(
     # 아래의 모든 경로를 받는 클라이언트 라우트보다 먼저 등록한다
     app.include_router(auth_router)
     app.include_router(classrooms_router)
+    app.include_router(attendance_router)
     app.include_router(invites_router)
     app.include_router(join_router)
     app.include_router(join_requests_router)
