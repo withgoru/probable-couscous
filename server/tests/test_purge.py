@@ -248,6 +248,11 @@ def test_c6_the_purge_is_recorded_as_a_system_event_with_counts_and_no_personal_
         "classroom_verifications": 1,
         "device_logins": 1,
         "accounts": 1,
+        # 003 출석 표(T012). 이 강좌는 수업을 하지 않아 0이다. 출석이 있는 강좌는 test_attendance_purge.py가 본다
+        "attendance_marks": 0,
+        "attendance_decisions": 0,
+        "attendance_requests": 0,
+        "attendance_windows": 0,
     }
     assert "@" not in e["payload"]
 
