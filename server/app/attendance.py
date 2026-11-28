@@ -24,7 +24,7 @@ from app.attendance_core import (
 from app.authz import Action, Granted
 from app.class_access import guard_class
 from app.classrooms import load_classroom
-from app.db import get_db, transaction
+from app.db import get_db, read_snapshot, transaction
 from app.realtime import publish_class
 from app.sessions import load_session
 from app.ws_class import MEMBER_ONLY, PROFESSOR_ONLY
@@ -377,3 +377,68 @@ def approve_request(request_id: int, granted: ManageGuard, db: Db, request: Requ
 @router.post(_DECIDE + "reject")
 def reject_request(request_id: int, granted: ManageGuard, db: Db, request: Request):
     return _decide(request, db, granted, request_id, "rejected")
+
+
+# --- 출석 현황과 직접 바꾸기(AC21~AC23, AC25) -----------------------------------------------------
+
+NOT_STARTED = "아직 수업하지 않은 회차입니다."  # AC23
+BAD_STATUS = "상태는 출석 또는 결석으로 골라 주세요."
+ENTRY_NOT_FOUND = "명단에 없는 학생입니다. 명단을 새로 고친 뒤 다시 시도해 주세요."
+_TABLE = "/api/classrooms/{classroom_id}/sessions/{session_id}/attendance"
+
+
+def _started(session: sqlite3.Row) -> bool:
+    return session["first_started_at"] is not None
+
+
+@router.get(_TABLE)
+def attendance_table(session_id: int, granted: ManageGuard, db: Db):
+    """회차의 출석 현황(AC22). 끝난 회차와 보관된 강좌에서도 본다. 한 번도 시작하지 않았으면 표가 없다(AC23)."""
+    classroom_id = granted.resource.id
+    # 명단·기록·요청을 한 시점에서 읽는다. 따로 읽으면 그사이 들어온 학생의 요청이 명단에 없는 채로 끼어든다
+    with read_snapshot(db):
+        if not _started(load_session(db, classroom_id, session_id)):  # 다른 강좌의 회차는 404
+            return {"started": False}
+        return attendance_state.session_table(db, classroom_id, session_id)
+
+
+class DirectChange(BaseModel):
+    status: object = None
+
+
+_DIRECT = {"present": "manual_present", "absent": "manual_absent"}
+
+
+@router.put(_TABLE + "/{roster_entry_id}")
+def change_attendance(session_id: int, roster_entry_id: int, body: DirectChange, granted: ManageGuard, db: Db,
+                      request: Request):
+    """교수가 상태를 직접 바꾼다(AC21). 결석 → 출석은 "출석 (수기)". 요청이 없어도, 끝난 회차도 된다.
+
+    같은 상태로 바꾸면 기록을 더하지 않고 알리지 않는다(코드 출석을 "출석"으로 눌러도 수기로 내려가지 않는다).
+    코드 출석을 결석으로 바꾸는 확인은 화면이 `source`로 묻는다.
+    """
+    if not isinstance(body.status, str) or body.status not in _DIRECT:
+        raise HTTPException(status_code=422, detail=BAD_STATUS)
+    classroom_id = granted.resource.id
+    with transaction(db):
+        now = request.app.state.clock.now().isoformat()
+        if not _started(load_session(db, classroom_id, session_id)):
+            raise HTTPException(status_code=409, detail=NOT_STARTED)
+        if not db.execute(
+            "SELECT 1 FROM roster_entries WHERE id = ? AND classroom_id = ? AND removed_at IS NULL",
+            (roster_entry_id, classroom_id),
+        ).fetchone():
+            raise HTTPException(status_code=404, detail=ENTRY_NOT_FOUND)
+        before = attendance_state.last_status(db, classroom_id, session_id, roster_entry_id)
+        changed = (body.status == "present") == (before is AttendanceStatus.ABSENT)
+        if changed:
+            db.execute(
+                "INSERT INTO attendance_marks(classroom_id, session_id, roster_entry_id, kind, actor_kind, actor_ref, "
+                "created_at) VALUES (?, ?, ?, ?, 'professor', ?, ?)",
+                (classroom_id, session_id, roster_entry_id, _DIRECT[body.status], granted.actor.github_id, now),
+            )
+        view = attendance_state.mark_view(attendance_state.last_mark(db, classroom_id, session_id, roster_entry_id))
+        membership_id = identity.membership_of_entry(db, classroom_id, roster_entry_id)
+    if changed:
+        publish_attendance_change(request, db, classroom_id, session_id, membership_id)
+    return {"roster_entry_id": roster_entry_id, **view}

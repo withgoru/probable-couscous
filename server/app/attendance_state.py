@@ -108,32 +108,23 @@ def window_summary(db: sqlite3.Connection, classroom_id: int, session_id: int, n
     return {"open": open_, "opened_at": window["opened_at"], "closes_at": window["closes_at"], "closed_at": closed_at}
 
 
-def latest_kinds(db: sqlite3.Connection, classroom_id: int, session_id: int) -> dict[int, str]:
-    """명단 항목 번호 → 이 회차의 마지막 기록 종류. 기록이 없는 학생은 없다(결석)."""
+def latest_marks(db: sqlite3.Connection, classroom_id: int, session_id: int) -> dict[int, sqlite3.Row]:
+    """명단 항목 번호 → 이 회차의 마지막 기록(`kind`, `created_at`). 기록이 없는 학생은 없다(결석)."""
     rows = db.execute(
-        "SELECT m.roster_entry_id, m.kind FROM attendance_marks m "
+        "SELECT m.roster_entry_id, m.kind, m.created_at FROM attendance_marks m "
         "WHERE m.classroom_id = ? AND m.session_id = ? AND m.id = ("
         "  SELECT MAX(id) FROM attendance_marks l"
         "   WHERE l.classroom_id = m.classroom_id AND l.session_id = m.session_id AND l.roster_entry_id = m.roster_entry_id"
         ")",
         (classroom_id, session_id),
     )
-    return {r["roster_entry_id"]: r["kind"] for r in rows}
+    return {r["roster_entry_id"]: r for r in rows}
 
 
 def last_status(db: sqlite3.Connection, classroom_id: int, session_id: int, roster_entry_id: int) -> AttendanceStatus:
     """한 학생의 이 회차 상태(마지막 기록 한 줄만 읽는다)."""
-    last = db.execute(
-        "SELECT kind FROM attendance_marks WHERE classroom_id = ? AND session_id = ? AND roster_entry_id = ? "
-        "ORDER BY id DESC LIMIT 1",
-        (classroom_id, session_id, roster_entry_id),
-    ).fetchone()
+    last = last_mark(db, classroom_id, session_id, roster_entry_id)
     return attendance_status([last["kind"]] if last else [])
-
-
-def status_of(kinds: dict[int, str], roster_entry_id: int) -> AttendanceStatus:
-    kind = kinds.get(roster_entry_id)
-    return attendance_status([kind] if kind else [])
 
 
 def professor_tally(db: sqlite3.Connection, classroom_id: int, session_id: int) -> dict:
@@ -144,13 +135,9 @@ def professor_tally(db: sqlite3.Connection, classroom_id: int, session_id: int) 
             "SELECT id FROM roster_entries WHERE classroom_id = ? AND removed_at IS NULL", (classroom_id,)
         )
     ]
-    kinds = latest_kinds(db, classroom_id, session_id)
-    present = sum(1 for entry in roster if status_of(kinds, entry) is not AttendanceStatus.ABSENT)
-    # 대기 요청: 처리하지 않았고, 지금 명단에 있고, 아직 결석인 학생의 것(요청 뒤 코드로 출석했으면 세지 않는다)
-    pending = sum(
-        1 for r in pending_requests(db, classroom_id, session_id) if status_of(kinds, r["roster_entry_id"])
-        is AttendanceStatus.ABSENT
-    )
+    last = latest_marks(db, classroom_id, session_id)
+    present = sum(1 for entry in roster if mark_view(last.get(entry))["status"] != AttendanceStatus.ABSENT.value)
+    pending = len(waiting_requests(db, classroom_id, session_id, last))
     return {"present": present, "roster": len(roster), "pending": pending}
 
 
@@ -163,6 +150,19 @@ def pending_requests(db: sqlite3.Connection, classroom_id: int, session_id: int)
         "AND NOT EXISTS (SELECT 1 FROM attendance_decisions d WHERE d.request_id = q.id) ORDER BY q.id",
         (classroom_id, session_id),
     ).fetchall()
+
+
+def waiting_requests(
+    db: sqlite3.Connection, classroom_id: int, session_id: int, last: dict[int, sqlite3.Row]
+) -> list[sqlite3.Row]:
+    """교수가 볼 대기 요청: 처리하지 않았고, 지금 명단에 있고, 아직 결석인 학생의 것.
+
+    요청 뒤 코드로 출석했거나 교수가 직접 출석으로 바꾼 학생의 요청은 빠진다(처리 기록은 남기지 않는다, T009 노트 6번).
+    """
+    return [
+        q for q in pending_requests(db, classroom_id, session_id)
+        if mark_view(last.get(q["roster_entry_id"]))["status"] == AttendanceStatus.ABSENT.value
+    ]
 
 
 def student_view(db: sqlite3.Connection, classroom_id: int, session_id: int, membership_id: int) -> dict:
@@ -194,3 +194,59 @@ def live_attendance(
         body.update(student_view(db, classroom_id, session_id, membership_id))
     body["server_now"] = now.isoformat()
     return body
+
+
+# 출석 현황의 `source`: 마지막 기록이 무엇이었는지. 화면은 코드 출석을 결석으로 바꿀 때 확인을 묻는다(AC21)
+_SOURCE = {"code": "code", "request_approved": "request", "manual_present": "manual", "manual_absent": "manual"}
+
+
+def mark_view(last: sqlite3.Row | None) -> dict:
+    """한 학생의 상태·시각·출처. 시각은 출석을 만든 기록의 시각이고 결석이면 없다."""
+    status = attendance_status([last["kind"]] if last else [])
+    return {
+        "status": status.value,
+        "at": None if status is AttendanceStatus.ABSENT else last["created_at"],
+        "source": _SOURCE[last["kind"]] if last else None,
+    }
+
+
+def last_mark(db: sqlite3.Connection, classroom_id: int, session_id: int, roster_entry_id: int) -> sqlite3.Row | None:
+    return db.execute(
+        "SELECT kind, created_at FROM attendance_marks WHERE classroom_id = ? AND session_id = ? "
+        "AND roster_entry_id = ? ORDER BY id DESC LIMIT 1",
+        (classroom_id, session_id, roster_entry_id),
+    ).fetchone()
+
+
+def session_table(db: sqlite3.Connection, classroom_id: int, session_id: int) -> dict:
+    """관리 페이지의 출석 현황(AC20, AC22, AC25). 지금 명단만, 명단 순서대로. 학번·이름은 명단에서 읽는다(C7)."""
+    roster = db.execute(
+        "SELECT id, student_no, name FROM roster_entries WHERE classroom_id = ? AND removed_at IS NULL ORDER BY id",
+        (classroom_id,),
+    ).fetchall()
+    last = latest_marks(db, classroom_id, session_id)
+    students = [
+        {"roster_entry_id": r["id"], "student_no": r["student_no"], "name": r["name"], **mark_view(last.get(r["id"]))}
+        for r in roster
+    ]
+    by_id = {r["id"]: r for r in roster}
+    waiting = [
+        {
+            "id": q["id"],
+            "roster_entry_id": q["roster_entry_id"],
+            "student_no": by_id[q["roster_entry_id"]]["student_no"],
+            "name": by_id[q["roster_entry_id"]]["name"],
+            "reason": q["reason"],
+            "created_at": q["created_at"],
+        }
+        for q in waiting_requests(db, classroom_id, session_id, last)
+    ]
+    present = sum(1 for s in students if s["status"] != AttendanceStatus.ABSENT.value)
+    return {
+        "started": True,
+        "present": present,
+        "roster": len(roster),
+        "pending": len(waiting),
+        "students": students,
+        "requests": waiting,
+    }

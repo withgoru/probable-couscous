@@ -56,6 +56,17 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
         conn.execute("COMMIT")
 
 
+
+@contextmanager
+def read_snapshot(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+    """읽기 트랜잭션. 안의 SELECT들이 한 시점(WAL 스냅숏)을 본다. 쓰기 잠금은 잡지 않는다."""
+    conn.execute("BEGIN DEFERRED")
+    try:
+        yield conn
+    finally:
+        conn.execute("COMMIT")
+
+
 def _statements(sql: str) -> Iterator[str]:
     """SQL을 문장 단위로 나눈다. 트리거처럼 안에 `;`가 있는 문장도 하나로 본다."""
     start = 0
