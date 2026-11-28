@@ -5,12 +5,16 @@
 - 변경 요청의 `Origin` 검사는 앱 전체(`main.check_origin`)가 한다.
 """
 
+import csv
+import io
 import sqlite3
+import unicodedata
 from datetime import datetime, timedelta
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from app import attendance_state, events, identity
@@ -22,7 +26,7 @@ from app.attendance_core import (
     slot_of,
 )
 from app.authz import Action, Granted
-from app.class_access import guard_class
+from app.class_access import NOT_FOUND, guard_class
 from app.classrooms import load_classroom
 from app.db import get_db, read_snapshot, transaction
 from app.realtime import publish_class
@@ -442,3 +446,54 @@ def change_attendance(session_id: int, roster_entry_id: int, body: DirectChange,
     if changed:
         publish_attendance_change(request, db, classroom_id, session_id, membership_id)
     return {"roster_entry_id": roster_entry_id, **view}
+
+
+# --- 출석부 CSV(AC24, AC25) -------------------------------------------------------------------
+
+# 엑셀이 수식으로 읽는 첫 글자. 앞에 '를 붙여 글자로 남긴다(수식 주입 막기, plan 'CSV')
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+# 파일 이름에 쓸 수 없는 글자(윈도우 기준). 제어·서식 문자(줄바꿈, 방향 바꾸기 U+202E 등)는 아래에서 따로 바꾼다
+_BAD_FILE_CHARS = frozenset('\\/:*?"<>|')
+TITLE_MAX = 60  # 브라우저와 파일 시스템(255바이트)이 자르지 않게, 한글 60자 + " 출석부.csv"
+
+
+def _cell(value: str) -> str:
+    return "'" + value if value.startswith(_FORMULA_START) else value
+
+
+def _safe_char(ch: str) -> str:
+    return "_" if ch in _BAD_FILE_CHARS or unicodedata.category(ch).startswith("C") else ch
+
+
+def _file_name(db: sqlite3.Connection, classroom_id: int) -> str:
+    row = db.execute("SELECT name, section_name FROM classrooms WHERE id = ?", (classroom_id,)).fetchone()
+    if row is None:  # 권한 판단 뒤 정리로 지워진 강좌
+        raise HTTPException(status_code=404, detail=NOT_FOUND)
+    title = " ".join(part for part in (row["name"], row["section_name"]) if part)
+    return "".join(_safe_char(ch) for ch in title[:TITLE_MAX]) + " 출석부.csv"
+
+
+@router.get("/api/classrooms/{classroom_id}/attendance.csv")
+def attendance_csv(granted: ManageGuard, db: Db):
+    """강좌 전체 출석부. 한 줄에 학생 한 명, 시작한 회차마다 출석/결석, 마지막 칸은 출석 횟수(AC24).
+
+    UTF-8 BOM과 CRLF로 엑셀에서 한글이 깨지지 않게 한다. 이메일은 넣지 않는다(C7, C11).
+    보관된 강좌에서도 받는다(정리 전에 받아 둔다).
+    """
+    classroom_id = granted.resource.id
+    with read_snapshot(db):
+        titles, students = attendance_state.attendance_book(db, classroom_id)
+        file_name = _file_name(db, classroom_id)
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\r\n")
+    writer.writerow(["학번", "이름", *(_cell(t) for t in titles), "출석 횟수"])
+    for student_no, name, attended in students:
+        writer.writerow(
+            [_cell(student_no), _cell(name), *("출석" if a else "결석" for a in attended), str(sum(attended))]
+        )
+    disposition = f"attachment; filename=\"attendance.csv\"; filename*=UTF-8''{quote(file_name, safe='')}"
+    return Response(
+        content="\ufeff".encode() + out.getvalue().encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": disposition, "Cache-Control": "no-store"},
+    )
