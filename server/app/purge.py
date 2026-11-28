@@ -2,7 +2,8 @@
 
 하루 한 번 돈다. 지우는 것: 명단, 멤버십과 사람의 연결과 기기 인증 기록, 입장 요청, 인증 챌린지, 메일 발송 대기,
 그리고 어느 강좌에도 이어지지 않게 된 계정과 그 기기 로그인(사람 쪽은 `identity` 모듈이 지운다, C9).
-남기는 것: 강좌, 멤버십(가명), 기록(events, C6). 강좌마다 한 트랜잭션이고, 정리 결과를 같은 트랜잭션에서
+출석 창, 출석 기록, 수기 요청(사유)과 그 처리도 지운다(003 plan '보관 기간', T012). 이 표들을 지우는 코드는 여기뿐이다.
+남기는 것: 강좌, 회차, 멤버십(가명), 기록(events, C6). 강좌마다 한 트랜잭션이고, 정리 결과를 같은 트랜잭션에서
 `pii_purged` 기록으로 남긴다. 같은 입력에 여러 번 돌려도 결과가 같다: 지운 것이 없고 이미 기록이 있으면 다시 기록하지 않는다.
 """
 
@@ -20,6 +21,8 @@ from app.db import transaction
 log = logging.getLogger(__name__)
 
 RETENTION_MONTHS = 6
+# 외래 키 순서: 기록과 처리가 요청을 가리키므로 요청보다 먼저 지운다. 창은 아무도 가리키지 않는다
+ATTENDANCE_TABLES = ("attendance_marks", "attendance_decisions", "attendance_requests", "attendance_windows")
 DAY_SECONDS = 24 * 60 * 60
 THREAD_NAME = "pii-purge"
 
@@ -45,7 +48,7 @@ def _purge_one(db: sqlite3.Connection, classroom_id: int, now: datetime) -> dict
     """한 강좌를 정리한다. 기록했으면 지운 수를, 지운 것도 없고 이미 기록이 있으면 None을 돌려준다."""
     with transaction(db):
         counts = identity.forget_classroom_people(db, classroom_id)  # 명단을 가리키므로 먼저 지운다
-        for table in ("roster_entries", "join_requests", "mail_outbox", "login_challenges"):
+        for table in ("roster_entries", "join_requests", "mail_outbox", "login_challenges", *ATTENDANCE_TABLES):
             counts[table] = db.execute(f"DELETE FROM {table} WHERE classroom_id = ?", (classroom_id,)).rowcount
         already = db.execute(
             "SELECT 1 FROM events WHERE classroom_id = ? AND type = 'pii_purged' LIMIT 1", (classroom_id,)

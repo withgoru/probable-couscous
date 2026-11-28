@@ -157,14 +157,22 @@ def test_c6_only_the_purge_deletes_or_replaces_attendance_records():
     )
     # 표 이름을 변수로 넘기는 지우기(purge.py처럼 f"DELETE FROM {table}")도 잡으려고, 기록 표 이름과 지우기·덮어쓰기
     # 문장이 한 파일에 함께 있으면 정리 작업 밖에서는 거절한다
-    names = re.compile(r"attendance_(marks|requests|decisions)")
+    # 출석 창은 연장·마감에서 고치는 상태 표라 UPDATE는 되지만, 지우기·덮어쓰기는 정리 작업만 한다(T012)
+    window_forbidden = re.compile(
+        r"(DELETE\s+FROM|REPLACE\s+INTO|INSERT\s+OR\s+REPLACE\s+INTO)\s+attendance_windows", re.IGNORECASE
+    )
+    names = re.compile(r"attendance_(marks|requests|decisions|windows)")
     destructive = re.compile(r"(DELETE\s+FROM|REPLACE)", re.IGNORECASE)
     offenders = []
     for path in sorted(APP_DIR.rglob("*.py")):
         if path.name == "purge.py":
             continue
         text = path.read_text(encoding="utf-8")
-        if forbidden.search(text) or (names.search(text) and destructive.search(text)):
+        if (
+            forbidden.search(text)
+            or window_forbidden.search(text)
+            or (names.search(text) and destructive.search(text))
+        ):
             offenders.append(path.name)
     assert offenders == [], f"출석 기록을 고치거나 지우는 코드가 정리 작업 밖에 있다: {offenders}"
 
