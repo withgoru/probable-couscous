@@ -140,7 +140,7 @@ def decide(actor: Actor, action: Action | str, classroom: ClassroomRef | None = 
         if actor.kind != "student":
             return Decision(False, "forbidden")
         if actor.classroom_id != classroom.id:
-            return Decision(False, "not_member")
+            return Decision(False, "not_member_attend")  # 출석을 보내는 경로라 '볼 수'가 아닌 문구(T002 노트)
         return Decision(True) if classroom.status == "active" else Decision(False, "archived")
 
     if action is Action.CLASSROOM_READ:
@@ -163,6 +163,7 @@ _DENIAL: dict[str, tuple[int, str]] = {
     "archived": (403, "이 강좌는 보관되었습니다. 교수님께 문의해 주세요."),
     "unknown_action": (403, "허용되지 않은 요청입니다."),
     "no_class_permission": (403, "이 강좌에 대한 권한이 없습니다."),  # 002 AC43
+    "not_member_attend": (403, "이 강좌에 입장한 학생만 출석할 수 있습니다. 강좌 링크를 다시 열어 입장해 주세요."),
     "archived_no_class": (409, "보관된 강좌는 수업을 시작할 수 없습니다."),  # 002 AC11
 }
 _NOT_FOUND = "찾을 수 없는 강좌입니다."

@@ -84,9 +84,14 @@ def find_membership(db: sqlite3.Connection, classroom_id: int, account_id: int) 
 
 
 def roster_entry_of(db: sqlite3.Connection, classroom_id: int, membership_id: int) -> int | None:
-    """이 강좌의 멤버십이 이어진 명단 항목 번호(003 출석은 학생을 명단 항목으로 센다). 없으면 None."""
+    """이 강좌의 멤버십이 이어진 **지금 명단의** 항목 번호(003 출석은 학생을 명단 항목으로 센다).
+
+    명단에서 빠진 항목에 이어져 있으면 None이다(빠졌다가 다시 들어온 학생은 다시 입장할 때 새 항목에 이어진다).
+    """
     row = db.execute(
-        "SELECT roster_entry_id FROM member_identities WHERE classroom_id = ? AND membership_id = ?",
+        "SELECT i.roster_entry_id FROM member_identities i "
+        "JOIN roster_entries r ON r.id = i.roster_entry_id AND r.classroom_id = i.classroom_id AND r.removed_at IS NULL "
+        "WHERE i.classroom_id = ? AND i.membership_id = ?",
         (classroom_id, membership_id),
     ).fetchone()
     return row["roster_entry_id"] if row else None

@@ -127,6 +127,6 @@ def publish_admin(request: HTTPConnection, classroom_id: int, type_: str, **data
     _publish(request, admin_room(classroom_id), type_, data)
 
 
-def publish_class(request: HTTPConnection, classroom_id: int, type_: str, **data: object) -> None:
+def publish_class(request: HTTPConnection, classroom_id: int, type_: str, /, **data: object) -> None:
     """수업 방에 알린다. `publish_admin`과 같이 **DB에 기록이 끝난 뒤에** 부르고, 실패해도 결과는 그대로다."""
     _publish(request, class_room(classroom_id), type_, data)
