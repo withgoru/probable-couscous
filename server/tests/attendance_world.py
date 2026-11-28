@@ -31,7 +31,8 @@ def entered_student(world, prof, classroom_id, email, no=None, name="김철수")
     student = world.client()
     assert student.post(f"/api/join/{token}/email", json={"email": email}, headers=ORIGIN).json()["next"] == "code"
     world.app.state.mail_worker.process_due()
-    code = re.search(r"\b(\d{6})\b", world.app.state.mailer.sent[-1].text).group(1)
+    mine = [m for m in world.app.state.mailer.sent if m.to == email]  # 여러 학생을 넣으면 마지막 메일이 남의 것일 수 있다
+    code = re.search(r"\b(\d{6})\b", mine[-1].text).group(1)
     res = student.post(f"/api/join/{token}/code", json={"email": email, "code": code}, headers=ORIGIN)
     assert res.status_code == 200, res.text
     assert student.post(f"/api/join/{token}/enter", headers=ORIGIN).status_code == 200

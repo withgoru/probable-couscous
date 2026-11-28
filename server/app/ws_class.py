@@ -39,6 +39,7 @@ ViewGuard = Annotated[Granted, Depends(guard_class(Action.CLASS_VIEW, load_class
 
 MAX_CLICK = 999  # 서버는 슬라이드마다 단계 수를 모른다. 정수가 아닌 값과 터무니없는 값만 막는다
 PROFESSOR_ONLY = "professor"  # 발행에 붙이면 교수 화면(프로젝터 제외)만 받는다
+MEMBER_ONLY = "member"  # 발행에 붙이면 `membership_id`의 학생 화면만 받는다. 번호는 떼고 보낸다(003 attendance.mine)
 GOODBYE_CODE = 4403  # 명단에서 빠졌거나 로그인이 끊겨 닫는다. 화면은 이 코드면 다시 붙지 않고 입장 화면으로 간다
 GOODBYES = {
     "removed": "수강생 명단에서 빠져 이 수업을 볼 수 없습니다. 교수님께 문의해 주세요.",
@@ -167,6 +168,9 @@ async def _pump(screen: Screen, sub) -> str:
             continue
         to = event.pop("to", None)
         if to == PROFESSOR_ONLY and screen.role != "professor":
+            continue
+        # 누구에게 간 것인지는 그 학생에게만 의미가 있다. 다른 화면에는 보내지 않는다(C9)
+        if to == MEMBER_ONLY and (screen.role != "student" or event.pop("membership_id", None) != screen.membership_id):
             continue
         await screen.send(event)
 

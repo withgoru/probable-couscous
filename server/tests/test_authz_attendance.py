@@ -58,16 +58,16 @@ def test_attendance_self_is_for_students_who_entered_this_active_classroom():
         "owner": "forbidden",
         "stranger": "forbidden",
         "member": "ok",
-        "member_of_other": "not_member",
-        "not_entered": "not_member",  # AC27
+        "member_of_other": "not_member_attend",
+        "not_entered": "not_member_attend",  # AC27
         "anon": "not_logged_in",
     }
     assert reasons(Action.ATTENDANCE_SELF, OWN_ARCHIVED) == {
         "owner": "forbidden",
         "stranger": "forbidden",
         "member": "archived",
-        "member_of_other": "not_member",
-        "not_entered": "not_member",  # AC27
+        "member_of_other": "not_member_attend",
+        "not_entered": "not_member_attend",  # AC27
         "anon": "not_logged_in",
     }
 
@@ -82,6 +82,13 @@ def test_attendance_actions_have_stable_names():
     # 라우트와 화면이 문자열로 부를 수 있다
     assert decide(OWNER, "attendance.manage", OWN).allowed
     assert decide(MEMBER, "attendance.self", OWN).allowed
+
+
+def test_attendance_self_denial_speaks_about_attending():
+    res = _deny(Decision(False, "not_member_attend"))
+    assert (res.status_code, res.detail) == (
+        403, "이 강좌에 입장한 학생만 출석할 수 있습니다. 강좌 링크를 다시 열어 입장해 주세요."
+    )
 
 
 def test_attendance_denials_use_the_spec_wording():

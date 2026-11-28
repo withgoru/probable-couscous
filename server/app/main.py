@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.attendance import router as attendance_router
+from app.attendance_core import WrongCodeLimiter
 from app.auth import AuthProvider, GitHubProvider
 from app.class_state import router as class_state_router
 from app.classrooms import router as classrooms_router
@@ -107,6 +108,7 @@ def create_app(
     app.state.clock = clock
     app.state.mailer = mailer
     app.state.bus = bus or InMemoryRoomBus()
+    app.state.attendance_limiter = WrongCodeLimiter()  # 003 틀린 코드 제한(메모리, plan 위험 5)
     app.state.presence = Presence()  # 수업 화면의 따라가기 현황(메모리, DB에 쓰지 않는다)
     app.state.mail_worker = mail_worker
     app.state.purge_job = purge_job

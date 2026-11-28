@@ -13,14 +13,22 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import attendance_state, events
-from app.attendance_core import compute_attendance_code, slot_bounds, slot_of
+from app import attendance_state, events, identity
+from app.attendance_core import (
+    AttendanceStatus,
+    attendance_status,
+    code_accepted,
+    compute_attendance_code,
+    slot_bounds,
+    slot_of,
+)
 from app.authz import Action, Granted
 from app.class_access import guard_class
 from app.classrooms import load_classroom
 from app.db import get_db, transaction
 from app.realtime import publish_class
 from app.sessions import load_session
+from app.ws_class import MEMBER_ONLY, PROFESSOR_ONLY
 
 router = APIRouter()
 
@@ -176,3 +184,101 @@ def attendance_code(session_id: int, granted: ManageGuard, db: Db, request: Requ
 
     body = {"current": at(slot), "next": at(slot + 1), "closes_at": window["closes_at"], "server_now": now.isoformat()}
     return JSONResponse(body, headers=NO_STORE)
+
+
+# --- 학생 코드 출석(AC12~AC16, AC27) ------------------------------------------------------------
+
+SelfGuard = Annotated[Granted, Depends(guard_class(Action.ATTENDANCE_SELF, load_classroom))]
+
+WRONG_CODE = "코드가 맞지 않습니다. 교실 화면의 숫자를 다시 확인해 주세요."  # AC13
+LOCKED = "잠시 뒤에 다시 입력해 주세요. ({seconds}초)"  # AC13
+CLOSED = "출석 시간이 끝났습니다. 교수님께 수기 출석을 요청하세요."  # AC14
+BAD_KEY = "요청이 올바르지 않습니다. 화면을 새로 고친 뒤 다시 눌러 주세요."
+NOT_ON_ROSTER = "이 강좌에 입장한 학생만 출석할 수 있습니다. 강좌 링크를 다시 열어 입장해 주세요."
+CLIENT_KEY_MAX = 64
+
+
+class CheckIn(BaseModel):
+    code: object = None
+    client_key: object = None
+
+
+def _clean_key(value: object) -> str:
+    if not isinstance(value, str) or not 1 <= len(value) <= CLIENT_KEY_MAX:
+        raise HTTPException(status_code=422, detail=BAD_KEY)
+    return value
+
+
+def publish_attendance_change(
+    request: Request, db: sqlite3.Connection, classroom_id: int, session_id: int, membership_id: int | None
+) -> None:
+    """출석이 바뀐 뒤(커밋 뒤) 교수 화면에 수를, 그 학생의 화면에 자기 상태를 알린다(AC6, AC18, AC19)."""
+    tally = attendance_state.professor_tally(db, classroom_id, session_id)
+    publish_class(request, classroom_id, "attendance.tally", session_id=session_id, **tally, to=PROFESSOR_ONLY)
+    if membership_id is not None:
+        mine = attendance_state.student_view(db, classroom_id, session_id, membership_id)
+        publish_class(
+            request, classroom_id, "attendance.mine", session_id=session_id, **mine,
+            membership_id=membership_id, to=MEMBER_ONLY,
+        )
+
+
+@router.post("/api/class/{classroom_id}/sessions/{session_id}/attendance")
+def check_in(session_id: int, body: CheckIn, granted: SelfGuard, db: Db, request: Request):
+    """학생 본인의 코드 출석. 순서가 중요하다.
+
+    1. 같은 누름의 재전송(같은 `client_key`)이면 처음과 같은 답(마감 뒤라도). 이미 출석이면 `already`(AC16).
+    2. 출석 받는 중이 아니면 409(AC14).
+    3. 틀린 코드 제한기로 막힘 확인 → 코드 확인 → 틀림 세기를 한 번에(T003 `attempt`). 막혔으면 429.
+    4. 맞으면 기록하고 커밋한 뒤 알린다(C13).
+    """
+    classroom_id = granted.resource.id
+    membership_id = granted.actor.membership_id
+    client_key = _clean_key(body.client_key)
+    limiter = request.app.state.attendance_limiter
+    secret = request.app.state.settings.server_secret
+    with transaction(db):
+        now = request.app.state.clock.now()
+        load_session(db, classroom_id, session_id)
+        # 권한 판단(입장한 학생) 뒤 쓰기 잠금 안에서 지금 명단의 항목을 다시 찾는다. 그사이 명단에서 빠졌으면
+        # 출석을 남기지 않는다. 권한 판단이 아니라 기록할 대상(명단 항목)을 정하는 일이다(notes/T008.md)
+        entry = identity.roster_entry_of(db, classroom_id, membership_id)
+        if entry is None:
+            raise HTTPException(status_code=403, detail=NOT_ON_ROSTER)
+        code_mark = db.execute(
+            "SELECT client_key FROM attendance_marks WHERE classroom_id = ? AND session_id = ? AND roster_entry_id = ? "
+            "AND kind = 'code'",
+            (classroom_id, session_id, entry),
+        ).fetchone()
+        last = db.execute(
+            "SELECT kind FROM attendance_marks WHERE classroom_id = ? AND session_id = ? AND roster_entry_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (classroom_id, session_id, entry),
+        ).fetchone()
+        status = attendance_status([last["kind"]] if last else [])
+        if code_mark is not None and code_mark["client_key"] == client_key:
+            return {"status": AttendanceStatus.PRESENT.value, "already": False}  # 같은 누름: 처음 답 그대로
+        if code_mark is not None or status is not AttendanceStatus.ABSENT:
+            return {"status": status.value, "already": True}
+        window = attendance_state.unclosed_window(db, classroom_id, session_id)
+        if not attendance_state.is_open(window, now):
+            raise HTTPException(status_code=409, detail=CLOSED)
+        attempt = limiter.attempt(
+            (classroom_id, membership_id), now,
+            lambda: code_accepted(secret, window["id"], window["nonce"], body.code, now),
+        )
+        if attempt.seconds:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": LOCKED.format(seconds=attempt.seconds), "retry_after": attempt.seconds},
+                headers={"Retry-After": str(attempt.seconds)},
+            )
+        if not attempt.ok:
+            raise HTTPException(status_code=422, detail=WRONG_CODE)
+        db.execute(
+            "INSERT INTO attendance_marks(classroom_id, session_id, roster_entry_id, membership_id, kind, actor_kind, "
+            "actor_ref, client_key, created_at) VALUES (?, ?, ?, ?, 'code', 'student', ?, ?, ?)",
+            (classroom_id, session_id, entry, membership_id, membership_id, client_key, now.isoformat()),
+        )
+    publish_attendance_change(request, db, classroom_id, session_id, membership_id)
+    return {"status": AttendanceStatus.PRESENT.value, "already": False}
