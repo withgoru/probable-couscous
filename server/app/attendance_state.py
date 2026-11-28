@@ -250,3 +250,27 @@ def session_table(db: sqlite3.Connection, classroom_id: int, session_id: int) ->
         "students": students,
         "requests": waiting,
     }
+
+
+def attendance_book(db: sqlite3.Connection, classroom_id: int) -> tuple[list[str], list[tuple[str, str, list[bool]]]]:
+    """강좌 전체 출석부(AC24, AC25): 한 번이라도 시작한 회차의 이름(회차 순서)과, 지금 명단 학생마다
+    (학번, 이름, 회차별 출석 여부). 수기 출석도 출석이다. 부르는 쪽이 읽기 트랜잭션 하나로 묶는다."""
+    sessions = db.execute(
+        "SELECT id, title FROM class_sessions WHERE classroom_id = ? AND first_started_at IS NOT NULL "
+        "ORDER BY sort_order, id",
+        (classroom_id,),
+    ).fetchall()
+    roster = db.execute(
+        "SELECT id, student_no, name FROM roster_entries WHERE classroom_id = ? AND removed_at IS NULL ORDER BY id",
+        (classroom_id,),
+    ).fetchall()
+    last = [latest_marks(db, classroom_id, s["id"]) for s in sessions]  # 회차마다 한 번(학생마다가 아니다)
+    students = [
+        (
+            r["student_no"],
+            r["name"],
+            [mark_view(marks.get(r["id"]))["status"] != AttendanceStatus.ABSENT.value for marks in last],
+        )
+        for r in roster
+    ]
+    return [s["title"] for s in sessions], students
