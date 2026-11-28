@@ -1,7 +1,7 @@
 ---
 spec: 003-attendance
-status: approved        # draft | approved | stale
-updated: 2026-11-27
+status: stale        # draft | approved | stale
+updated: 2026-11-28
 ---
 
 # 작업: 출석 (코드, 수기 보정)
