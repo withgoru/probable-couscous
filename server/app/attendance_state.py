@@ -121,6 +121,16 @@ def latest_kinds(db: sqlite3.Connection, classroom_id: int, session_id: int) -> 
     return {r["roster_entry_id"]: r["kind"] for r in rows}
 
 
+def last_status(db: sqlite3.Connection, classroom_id: int, session_id: int, roster_entry_id: int) -> AttendanceStatus:
+    """한 학생의 이 회차 상태(마지막 기록 한 줄만 읽는다)."""
+    last = db.execute(
+        "SELECT kind FROM attendance_marks WHERE classroom_id = ? AND session_id = ? AND roster_entry_id = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (classroom_id, session_id, roster_entry_id),
+    ).fetchone()
+    return attendance_status([last["kind"]] if last else [])
+
+
 def status_of(kinds: dict[int, str], roster_entry_id: int) -> AttendanceStatus:
     kind = kinds.get(roster_entry_id)
     return attendance_status([kind] if kind else [])
@@ -136,14 +146,23 @@ def professor_tally(db: sqlite3.Connection, classroom_id: int, session_id: int) 
     ]
     kinds = latest_kinds(db, classroom_id, session_id)
     present = sum(1 for entry in roster if status_of(kinds, entry) is not AttendanceStatus.ABSENT)
-    (pending,) = db.execute(
-        "SELECT COUNT(*) FROM attendance_requests q "
+    # 대기 요청: 처리하지 않았고, 지금 명단에 있고, 아직 결석인 학생의 것(요청 뒤 코드로 출석했으면 세지 않는다)
+    pending = sum(
+        1 for r in pending_requests(db, classroom_id, session_id) if status_of(kinds, r["roster_entry_id"])
+        is AttendanceStatus.ABSENT
+    )
+    return {"present": present, "roster": len(roster), "pending": pending}
+
+
+def pending_requests(db: sqlite3.Connection, classroom_id: int, session_id: int) -> list[sqlite3.Row]:
+    """처리하지 않은 요청 중 지금 명단 학생의 것(요청 번호 순)."""
+    return db.execute(
+        "SELECT q.* FROM attendance_requests q "
         "JOIN roster_entries r ON r.id = q.roster_entry_id AND r.classroom_id = q.classroom_id AND r.removed_at IS NULL "
         "WHERE q.classroom_id = ? AND q.session_id = ? "
-        "AND NOT EXISTS (SELECT 1 FROM attendance_decisions d WHERE d.request_id = q.id)",
+        "AND NOT EXISTS (SELECT 1 FROM attendance_decisions d WHERE d.request_id = q.id) ORDER BY q.id",
         (classroom_id, session_id),
-    ).fetchone()
-    return {"present": present, "roster": len(roster), "pending": pending}
+    ).fetchall()
 
 
 def student_view(db: sqlite3.Connection, classroom_id: int, session_id: int, membership_id: int) -> dict:
@@ -151,12 +170,7 @@ def student_view(db: sqlite3.Connection, classroom_id: int, session_id: int, mem
     entry = identity.roster_entry_of(db, classroom_id, membership_id)
     if entry is None:
         return {"status": AttendanceStatus.ABSENT.value, "request": "none"}
-    last = db.execute(  # 한 학생의 마지막 기록만 읽는다(수업 화면을 다시 받을 때마다 학생 수만큼 불린다)
-        "SELECT kind FROM attendance_marks WHERE classroom_id = ? AND session_id = ? AND roster_entry_id = ? "
-        "ORDER BY id DESC LIMIT 1",
-        (classroom_id, session_id, entry),
-    ).fetchone()
-    status = attendance_status([last["kind"]] if last else [])
+    status = last_status(db, classroom_id, session_id, entry)  # 다시 받을 때마다 학생 수만큼 불려 한 줄만 읽는다
     request = db.execute(
         "SELECT d.decision FROM attendance_requests q LEFT JOIN attendance_decisions d ON d.request_id = q.id "
         "WHERE q.classroom_id = ? AND q.session_id = ? AND q.roster_entry_id = ?",
