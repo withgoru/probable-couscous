@@ -16,7 +16,6 @@ from pydantic import BaseModel
 from app import attendance_state, events, identity
 from app.attendance_core import (
     AttendanceStatus,
-    attendance_status,
     code_accepted,
     compute_attendance_code,
     slot_bounds,
@@ -250,12 +249,7 @@ def check_in(session_id: int, body: CheckIn, granted: SelfGuard, db: Db, request
             "AND kind = 'code'",
             (classroom_id, session_id, entry),
         ).fetchone()
-        last = db.execute(
-            "SELECT kind FROM attendance_marks WHERE classroom_id = ? AND session_id = ? AND roster_entry_id = ? "
-            "ORDER BY id DESC LIMIT 1",
-            (classroom_id, session_id, entry),
-        ).fetchone()
-        status = attendance_status([last["kind"]] if last else [])
+        status = attendance_state.last_status(db, classroom_id, session_id, entry)
         if code_mark is not None and code_mark["client_key"] == client_key:
             return {"status": AttendanceStatus.PRESENT.value, "already": False}  # 같은 누름: 처음 답 그대로
         if code_mark is not None or status is not AttendanceStatus.ABSENT:
@@ -282,3 +276,104 @@ def check_in(session_id: int, body: CheckIn, granted: SelfGuard, db: Db, request
         )
     publish_attendance_change(request, db, classroom_id, session_id, membership_id)
     return {"status": AttendanceStatus.PRESENT.value, "already": False}
+
+
+# --- 수기 출석 요청과 승인·거절(AC17~AC20) ------------------------------------------------------
+
+REASON_MAX = 200
+BAD_REASON = "사유를 1~200자로 적어 주세요."
+REQUEST_NOT_LIVE = "수업이 진행 중일 때만 수기 출석을 요청할 수 있습니다."
+ALREADY_SENT = "이미 요청을 보냈습니다. 교수님이 확인하면 출석 처리됩니다."
+ALREADY_PRESENT = "이미 출석했습니다."
+ALREADY_DECIDED = "이미 처리한 요청입니다."
+REQUEST_NOT_FOUND = "찾을 수 없는 요청입니다."
+
+
+class ManualRequest(BaseModel):
+    reason: object = None
+
+
+def _clean_reason(value: object) -> str:
+    # 앞뒤 공백(탭·줄바꿈·전각 공백 포함)을 지운 값을 검사하고 저장한다. SQLite trim()은 공백만 지운다(T001 노트)
+    if not isinstance(value, str) or not 1 <= len(value.strip()) <= REASON_MAX:
+        raise HTTPException(status_code=422, detail=BAD_REASON)
+    return value.strip()
+
+
+@router.post("/api/class/{classroom_id}/sessions/{session_id}/attendance-requests", status_code=201)
+def send_manual_request(session_id: int, body: ManualRequest, granted: SelfGuard, db: Db, request: Request):
+    """학생의 수기 출석 요청(AC17). 진행 중인 회차에서 회차마다 한 번. 출석 마감 뒤에도 수업 중이면 된다."""
+    classroom_id = granted.resource.id
+    membership_id = granted.actor.membership_id
+    reason = _clean_reason(body.reason)
+    with transaction(db):
+        now = request.app.state.clock.now()
+        if load_session(db, classroom_id, session_id)["status"] != "live":
+            raise HTTPException(status_code=409, detail=REQUEST_NOT_LIVE)
+        entry = identity.roster_entry_of(db, classroom_id, membership_id)  # check_in과 같은 이유(T008 노트)
+        if entry is None:
+            raise HTTPException(status_code=403, detail=NOT_ON_ROSTER)
+        if attendance_state.last_status(db, classroom_id, session_id, entry) is not AttendanceStatus.ABSENT:
+            raise HTTPException(status_code=409, detail=ALREADY_PRESENT)
+        if db.execute(
+            "SELECT 1 FROM attendance_requests WHERE classroom_id = ? AND session_id = ? AND roster_entry_id = ?",
+            (classroom_id, session_id, entry),
+        ).fetchone():
+            raise HTTPException(status_code=409, detail=ALREADY_SENT)
+        request_id = db.execute(
+            "INSERT INTO attendance_requests(classroom_id, session_id, roster_entry_id, membership_id, reason, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (classroom_id, session_id, entry, membership_id, reason, now.isoformat()),
+        ).lastrowid
+    publish_attendance_change(request, db, classroom_id, session_id, membership_id)
+    return {"id": request_id, "request": "pending"}
+
+
+def _approval_mark(db: sqlite3.Connection, row: sqlite3.Row, github_id: int, now: str) -> None:
+    db.execute(
+        "INSERT INTO attendance_marks(classroom_id, session_id, roster_entry_id, kind, actor_kind, actor_ref, "
+        "request_id, created_at) VALUES (?, ?, ?, 'request_approved', 'professor', ?, ?, ?)",
+        (row["classroom_id"], row["session_id"], row["roster_entry_id"], github_id, row["id"], now),
+    )
+
+
+def _decide(request: Request, db: sqlite3.Connection, granted: Granted, request_id: int, decision: str) -> dict:
+    """요청 처리. 처리는 한 번이고 되돌리지 않는다(AC19). 끝난 회차와 보관된 강좌에서도 된다(AC20)."""
+    classroom_id = granted.resource.id
+    with transaction(db):
+        now = request.app.state.clock.now().isoformat()
+        # 명단에서 빠진 학생의 요청은 목록에 없으니 찾을 수 없는 것과 같다(빠진 항목에 출석을 남기지 않는다, T008)
+        row = db.execute(
+            "SELECT q.* FROM attendance_requests q JOIN roster_entries r ON r.id = q.roster_entry_id "
+            "AND r.classroom_id = q.classroom_id AND r.removed_at IS NULL WHERE q.id = ? AND q.classroom_id = ?",
+            (request_id, classroom_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail=REQUEST_NOT_FOUND)
+        if db.execute("SELECT 1 FROM attendance_decisions WHERE request_id = ?", (request_id,)).fetchone():
+            raise HTTPException(status_code=409, detail=ALREADY_DECIDED)
+        db.execute(
+            "INSERT INTO attendance_decisions(request_id, classroom_id, decision, github_id, decided_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (request_id, classroom_id, decision, granted.actor.github_id, now),
+        )
+        # 이미 출석(코드나 수기)이면 승인 기록을 더하지 않는다. 코드 출석이 "출석 (수기)"로 내려가지 않게 한다
+        before = attendance_state.last_status(db, classroom_id, row["session_id"], row["roster_entry_id"])
+        if decision == "approved" and before is AttendanceStatus.ABSENT:
+            _approval_mark(db, row, granted.actor.github_id, now)
+        status = attendance_state.last_status(db, classroom_id, row["session_id"], row["roster_entry_id"])
+    publish_attendance_change(request, db, classroom_id, row["session_id"], row["membership_id"])
+    return {"id": request_id, "decision": decision, "status": status.value}
+
+
+_DECIDE = "/api/classrooms/{classroom_id}/attendance-requests/{request_id}/"
+
+
+@router.post(_DECIDE + "approve")
+def approve_request(request_id: int, granted: ManageGuard, db: Db, request: Request):
+    return _decide(request, db, granted, request_id, "approved")
+
+
+@router.post(_DECIDE + "reject")
+def reject_request(request_id: int, granted: ManageGuard, db: Db, request: Request):
+    return _decide(request, db, granted, request_id, "rejected")
